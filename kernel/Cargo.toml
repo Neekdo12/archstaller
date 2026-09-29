@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 config = { path = "../config" }
+hal = { path = "../crates/hal" }
+drivers = { path = "../crates/drivers" }
 limine = "0.6"
 talc = "5"
 spinning_top = "0.3"
@@ -12,3 +14,5 @@ postcard = { version = "1", default-features = false, features = ["alloc"] }
 
 [features]
 fault-test = []
+disk-selftest = []
+net-selftest = []

@@ -8,6 +8,8 @@ mod console;
 mod fb;
 mod heap;
 mod idt;
+mod paging;
+mod platform;
 mod port;
 mod serial;
 mod time;
@@ -127,6 +129,55 @@ extern "C" fn _start() -> ! {
         None => println!("config.bin module missing"),
     }
 
+    drivers::platform::init(Box::leak(Box::new(platform::KernelPlatform { hhdm })));
+    let mut devs = drivers::probe_all();
+    println!("block devices: {}", devs.block.len());
+    for (i, d) in devs.block.iter_mut().enumerate() {
+        println!(
+            "  blk{i}: {} serial='{}' {} sectors x {} B",
+            d.model(),
+            d.serial(),
+            d.sector_count(),
+            d.sector_size()
+        );
+        let mut buf = alloc::vec![0u8; d.sector_size() as usize];
+        match d.read(0, &mut buf) {
+            Ok(()) => println!("  blk{i}: LBA0 read OK, sig {:02x}{:02x}", buf[510], buf[511]),
+            Err(e) => println!("  blk{i}: LBA0 read failed: {e:?}"),
+        }
+        #[cfg(feature = "disk-selftest")]
+        {
+            // Destructive: only for the scratch disk xtask attaches.
+            let ss = d.sector_size() as usize;
+            let lba = d.sector_count() - 300;
+            let pat: Vec<u8> = (0..ss * 200).map(|x| (x * 7 + 3) as u8).collect();
+            let mut back = alloc::vec![0u8; pat.len()];
+            let ok = d.write(lba, &pat).is_ok() && d.flush().is_ok() && d.read(lba, &mut back).is_ok();
+            println!("  blk{i}: write/read {}", if ok && back == pat { "OK" } else { "FAILED" });
+        }
+    }
+    println!("net devices: {}", devs.net.len());
+    for (i, d) in devs.net.iter_mut().enumerate() {
+        let m = d.mac();
+        let link = if d.link_up() { "up" } else { "down" };
+        println!(
+            "  net{i}: {} mac {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} link {}",
+            d.name(),
+            m[0],
+            m[1],
+            m[2],
+            m[3],
+            m[4],
+            m[5],
+            link
+        );
+        #[cfg(feature = "net-selftest")]
+        {
+            let ok = net_selftest(d.as_mut(), m);
+            println!("  net{i}: ARP round trip {}", if ok { "OK" } else { "FAILED" });
+        }
+    }
+
     #[cfg(feature = "fault-test")]
     unsafe {
         println!("triggering ud2");
@@ -134,5 +185,36 @@ extern "C" fn _start() -> ! {
     }
 
     println!("boot OK, halting");
+    #[cfg(any(feature = "disk-selftest", feature = "net-selftest"))]
+    unsafe {
+        // QEMU isa-debug-exit
+        port::outb(0xf4, 0);
+    }
     halt()
+}
+
+/// Sends an ARP request for the QEMU user-net gateway (10.0.2.2) and waits for the reply.
+#[cfg(feature = "net-selftest")]
+fn net_selftest(d: &mut dyn hal::NetDevice, mac: [u8; 6]) -> bool {
+    let mut f = [0u8; 42];
+    f[0..6].fill(0xff);
+    f[6..12].copy_from_slice(&mac);
+    f[12..14].copy_from_slice(&[0x08, 0x06]);
+    f[14..22].copy_from_slice(&[0, 1, 8, 0, 6, 4, 0, 1]);
+    f[22..28].copy_from_slice(&mac);
+    f[28..32].copy_from_slice(&[10, 0, 2, 15]);
+    f[38..42].copy_from_slice(&[10, 0, 2, 2]);
+    if d.transmit(&f).is_err() {
+        return false;
+    }
+    let deadline = time::uptime_ns() + 2_000_000_000;
+    let mut buf = [0u8; 2048];
+    while time::uptime_ns() < deadline {
+        if let Some(n) = d.receive(&mut buf) {
+            if n >= 42 && buf[12..14] == [0x08, 0x06] && buf[20..22] == [0, 2] && buf[28..32] == [10, 0, 2, 2] {
+                return true;
+            }
+        }
+    }
+    false
 }

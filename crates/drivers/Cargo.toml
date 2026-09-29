@@ -1,0 +1,8 @@
+[package]
+name = "drivers"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hal = { path = "../hal" }
+spin = { version = "0.12", default-features = false, features = ["once"] }

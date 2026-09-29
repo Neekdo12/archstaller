@@ -9,9 +9,15 @@ const LIMINE_CONF: &str = "timeout: 0\n\n/archstaler\n    protocol: limine\n    
 fn build_kernel(opts: &Options) -> Result<PathBuf> {
     let mut cmd = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
     cmd.current_dir(root()).args(["build", "-p", "kernel", "--release", "--target", TARGET]);
-    if opts.fault_test {
-        cmd.args(["--features", "fault-test"]);
+    let mut features = vec![];
+    if opts.selftest {
+        features.push("disk-selftest");
+        features.push("net-selftest");
     }
+    if opts.fault_test {
+        features.push("fault-test");
+    }
+    cmd.args(["--features", &features.join(",")]);
     run(&mut cmd)?;
     Ok(root().join("target").join(TARGET).join("release/kernel"))
 }

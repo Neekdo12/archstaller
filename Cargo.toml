@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["xtask", "kernel", "config"]
+members = ["xtask", "kernel", "config", "crates/hal", "crates/drivers"]
 
 [profile.release]
 opt-level = "z"
