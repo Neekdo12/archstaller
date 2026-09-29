@@ -36,6 +36,22 @@ while IFS=: read -r name hash groups shell; do
     say "user $name created"
 done < "$D/users.list"
 
+# Files fetched by the installer (third-party configs); one copy per user, owned by that user.
+if [ -s "$D/userfiles.list" ]; then
+    while IFS=: read -r uname _rest; do
+        [ -n "$uname" ] || continue
+        home=$(getent passwd "$uname" | cut -d: -f6)
+        grp=$(id -gn "$uname")
+        while IFS=: read -r idx dest; do
+            [ -n "$idx" ] || continue
+            runuser -u "$uname" -- mkdir -p "$(dirname "$home/$dest")" &&
+                install -o "$uname" -g "$grp" -m 0644 "$D/userfiles/$idx" "$home/$dest" &&
+                say "user file ~/$dest installed for $uname" ||
+                say "warning: could not install ~/$dest for $uname"
+        done < "$D/userfiles.list"
+    done < "$D/users.list"
+fi
+
 if [ -s "$D/services.list" ]; then
     xargs -a "$D/services.list" systemctl enable || say "warning: enabling some services failed"
     while read -r unit; do say "service $unit: $(systemctl is-enabled "$unit" 2>&1)"; done < "$D/services.list"

@@ -27,6 +27,18 @@ pub struct Config {
     pub services: Vec<String>,
     /// Extra kernel command line parameters.
     pub kernel_params: Vec<String>,
+    /// Files downloaded during installation into every user's home directory. A file whose
+    /// server is unreachable is skipped with a warning; it never fails the installation.
+    #[serde(default)]
+    pub user_files: Vec<UserFile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserFile {
+    /// `https://` URL of the file (at most 1 MiB).
+    pub url: String,
+    /// Destination relative to the home directory, for example `.config/hypr/hyprland.lua`.
+    pub dest: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,6 +143,18 @@ impl Config {
         for k in &self.kernel_params {
             if k.is_empty() || k.chars().any(|c| c.is_whitespace() || c.is_control() || c == '"') {
                 return bad("kernel parameter", k);
+            }
+        }
+        for f in &self.user_files {
+            if !f.url.starts_with("https://") || f.url.chars().any(|c| c.is_whitespace() || c == '\'' || c == '"') {
+                return bad("user_files url (https:// only)", &f.url);
+            }
+            let ok_dest = !f.dest.is_empty()
+                && !f.dest.starts_with('/')
+                && f.dest.split('/').all(|c| !c.is_empty() && c != "." && c != "..")
+                && f.dest.chars().all(|c| c.is_ascii_alphanumeric() || "._-/".contains(c));
+            if !ok_dest {
+                return bad("user_files dest (relative path of [A-Za-z0-9._-/])", &f.dest);
             }
         }
         Ok(())

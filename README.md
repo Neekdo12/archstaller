@@ -47,6 +47,12 @@ check-presets` resolves every preset against your local pacman sync databases an
 download sizes and provider choices. All presets install the wired-NIC firmware
 (`linux-firmware-intel`, `linux-firmware-realtek`) or, on the desktop presets, the full `linux-firmware`.
 
+The Hyprland preset can also pull a Hyprland config from a server during installation: set `FRIEND_CONFIG`
+at the top of `presets/hyprland.lua` to the file's `https://` URL (empty by default, meaning nothing is
+downloaded). It is installed as `~/.config/hypr/hyprland.lua` for every user. **Only point it at a server you
+trust**: a Hyprland config can run arbitrary commands when the session starts, and the file is checked
+by nothing but HTTPS.
+
 The presets use `disk.auto_largest = true`. For a machine with several disks, use `disk.confirm_serial`
 in your own config instead (see below).
 
@@ -105,6 +111,7 @@ Configs are Lua files evaluated on the **build host**; the result is serialized 
 | `providers` | `{ {dep, package}, ... }`: which package provides an ambiguous dependency |
 | `users` | `{ name, password_hash, groups, shell }`; hashes are SHA-512 crypt (`openssl passwd -6`), never plaintext |
 | `root_password_hash` | optional; root is locked if absent |
+| `user_files` | `{ { url, dest }, ... }`: `https://` files (max 1 MiB) downloaded by the installer and copied on first boot to `~/<dest>` of every configured user, owned by that user. A server that is down, a non-200 answer or an oversized file only prints a warning; the installation continues without that file |
 | `services` | units enabled on first boot |
 | `kernel_params` | appended to the kernel command line |
 

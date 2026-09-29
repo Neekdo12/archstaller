@@ -146,6 +146,28 @@ fn select_largest(devs: &mut Devices) -> R<Box<dyn BlockDevice>> {
     Ok(devs.block.remove(biggest[0]))
 }
 
+const USER_FILE_MAX: usize = 1 << 20;
+
+/// Downloads a small optional file; any failure is reported as text, never as a hard error.
+fn fetch_optional(client: &Client, stack: &mut net::Stack, url: &str) -> Result<Vec<u8>, String> {
+    let mut data = Vec::new();
+    let mut too_big = false;
+    let r = client.get(stack, url, &mut |d| {
+        if data.len() + d.len() > USER_FILE_MAX {
+            too_big = true;
+            return Err(net::Error::Http("file too large"));
+        }
+        data.extend_from_slice(d);
+        Ok(())
+    });
+    match r {
+        Ok(resp) if resp.status == 200 => Ok(data),
+        Ok(resp) => Err(format!("HTTP {}", resp.status)),
+        Err(_) if too_big => Err(format!("larger than {USER_FILE_MAX} bytes")),
+        Err(e) => Err(format!("{e:?}")),
+    }
+}
+
 fn bring_up_network(devs: &mut Devices) -> R<net::Stack> {
     if devs.net.is_empty() {
         return Err("no supported network interface".into());
@@ -442,6 +464,20 @@ pub fn run(cfg: &Config, mut devs: Devices, keyring: &Keyring, boot: &BootFiles)
     for path in ["etc/localtime".to_string(), overlay("etc/localtime")] {
         w.borrow_mut().symlink(&path, &tz_target, &link_meta).map_err(dbg_err("localtime"))?;
     }
+
+    // Per-user files from third-party servers. An unreachable server only costs a warning.
+    let mut userfiles = String::new();
+    for (i, f) in cfg.user_files.iter().enumerate() {
+        match fetch_optional(&client, &mut stack, &f.url) {
+            Ok(data) => {
+                put(&w, &format!("{STATE_DIR}/userfiles/{i}"), 0o644, &data)?;
+                userfiles.push_str(&format!("{i}:{}\n", f.dest));
+                println!("user file {} -> ~/{} ({} bytes)", f.url, f.dest, data.len());
+            }
+            Err(e) => println!("warning: skipping {}: {e}", f.url),
+        }
+    }
+    put(&w, &format!("{STATE_DIR}/userfiles.list"), 0o644, userfiles.as_bytes())?;
 
     let files: Vec<String> = resolution.packages.iter().map(|s| s.pkg.filename.clone()).collect();
     let deps: Vec<String> = resolution.packages.iter().filter(|s| !s.explicit).map(|s| s.pkg.name.clone()).collect();

@@ -41,6 +41,7 @@ function M.build(spec)
 
     services = concat({ "systemd-timesyncd.service", "ly@tty2.service" }, spec.services),
     kernel_params = spec.kernel_params or {},
+    user_files = spec.user_files or {},
   }
 end
 

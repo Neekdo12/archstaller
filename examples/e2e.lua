@@ -19,4 +19,10 @@ return {
 
   services = { "systemd-networkd.service", "ly@tty2.service" },
   kernel_params = { "console=ttyS0,115200" },
+
+  -- Exercises both paths: a file that downloads, and a server that does not exist (must only warn).
+  user_files = {
+    { url = "https://raw.githubusercontent.com/hyprwm/Hyprland/main/example/hyprland.conf", dest = ".config/test/good.lua" },
+    { url = "https://nonexistent.invalid/bad.lua", dest = ".config/test/bad.lua" },
+  },
 }

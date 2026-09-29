@@ -97,7 +97,17 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
     let log: PathBuf = dir.join(format!("install-{mode}.log"));
     let _ = std::fs::remove_file(&log);
     let mut child = qemu(&o, &disk, Some(&iso_path), &log)?;
-    wait_for(&mut child, &log, "installation finished", &["INSTALLATION FAILED", "EXCEPTION", "KERNEL PANIC"], Duration::from_secs(45 * 60))?;
+    let install = wait_for(&mut child, &log, "installation finished", &["INSTALLATION FAILED", "EXCEPTION", "KERNEL PANIC"], Duration::from_secs(45 * 60))?;
+    let cfg = crate::lua::load_config(&config)?;
+    // Optional user files: reachable ones are fetched, unreachable ones only warn.
+    for (i, f) in cfg.user_files.iter().enumerate() {
+        let fetched = install.contains(&format!("user file {} -> ~/{}", f.url, f.dest));
+        let skipped = install.contains(&format!("warning: skipping {}", f.url));
+        if !fetched && !skipped {
+            return Err(format!("installer log says nothing about user file #{i} {}", f.url).into());
+        }
+        println!("  user file {}: {}", f.dest, if fetched { "fetched" } else { "skipped (server unreachable)" });
+    }
     let _ = child.wait(); // the installer resets the machine; -no-reboot ends QEMU
 
     println!("== [{mode}] first boot");
@@ -107,9 +117,15 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
     wait_for(&mut child, &log, "archstaler-firstboot: done", &["archstaler-firstboot: FAILED", "Kernel panic", "FATAL"], Duration::from_secs(30 * 60))?;
     let _ = child.wait();
     let fb = String::from_utf8_lossy(&std::fs::read(&log).unwrap_or_default()).to_string();
-    let cfg = crate::lua::load_config(&config)?;
     let mut wants: Vec<String> = cfg.users.iter().map(|u| format!("user {} created", u.name)).collect();
     wants.extend(cfg.services.iter().map(|s| format!("service {s}: enabled")));
+    for f in &cfg.user_files {
+        if install.contains(&format!("user file {} -> ~/{}", f.url, f.dest)) {
+            for u in &cfg.users {
+                wants.push(format!("user file ~/{} installed for {}", f.dest, u.name));
+            }
+        }
+    }
     for want in &wants {
         if !fb.contains(want.as_str()) {
             return Err(format!("first boot log lacks '{want}' (log: {})", log.display()).into());
