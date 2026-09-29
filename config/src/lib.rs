@@ -34,8 +34,14 @@ pub struct Disk {
     /// Substring matched against the disk model; must select exactly one disk. If absent, the
     /// serial alone selects the disk.
     pub model: Option<String>,
-    /// Serial of the disk that will be wiped; installation aborts on mismatch.
+    /// Serial of the disk that will be wiped; installation aborts on mismatch. Not used when
+    /// `auto_largest` is set.
+    #[serde(default)]
     pub confirm_serial: String,
+    /// Opt-in: wipe and install onto the largest disk without any confirmation. Fails (writing
+    /// nothing) if several disks tie for the largest size.
+    #[serde(default)]
+    pub auto_largest: bool,
     /// ESP size in MiB.
     pub esp_mib: u32,
 }
@@ -74,8 +80,8 @@ impl Config {
         if !ident(&self.keymap, "._-") {
             return bad("keymap", &self.keymap);
         }
-        if self.disk.confirm_serial.trim().is_empty() {
-            return Err("disk.confirm_serial must be set".into());
+        if !self.disk.auto_largest && self.disk.confirm_serial.trim().is_empty() {
+            return Err("disk.confirm_serial must be set (or enable disk.auto_largest)".into());
         }
         if self.disk.esp_mib < 64 || self.disk.esp_mib > 8192 {
             return Err(format!("disk.esp_mib out of range: {}", self.disk.esp_mib));

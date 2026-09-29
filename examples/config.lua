@@ -7,8 +7,9 @@ return {
   keymap = "us",
 
   disk = {
-    model = nil,                 -- optional substring of the disk model
-    confirm_serial = "CHANGE-ME", -- the serial of the disk that will be ERASED
+    -- model = "...",           -- optional substring of the disk model (with confirm_serial)
+    auto_largest = true,         -- ERASE and install onto the largest disk, no questions asked
+    -- confirm_serial = "...",    -- safer alternative: only this exact disk may be erased
     esp_mib = 1024,
   },
 

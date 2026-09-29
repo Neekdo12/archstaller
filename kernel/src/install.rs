@@ -100,6 +100,9 @@ fn expand(mirror: &str, repo: &str) -> String {
 }
 
 fn select_disk(cfg: &Config, devs: &mut Devices) -> R<Box<dyn BlockDevice>> {
+    if cfg.disk.auto_largest {
+        return select_largest(devs);
+    }
     let want = cfg.disk.confirm_serial.trim();
     let mut hits: Vec<usize> = Vec::new();
     for (i, d) in devs.block.iter().enumerate() {
@@ -125,6 +128,22 @@ fn select_disk(cfg: &Config, devs: &mut Devices) -> R<Box<dyn BlockDevice>> {
         return Err(format!("selected disk has serial '{}' but confirm_serial is '{want}'; nothing was written", d.serial()));
     }
     Ok(d)
+}
+
+/// `disk.auto_largest`: the biggest disk is erased. A tie for the biggest is refused.
+fn select_largest(devs: &mut Devices) -> R<Box<dyn BlockDevice>> {
+    let size = |d: &Box<dyn BlockDevice>| d.sector_count() * d.sector_size() as u64;
+    println!("disks found: {}", devs.block.len());
+    for d in &devs.block {
+        println!("  {} serial '{}' {} MiB", d.model(), d.serial(), size(d) >> 20);
+    }
+    let max = devs.block.iter().map(size).max().ok_or("no disk found; nothing was written")?;
+    let biggest: Vec<usize> = (0..devs.block.len()).filter(|&i| size(&devs.block[i]) == max).collect();
+    if biggest.len() != 1 {
+        return Err(format!("{} disks tie for the largest size ({} MiB); refusing to guess, nothing was written", biggest.len(), max >> 20));
+    }
+    println!("disk.auto_largest is set: the largest disk will be ERASED");
+    Ok(devs.block.remove(biggest[0]))
 }
 
 fn bring_up_network(devs: &mut Devices) -> R<net::Stack> {
