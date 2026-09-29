@@ -104,6 +104,12 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
     let mut child = qemu(&o, &disk, None, &log)?;
     wait_for(&mut child, &log, "archstaler-firstboot: done", &["archstaler-firstboot: FAILED", "Kernel panic", "FATAL"], Duration::from_secs(30 * 60))?;
     let _ = child.wait();
+    let fb = String::from_utf8_lossy(&std::fs::read(&log).unwrap_or_default()).to_string();
+    for want in ["user arch created", "service ly@tty2.service: enabled"] {
+        if !fb.contains(want) {
+            return Err(format!("first boot log lacks '{want}' (log: {})", log.display()).into());
+        }
+    }
 
     println!("== [{mode}] second boot");
     let log = dir.join(format!("secondboot-{mode}.log"));

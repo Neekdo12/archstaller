@@ -33,10 +33,12 @@ while IFS=: read -r name hash groups shell; do
         useradd -m -s "$shell" "$name" || fail "useradd $name"
     fi
     usermod -p "$hash" "$name" || fail "password for $name"
+    say "user $name created"
 done < "$D/users.list"
 
 if [ -s "$D/services.list" ]; then
     xargs -a "$D/services.list" systemctl enable || say "warning: enabling some services failed"
+    while read -r unit; do say "service $unit: $(systemctl is-enabled "$unit" 2>&1)"; done < "$D/services.list"
 fi
 
 ROOT_DEV=$(findmnt -no SOURCE /)

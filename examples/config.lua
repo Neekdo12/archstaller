@@ -15,14 +15,15 @@ return {
 
   mirrors = { "https://geo.mirror.pkgbuild.com/$repo/os/$arch" },
 
-  packages = { "base", "linux", "mkinitcpio", "limine", "efibootmgr", "openssh", "sudo" },
+  packages = { "base", "linux", "mkinitcpio", "limine", "efibootmgr", "openssh", "sudo", "ly" },
   providers = { initramfs = "mkinitcpio" },
 
   root_password_hash = nil,
+  -- Default login: user "passwd_is_passwd", password "passwd" (change it before real use!).
   users = {
-    { name = "arch", password_hash = "$6$example$0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123", groups = { "wheel" }, shell = "/bin/bash" },
+    { name = "passwd_is_passwd", password_hash = "$6$archstlr$gnUg60P8TrWaKT.8/oW8Iq1kc8LlPnk4A6UWw5ij0AAQNe2IN7TuPFnw7PmXMXuobrVIYBSbNWUgRbpafXqcc.", groups = { "wheel" }, shell = "/bin/bash" },
   },
 
-  services = { "systemd-networkd.service", "systemd-resolved.service", "sshd.service" },
+  services = { "systemd-networkd.service", "systemd-resolved.service", "sshd.service", "ly@tty2.service" },
   kernel_params = {},
 }

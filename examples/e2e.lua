@@ -9,7 +9,7 @@ return {
 
   mirrors = { "https://geo.mirror.pkgbuild.com/$repo/os/$arch" },
 
-  packages = { "base", "linux", "mkinitcpio", "efibootmgr" },
+  packages = { "base", "linux", "mkinitcpio", "efibootmgr", "ly" },
   providers = { initramfs = "mkinitcpio" },
 
   root_password_hash = "$6$archstlr$yXwFAPpE77sWyJ5zOdpP8YRiKPoEJi2Biqa3t8FQG4vT36whLEHaMrWwdZeuajixHUdgq4OX5TpTCxivgT0/n0",
@@ -17,6 +17,6 @@ return {
     { name = "arch", password_hash = "$6$archstlr$yXwFAPpE77sWyJ5zOdpP8YRiKPoEJi2Biqa3t8FQG4vT36whLEHaMrWwdZeuajixHUdgq4OX5TpTCxivgT0/n0", groups = { "wheel" }, shell = "/bin/bash" },
   },
 
-  services = { "systemd-networkd.service" },
+  services = { "systemd-networkd.service", "ly@tty2.service" },
   kernel_params = { "console=ttyS0,115200" },
 }

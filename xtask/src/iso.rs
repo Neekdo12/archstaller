@@ -73,6 +73,8 @@ pub fn build(opts: &Options) -> Result<PathBuf> {
     make_efi_image(&lim.file("BOOTX64.EFI"), &tree.join("boot/limine/efi.img"))?;
 
     let iso = iso_path();
+    // libvirt may have taken ownership of a previous ISO; unlinking works, overwriting does not.
+    let _ = std::fs::remove_file(&iso);
     run(Command::new("xorriso")
         .args(["-as", "mkisofs", "-R", "-r", "-no-pad"])
         .args(["-b", "boot/limine/limine-bios-cd.bin"])
