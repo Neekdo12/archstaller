@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = ["xtask", "kernel", "config"]
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+panic = "abort"

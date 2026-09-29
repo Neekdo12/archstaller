@@ -1,0 +1,11 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+config = { path = "../config", features = ["std"] }
+mlua = { version = "0.12", features = ["lua54", "vendored", "serialize"] }
+postcard = { version = "1", features = ["use-std"] }
+sha2 = "0.11"
+serde = "1"
