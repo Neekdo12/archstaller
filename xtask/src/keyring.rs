@@ -6,10 +6,93 @@ use std::collections::{BTreeSet, HashSet};
 use std::path::PathBuf;
 use std::process::Command;
 
-const VERSION: &str = "20260909-1";
-const SHA256: &str = "6a8ea16f51d3b305c18322d5884ca959f12c32a3f186873090fdc18465605293";
+const MIRROR: &str = "https://geo.mirror.pkgbuild.com";
 /// Packager keys need certifications from at least this many main keys.
 const MIN_MAIN_SIGS: usize = 3;
+
+struct Pin {
+    version: String,
+    sha256: String,
+}
+
+fn pin_path() -> PathBuf {
+    root().join("xtask/keyring.pin")
+}
+
+/// `xtask/keyring.pin` holds "<version> <sha256>" of the archlinux-keyring package.
+fn read_pin() -> Result<Pin> {
+    let text = std::fs::read_to_string(pin_path())?;
+    let mut it = text.split_whitespace();
+    match (it.next(), it.next()) {
+        (Some(v), Some(h)) if h.len() == 64 => Ok(Pin { version: v.into(), sha256: h.into() }),
+        _ => Err("xtask/keyring.pin must contain '<version> <sha256>'".into()),
+    }
+}
+
+fn sha256_hex(path: &std::path::Path) -> Result<String> {
+    Ok(Sha256::digest(std::fs::read(path)?).iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Downloads the package for `version`: the archive keeps every version, the mirror only the newest.
+fn fetch_package(version: &str, dest: &std::path::Path) -> Result<()> {
+    let name = format!("archlinux-keyring-{version}-any.pkg.tar.zst");
+    let urls = [
+        format!("https://archive.archlinux.org/packages/a/archlinux-keyring/{name}"),
+        format!("{MIRROR}/core/os/x86_64/{name}"),
+    ];
+    for url in &urls {
+        if Command::new("curl").args(["-fsSL", "-o"]).arg(dest).arg(url).status()?.success() {
+            return Ok(());
+        }
+    }
+    Err(format!("could not download {name}").into())
+}
+
+/// Moves the pin to the newest archlinux-keyring in the mirror's core database.
+pub fn update() -> Result<()> {
+    use pkg::db::Db;
+    let dir = root().join("target/keyring");
+    std::fs::create_dir_all(&dir)?;
+    let db_path = dir.join("core.db");
+    run(Command::new("curl").args(["-fsSL", "-o"]).arg(&db_path).arg(format!("{MIRROR}/core/os/x86_64/core.db")))?;
+    let data = std::fs::read(&db_path)?;
+    let db = Db::parse("core", data.as_slice()).map_err(|e| format!("core.db: {e:?}"))?;
+    let latest = db.packages.iter().find(|p| p.name == "archlinux-keyring").ok_or("archlinux-keyring not in core.db")?;
+    let old = read_pin()?;
+    println!("pinned keyring: {}   newest on the mirror: {}", old.version, latest.version);
+    if latest.version == old.version {
+        println!("already up to date");
+        return Ok(());
+    }
+
+    let file = dir.join(&latest.filename);
+    fetch_package(&latest.version, &file)?;
+    let got = sha256_hex(&file)?;
+    if got != latest.sha256 {
+        let _ = std::fs::remove_file(&file);
+        return Err(format!("downloaded keyring has sha256 {got}, database says {}", latest.sha256).into());
+    }
+
+    // Check the package signature against the keyring we already trust, if there is one.
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
+    let verdict = (|| -> std::result::Result<[u8; 20], String> {
+        let blob = std::fs::read(blob_path()).map_err(|_| "no existing keyring blob".to_string())?;
+        let ring = Keyring::from_bytes(&blob).ok_or("unreadable keyring blob")?;
+        let sig = pgp_lite::base64_decode(&latest.pgpsig).map_err(|e| format!("{e:?}"))?;
+        let mut v = pgp_lite::Verifier::from_packet(&sig).map_err(|e| format!("{e:?}"))?;
+        v.update(&std::fs::read(&file).map_err(|e| e.to_string())?);
+        v.finish(&ring, now).map_err(|e| format!("{e:?}"))
+    })();
+    match verdict {
+        Ok(_) => println!("signature verified with the previously pinned keyring"),
+        Err(e) => println!("note: signature not verified by the old keyring ({e}); trusting the HTTPS mirror and its database checksum"),
+    }
+
+    std::fs::write(pin_path(), format!("{} {}\n", latest.version, latest.sha256))?;
+    println!("pin updated: {}", latest.version);
+    build()?; // fail here, not at the next ISO build, if the new keyring does not parse
+    Ok(())
+}
 
 pub fn blob_path() -> PathBuf {
     root().join("target/keyring.bin")
@@ -65,16 +148,16 @@ struct Primary {
 pub fn build() -> Result<Vec<u8>> {
     let dir = root().join("target/keyring");
     std::fs::create_dir_all(&dir)?;
-    let pkg = dir.join(format!("archlinux-keyring-{VERSION}-any.pkg.tar.zst"));
+    let pin = read_pin()?;
+    let version = pin.version.as_str();
+    let pkg = dir.join(format!("archlinux-keyring-{version}-any.pkg.tar.zst"));
     if !pkg.exists() {
-        run(Command::new("curl").args(["-fL", "-o"]).arg(&pkg).arg(format!(
-            "https://archive.archlinux.org/packages/a/archlinux-keyring/archlinux-keyring-{VERSION}-any.pkg.tar.zst"
-        )))?;
+        fetch_package(version, &pkg)?;
     }
-    let hex: String = Sha256::digest(std::fs::read(&pkg)?).iter().map(|b| format!("{b:02x}")).collect();
-    if hex != SHA256 {
+    let hex = sha256_hex(&pkg)?;
+    if hex != pin.sha256 {
         std::fs::remove_file(&pkg)?;
-        return Err(format!("archlinux-keyring sha256 mismatch: {hex}").into());
+        return Err(format!("archlinux-keyring sha256 mismatch: {hex} (pin says {})", pin.sha256).into());
     }
     let files = dir.join("files");
     let _ = std::fs::remove_dir_all(&files);
@@ -200,7 +283,7 @@ pub fn build() -> Result<Vec<u8>> {
             ring.keys.push(KeyEntry { fingerprint: fpr, material, expires });
         }
     }
-    println!("keyring {VERSION}: {trusted} trusted primary keys ({rejected} rejected), {} signing keys", ring.keys.len());
+    println!("keyring {version}: {trusted} trusted primary keys ({rejected} rejected), {} signing keys", ring.keys.len());
     let blob = ring.to_bytes();
     std::fs::write(blob_path(), &blob)?;
     println!("keyring blob: {} bytes", blob.len());

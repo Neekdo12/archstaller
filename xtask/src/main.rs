@@ -95,6 +95,7 @@ fn main() -> Result<()> {
         "check-presets" => presets::check()?,
         "e2e" => e2e::run_e2e(&opts)?,
         "linux-test" => linux_test::run_test()?,
+        "update-keyring" => keyring::update()?,
         "keyring" => {
             keyring::build()?;
         }
