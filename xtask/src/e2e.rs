@@ -120,7 +120,7 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
     let log = dir.join(format!("secondboot-{mode}.log"));
     let _ = std::fs::remove_file(&log);
     let mut child = qemu(&o, &disk, None, &log)?;
-    let res = wait_for(&mut child, &log, "archbox login:", &["Kernel panic", "FATAL"], Duration::from_secs(10 * 60));
+    let res = wait_for(&mut child, &log, &format!("{} login:", cfg.hostname), &["Kernel panic", "FATAL"], Duration::from_secs(10 * 60));
     let _ = child.kill();
     let _ = child.wait();
     let text = res?;
