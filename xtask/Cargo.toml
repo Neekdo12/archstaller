@@ -10,3 +10,6 @@ postcard = { version = "1", features = ["use-std"] }
 sha2 = "0.11"
 serde = "1"
 pgp-lite = { path = "../crates/pgp-lite", features = ["std"] }
+ext4w = { path = "../crates/ext4w" }
+disk = { path = "../crates/disk", features = ["std"] }
+initrd = { path = "../crates/initrd" }

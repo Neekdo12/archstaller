@@ -3,6 +3,7 @@
 
 extern crate alloc;
 
+pub mod client;
 pub mod http;
 pub mod stack;
 pub mod tls;

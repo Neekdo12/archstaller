@@ -8,5 +8,6 @@ pub fn eval_config(path: &Path) -> Result<Vec<u8>> {
     let lua = Lua::new();
     let value: mlua::Value = lua.load(&src).set_name(path.to_string_lossy()).eval()?;
     let cfg: config::Config = lua.from_value(value)?;
+    cfg.validate()?;
     Ok(postcard::to_stdvec(&cfg)?)
 }

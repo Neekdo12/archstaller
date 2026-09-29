@@ -1,0 +1,12 @@
+[package]
+name = "tiny-init"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "tiny-init"
+path = "src/main.rs"
+
+[[bin]]
+name = "test-payload"
+path = "src/bin/test_payload.rs"

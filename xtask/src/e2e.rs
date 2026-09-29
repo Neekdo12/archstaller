@@ -1,0 +1,107 @@
+//! End-to-end test: install onto a blank disk in QEMU, then boot the result twice.
+use crate::{iso, root, Options, Result};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant};
+
+const OVMF_DIR: &str = "/usr/share/edk2/x64";
+
+fn qemu(opts: &Options, disk: &Path, cdrom: Option<&Path>, log: &Path) -> Result<Child> {
+    let mut cmd = Command::new("qemu-system-x86_64");
+    cmd.args(["-machine", "q35", "-m", "1536M", "-no-reboot", "-display", "none", "-monitor", "none"]);
+    cmd.arg("-serial").arg(format!("file:{}", log.display()));
+    if Path::new("/dev/kvm").exists() {
+        cmd.args(["-enable-kvm", "-cpu", "host"]);
+    }
+    if opts.uefi {
+        let vars = root().join("target/e2e/ovmf_vars.fd");
+        if !vars.exists() {
+            std::fs::copy(format!("{OVMF_DIR}/OVMF_VARS.4m.fd"), &vars)?;
+        }
+        cmd.arg("-drive").arg(format!("if=pflash,format=raw,readonly=on,file={OVMF_DIR}/OVMF_CODE.4m.fd"));
+        cmd.arg("-drive").arg(format!("if=pflash,format=raw,file={}", vars.display()));
+    }
+    if let Some(iso) = cdrom {
+        cmd.arg("-cdrom").arg(iso);
+    }
+    cmd.arg("-drive").arg(format!("if=none,id=d0,format=raw,file={}", disk.display()));
+    cmd.args(["-device", "virtio-blk-pci,drive=d0,serial=TESTDISK0"]);
+    cmd.args(["-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0,disable-legacy=on"]);
+    cmd.stdout(Stdio::null()).stderr(Stdio::null());
+    Ok(cmd.spawn()?)
+}
+
+/// Waits until `marker` shows up in the log; fails on `abort` markers, exit or timeout.
+fn wait_for(child: &mut Child, log: &Path, marker: &str, abort: &[&str], timeout: Duration) -> Result<String> {
+    let start = Instant::now();
+    let mut shown = 0;
+    loop {
+        let text = String::from_utf8_lossy(&std::fs::read(log).unwrap_or_default()).replace('\r', "");
+        // Echo interesting new lines as they arrive.
+        for line in text.lines().skip(shown) {
+            if line.contains("archstaler") || line.starts_with('[') && line.contains('/') || line.contains("INSTALL") || line.contains("login:") || line.contains("Kernel panic") || line.contains("FAILED") || line.contains("FATAL") {
+                println!("  | {line}");
+            }
+        }
+        shown = text.lines().count();
+        if text.contains(marker) {
+            return Ok(text);
+        }
+        if let Some(a) = abort.iter().find(|a| text.contains(**a)) {
+            let _ = child.kill();
+            return Err(format!("aborting, saw '{a}' (log: {})", log.display()).into());
+        }
+        if let Ok(Some(status)) = child.try_wait() {
+            // Final read after exit.
+            let text = String::from_utf8_lossy(&std::fs::read(log).unwrap_or_default()).to_string();
+            if text.contains(marker) {
+                return Ok(text);
+            }
+            return Err(format!("QEMU exited ({status}) before '{marker}' (log: {})", log.display()).into());
+        }
+        if start.elapsed() > timeout {
+            let _ = child.kill();
+            return Err(format!("timeout waiting for '{marker}' (log: {})", log.display()).into());
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+}
+
+pub fn run_e2e(opts: &Options) -> Result<()> {
+    let mode = if opts.uefi { "uefi" } else { "bios" };
+    let dir = root().join("target/e2e");
+    std::fs::create_dir_all(&dir)?;
+    let mut o = Options { config: root().join("examples/e2e.lua"), fault_test: false, selftest: false, uefi: opts.uefi, headless: true, disk: "virtio".into(), nic: "virtio".into() };
+    o.config = root().join("examples/e2e.lua");
+    let iso_path = iso::build(&o)?;
+
+    let disk = dir.join(format!("disk-{mode}.img"));
+    let _ = std::fs::remove_file(&disk);
+    std::fs::File::create(&disk)?.set_len(8 << 30)?;
+    let _ = std::fs::remove_file(dir.join("ovmf_vars.fd"));
+
+    println!("== [{mode}] installing (downloads packages from the mirror)");
+    let log: PathBuf = dir.join(format!("install-{mode}.log"));
+    let _ = std::fs::remove_file(&log);
+    let mut child = qemu(&o, &disk, Some(&iso_path), &log)?;
+    wait_for(&mut child, &log, "installation finished", &["INSTALLATION FAILED", "EXCEPTION", "KERNEL PANIC"], Duration::from_secs(45 * 60))?;
+    let _ = child.wait(); // the installer resets the machine; -no-reboot ends QEMU
+
+    println!("== [{mode}] first boot");
+    let log = dir.join(format!("firstboot-{mode}.log"));
+    let _ = std::fs::remove_file(&log);
+    let mut child = qemu(&o, &disk, None, &log)?;
+    wait_for(&mut child, &log, "archstaler-firstboot: done", &["archstaler-firstboot: FAILED", "Kernel panic", "FATAL"], Duration::from_secs(30 * 60))?;
+    let _ = child.wait();
+
+    println!("== [{mode}] second boot");
+    let log = dir.join(format!("secondboot-{mode}.log"));
+    let _ = std::fs::remove_file(&log);
+    let mut child = qemu(&o, &disk, None, &log)?;
+    let res = wait_for(&mut child, &log, "archbox login:", &["Kernel panic", "FATAL"], Duration::from_secs(10 * 60));
+    let _ = child.kill();
+    let _ = child.wait();
+    res?;
+    println!("e2e [{mode}]: OK");
+    Ok(())
+}

@@ -1,5 +1,7 @@
+mod e2e;
 mod iso;
 mod keyring;
+mod linux_test;
 mod limine;
 mod lua;
 mod qemu;
@@ -73,6 +75,8 @@ fn main() -> Result<()> {
             let iso = iso::build(&opts)?;
             qemu::run_iso(&iso, &opts)?;
         }
+        "e2e" => e2e::run_e2e(&opts)?,
+        "linux-test" => linux_test::run_test()?,
         "keyring" => {
             keyring::build()?;
         }

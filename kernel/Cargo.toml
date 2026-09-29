@@ -9,6 +9,11 @@ hal = { path = "../crates/hal" }
 drivers = { path = "../crates/drivers" }
 net = { path = "../crates/net" }
 pgp-lite = { path = "../crates/pgp-lite" }
+pkg = { path = "../crates/pkg" }
+ext4w = { path = "../crates/ext4w" }
+disk = { path = "../crates/disk" }
+initrd = { path = "../crates/initrd" }
+sha2 = { version = "0.10", default-features = false, features = ["force-soft"] }
 getrandom = { version = "0.2", features = ["custom"] }
 limine = "0.6"
 talc = "5"

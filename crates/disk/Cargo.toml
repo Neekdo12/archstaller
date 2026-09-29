@@ -1,0 +1,13 @@
+[package]
+name = "disk"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hal = { path = "../hal" }
+
+[features]
+std = []
+
+[dev-dependencies]
+disk = { path = ".", features = ["std"] }

@@ -4,7 +4,7 @@ use std::process::Command;
 
 const TARGET: &str = "x86_64-unknown-none";
 
-const LIMINE_CONF: &str = "timeout: 0\n\n/archstaler\n    protocol: limine\n    path: boot():/boot/kernel\n    module_path: boot():/boot/config.bin\n    module_path: boot():/boot/keyring.bin\n";
+const LIMINE_CONF: &str = "timeout: 0\n\n/archstaler\n    protocol: limine\n    path: boot():/boot/kernel\n    module_path: boot():/boot/config.bin\n    module_path: boot():/boot/keyring.bin\n    module_path: boot():/boot/tiny-init\n    module_path: boot():/boot/limine-bios-hdd.bin\n    module_path: boot():/boot/limine/limine-bios.sys\n    module_path: boot():/EFI/BOOT/BOOTX64.EFI\n";
 
 fn build_kernel(opts: &Options) -> Result<PathBuf> {
     let mut cmd = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
@@ -30,6 +30,10 @@ pub fn build(opts: &Options) -> Result<PathBuf> {
     let kernel = build_kernel(opts)?;
     let config_bin = lua::eval_config(&opts.config)?;
     let keyring_blob = keyring::build()?;
+    run(Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+        .current_dir(root())
+        .args(["build", "-p", "tiny-init", "--bin", "tiny-init", "--release", "--target", TARGET]))?;
+    let tiny_init = std::fs::read(root().join("target").join(TARGET).join("release/tiny-init"))?;
     let lim = limine::fetch()?;
 
     let tree = root().join("target/iso_root");
@@ -39,6 +43,9 @@ pub fn build(opts: &Options) -> Result<PathBuf> {
     std::fs::copy(&kernel, tree.join("boot/kernel"))?;
     std::fs::write(tree.join("boot/config.bin"), config_bin)?;
     std::fs::write(tree.join("boot/keyring.bin"), keyring_blob)?;
+    std::fs::write(tree.join("boot/tiny-init"), tiny_init)?;
+    let hdd = disk::limine::parse_hdd_header(&std::fs::read_to_string(lim.file("limine-bios-hdd.h"))?);
+    std::fs::write(tree.join("boot/limine-bios-hdd.bin"), hdd)?;
     std::fs::write(tree.join("boot/limine/limine.conf"), LIMINE_CONF)?;
     for f in ["limine-bios.sys", "limine-bios-cd.bin", "limine-uefi-cd.bin"] {
         std::fs::copy(lim.file(f), tree.join("boot/limine").join(f))?;
