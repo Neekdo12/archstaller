@@ -90,7 +90,7 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
 
     let disk = dir.join(format!("disk-{mode}.img"));
     let _ = std::fs::remove_file(&disk);
-    std::fs::File::create(&disk)?.set_len(8 << 30)?;
+    std::fs::File::create(&disk)?.set_len(16 << 30)?;
     let _ = std::fs::remove_file(dir.join("ovmf_vars.fd"));
 
     println!("== [{mode}] installing (downloads packages from the mirror)");
@@ -99,6 +99,14 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
     let mut child = qemu(&o, &disk, Some(&iso_path), &log)?;
     let install = wait_for(&mut child, &log, "installation finished", &["INSTALLATION FAILED", "EXCEPTION", "KERNEL PANIC"], Duration::from_secs(45 * 60))?;
     let cfg = crate::lua::load_config(&config)?;
+    for a in &cfg.user_archives {
+        let fetched = install.contains(&format!("user archive {} -> ~/", a.url));
+        let skipped = install.contains(&format!("warning: skipping {}", a.url));
+        if !fetched && !skipped {
+            return Err(format!("installer log says nothing about user archive {}", a.url).into());
+        }
+        println!("  user archive {}: {}", a.url, if fetched { "fetched" } else { "skipped" });
+    }
     // Optional user files: reachable ones are fetched, unreachable ones only warn.
     for (i, f) in cfg.user_files.iter().enumerate() {
         let fetched = install.contains(&format!("user file {} -> ~/{}", f.url, f.dest));
@@ -119,6 +127,13 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
     let fb = String::from_utf8_lossy(&std::fs::read(&log).unwrap_or_default()).to_string();
     let mut wants: Vec<String> = cfg.users.iter().map(|u| format!("user {} created", u.name)).collect();
     wants.extend(cfg.services.iter().map(|s| format!("service {s}: enabled")));
+    for (i, a) in cfg.user_archives.iter().enumerate() {
+        if install.contains(&format!("user archive {} -> ~/", a.url)) {
+            for u in &cfg.users {
+                wants.push(format!("user archive #{i} extracted into ~ for {}", u.name));
+            }
+        }
+    }
     for f in &cfg.user_files {
         if install.contains(&format!("user file {} -> ~/{}", f.url, f.dest)) {
             for u in &cfg.users {

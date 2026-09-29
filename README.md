@@ -35,7 +35,7 @@ cargo xtask build --config path/to/my.lua --out my.iso
 | `archstaler-minimal.iso` | console system, systemd-networkd | ~0.4 GiB | 4 GiB+ |
 | `archstaler-server.iso` | minimal + OpenSSH, htop, tmux, rsync, vim | ~0.4 GiB | 4 GiB+ |
 | `archstaler-i3.iso` | Xorg + i3, NetworkManager, PipeWire, Firefox | ~1.0 GiB | 10 GiB+ |
-| `archstaler-hyprland.iso` | Hyprland (Wayland), same extras | ~1.1 GiB | 10 GiB+ |
+| `archstaler-hyprland.iso` | Hyprland (Wayland) with kitty, rofi, waybar, quickshell, hyprlock/hypridle, Neovim (LazyVim) and Nerd fonts (FantasqueSansM, JetBrains Mono, Iosevka), plus the downloaded config zip | ~1.4 GiB | 15 GiB+ |
 | `archstaler-plasma.iso` | KDE Plasma (Wayland session), same extras | ~1.3 GiB | 20 GiB+ |
 
 Every preset installs the `ly` login manager (`ly@tty2.service`) and creates the user `passwd_is_passwd`
@@ -47,11 +47,14 @@ check-presets` resolves every preset against your local pacman sync databases an
 download sizes and provider choices. All presets install the wired-NIC firmware
 (`linux-firmware-intel`, `linux-firmware-realtek`) or, on the desktop presets, the full `linux-firmware`.
 
-The Hyprland preset can also pull a Hyprland config from a server during installation: set `FRIEND_CONFIG`
-at the top of `presets/hyprland.lua` to the file's `https://` URL (empty by default, meaning nothing is
-downloaded). It is installed as `~/.config/hypr/hyprland.lua` for every user. **Only point it at a server you
-trust**: a Hyprland config can run arbitrary commands when the session starts, and the file is checked
-by nothing but HTTPS.
+The Hyprland preset also pulls a Hyprland config from a server during installation: `FRIEND_CONFIG` at the
+top of `presets/hyprland.lua` is the `https://` URL of a zip whose contents are laid out relative to the
+home directory (`.config/hypr/hyprland.lua`, `.config/hypr/modules/...`). It is extracted into every user's
+home on first boot, as that user. Set it to an empty string to skip it. If the server is down, or does not
+answer with a zip, the archive is skipped with a warning and Hyprland keeps its defaults. **Only point it at a
+server you trust**: a Hyprland config can run arbitrary commands when the session starts, and the archive is
+checked by nothing but HTTPS. The packages the downloaded config launches (status bar, notification daemon,
+and so on) are not installed unless you add them to the preset.
 
 The presets use `disk.auto_largest = true`. For a machine with several disks, use `disk.confirm_serial`
 in your own config instead (see below).
@@ -112,6 +115,7 @@ Configs are Lua files evaluated on the **build host**; the result is serialized 
 | `users` | `{ name, password_hash, groups, shell }`; hashes are SHA-512 crypt (`openssl passwd -6`), never plaintext |
 | `root_password_hash` | optional; root is locked if absent |
 | `user_files` | `{ { url, dest }, ... }`: `https://` files (max 1 MiB) downloaded by the installer and copied on first boot to `~/<dest>` of every configured user, owned by that user. A server that is down, a non-200 answer or an oversized file only prints a warning; the installation continues without that file |
+| `user_archives` | `{ { url }, ... }`: `https://` zip archives (max 16 MiB) downloaded by the installer and extracted on first boot into the home directory of every configured user (paths inside the zip are relative to the home, e.g. `.config/hypr/hyprland.lua`), as that user. Same failure handling as `user_files`; an answer that is not a zip is skipped too |
 | `services` | units enabled on first boot |
 | `kernel_params` | appended to the kernel command line |
 

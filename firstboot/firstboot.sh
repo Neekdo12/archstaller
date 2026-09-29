@@ -52,6 +52,20 @@ if [ -s "$D/userfiles.list" ]; then
     done < "$D/users.list"
 fi
 
+# Zip archives fetched by the installer, unpacked into each user's home as that user.
+if [ -s "$D/userarchives.list" ]; then
+    while IFS=: read -r uname _rest; do
+        [ -n "$uname" ] || continue
+        home=$(getent passwd "$uname" | cut -d: -f6)
+        while read -r idx; do
+            [ -n "$idx" ] || continue
+            runuser -u "$uname" -- bsdtar -xf "$D/userarchives/$idx" -C "$home" &&
+                say "user archive #$idx extracted into ~ for $uname" ||
+                say "warning: could not extract user archive #$idx for $uname"
+        done < "$D/userarchives.list"
+    done < "$D/users.list"
+fi
+
 if [ -s "$D/services.list" ]; then
     xargs -a "$D/services.list" systemctl enable || say "warning: enabling some services failed"
     while read -r unit; do say "service $unit: $(systemctl is-enabled "$unit" 2>&1)"; done < "$D/services.list"

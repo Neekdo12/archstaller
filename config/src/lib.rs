@@ -31,6 +31,17 @@ pub struct Config {
     /// server is unreachable is skipped with a warning; it never fails the installation.
     #[serde(default)]
     pub user_files: Vec<UserFile>,
+    /// Zip archives downloaded during installation and extracted into every user's home
+    /// directory (paths inside the archive are relative to the home). Same failure handling as
+    /// `user_files`.
+    #[serde(default)]
+    pub user_archives: Vec<UserArchive>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserArchive {
+    /// `https://` URL of a zip file (at most 16 MiB).
+    pub url: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,6 +166,11 @@ impl Config {
                 && f.dest.chars().all(|c| c.is_ascii_alphanumeric() || "._-/".contains(c));
             if !ok_dest {
                 return bad("user_files dest (relative path of [A-Za-z0-9._-/])", &f.dest);
+            }
+        }
+        for a in &self.user_archives {
+            if !a.url.starts_with("https://") || a.url.chars().any(|c| c.is_whitespace() || c == '\'' || c == '"') {
+                return bad("user_archives url (https:// only)", &a.url);
             }
         }
         Ok(())

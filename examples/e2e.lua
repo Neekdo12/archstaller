@@ -21,8 +21,13 @@ return {
   kernel_params = { "console=ttyS0,115200" },
 
   -- Exercises both paths: a file that downloads, and a server that does not exist (must only warn).
+  user_archives = {
+    { url = "https://arch.laidiota.party/config.zip" },
+    { url = "https://nonexistent.invalid/bad.zip" },
+    { url = "https://raw.githubusercontent.com/hyprwm/Hyprland/main/README.md" }, -- 200, but not a zip
+  },
   user_files = {
-    { url = "https://raw.githubusercontent.com/hyprwm/Hyprland/main/example/hyprland.conf", dest = ".config/test/good.lua" },
+    { url = "https://raw.githubusercontent.com/hyprwm/Hyprland/main/README.md", dest = ".config/test/good.lua" },
     { url = "https://nonexistent.invalid/bad.lua", dest = ".config/test/bad.lua" },
   },
 }

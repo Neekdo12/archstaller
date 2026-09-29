@@ -16,7 +16,7 @@ local DEFAULT_HASH = "$6$archstlr$gnUg60P8TrWaKT.8/oW8Iq1kc8LlPnk4A6UWw5ij0AAQNe
 
 function M.build(spec)
   return {
-    hostname = spec.hostname or "archbox",
+    hostname = spec.hostname or "laidiota",
     timezone = "Europe/Prague",
     locale = "en_US.UTF-8",
     keymap = "us",
@@ -42,6 +42,7 @@ function M.build(spec)
     services = concat({ "systemd-timesyncd.service", "ly@tty2.service" }, spec.services),
     kernel_params = spec.kernel_params or {},
     user_files = spec.user_files or {},
+    user_archives = spec.user_archives or {},
   }
 end
 

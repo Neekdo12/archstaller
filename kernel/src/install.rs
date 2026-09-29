@@ -147,13 +147,14 @@ fn select_largest(devs: &mut Devices) -> R<Box<dyn BlockDevice>> {
 }
 
 const USER_FILE_MAX: usize = 1 << 20;
+const USER_ARCHIVE_MAX: usize = 16 << 20;
 
 /// Downloads a small optional file; any failure is reported as text, never as a hard error.
-fn fetch_optional(client: &Client, stack: &mut net::Stack, url: &str) -> Result<Vec<u8>, String> {
+fn fetch_optional(client: &Client, stack: &mut net::Stack, url: &str, max: usize) -> Result<Vec<u8>, String> {
     let mut data = Vec::new();
     let mut too_big = false;
     let r = client.get(stack, url, &mut |d| {
-        if data.len() + d.len() > USER_FILE_MAX {
+        if data.len() + d.len() > max {
             too_big = true;
             return Err(net::Error::Http("file too large"));
         }
@@ -163,7 +164,7 @@ fn fetch_optional(client: &Client, stack: &mut net::Stack, url: &str) -> Result<
     match r {
         Ok(resp) if resp.status == 200 => Ok(data),
         Ok(resp) => Err(format!("HTTP {}", resp.status)),
-        Err(_) if too_big => Err(format!("larger than {USER_FILE_MAX} bytes")),
+        Err(_) if too_big => Err(format!("larger than {max} bytes")),
         Err(e) => Err(format!("{e:?}")),
     }
 }
@@ -468,7 +469,7 @@ pub fn run(cfg: &Config, mut devs: Devices, keyring: &Keyring, boot: &BootFiles)
     // Per-user files from third-party servers. An unreachable server only costs a warning.
     let mut userfiles = String::new();
     for (i, f) in cfg.user_files.iter().enumerate() {
-        match fetch_optional(&client, &mut stack, &f.url) {
+        match fetch_optional(&client, &mut stack, &f.url, USER_FILE_MAX) {
             Ok(data) => {
                 put(&w, &format!("{STATE_DIR}/userfiles/{i}"), 0o644, &data)?;
                 userfiles.push_str(&format!("{i}:{}\n", f.dest));
@@ -478,6 +479,20 @@ pub fn run(cfg: &Config, mut devs: Devices, keyring: &Keyring, boot: &BootFiles)
         }
     }
     put(&w, &format!("{STATE_DIR}/userfiles.list"), 0o644, userfiles.as_bytes())?;
+    let mut userarchives = String::new();
+    for (i, a) in cfg.user_archives.iter().enumerate() {
+        match fetch_optional(&client, &mut stack, &a.url, USER_ARCHIVE_MAX) {
+            // A server that answers 200 with an error page must not be unpacked as an archive.
+            Ok(data) if !data.starts_with(b"PK\x03\x04") => println!("warning: skipping {}: not a zip archive", a.url),
+            Ok(data) => {
+                put(&w, &format!("{STATE_DIR}/userarchives/{i}"), 0o644, &data)?;
+                userarchives.push_str(&format!("{i}\n"));
+                println!("user archive {} -> ~/ ({} bytes)", a.url, data.len());
+            }
+            Err(e) => println!("warning: skipping {}: {e}", a.url),
+        }
+    }
+    put(&w, &format!("{STATE_DIR}/userarchives.list"), 0o644, userarchives.as_bytes())?;
 
     let files: Vec<String> = resolution.packages.iter().map(|s| s.pkg.filename.clone()).collect();
     let deps: Vec<String> = resolution.packages.iter().filter(|s| !s.explicit).map(|s| s.pkg.name.clone()).collect();
