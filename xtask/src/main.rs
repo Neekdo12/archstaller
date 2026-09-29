@@ -28,6 +28,10 @@ pub struct Options {
     pub fault_test: bool,
     /// Kernel overwrites sectors near the end of every disk; QEMU scratch disk only.
     pub selftest: bool,
+    /// Size-optimized kernel: build-std with panics that abort without messages.
+    pub small: bool,
+    /// `xtask size` fails when the ISO exceeds this many bytes.
+    pub limit: u64,
     pub uefi: bool,
     pub headless: bool,
     /// virtio | ahci | nvme
@@ -41,6 +45,8 @@ fn parse(args: &[String]) -> Result<Options> {
         config: root().join("examples/config.lua"),
         fault_test: false,
         selftest: false,
+        small: false,
+        limit: 3 << 20,
         uefi: false,
         headless: false,
         disk: "virtio".into(),
@@ -52,6 +58,8 @@ fn parse(args: &[String]) -> Result<Options> {
             "--config" => o.config = it.next().ok_or("--config needs a path")?.into(),
             "--fault-test" => o.fault_test = true,
             "--selftest" => o.selftest = true,
+            "--small" => o.small = true,
+            "--limit" => o.limit = it.next().ok_or("--limit needs bytes")?.parse()?,
             "--uefi" => o.uefi = true,
             "--bios" => o.uefi = false,
             "--headless" => o.headless = true,

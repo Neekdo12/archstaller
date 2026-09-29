@@ -8,7 +8,12 @@ const LIMINE_CONF: &str = "timeout: 0\n\n/archstaler\n    protocol: limine\n    
 
 fn build_kernel(opts: &Options) -> Result<PathBuf> {
     let mut cmd = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
-    cmd.current_dir(root()).args(["build", "-p", "kernel", "--release", "--target", TARGET]);
+    cmd.current_dir(root()).args(["build", "-p", "kernel", "--target", TARGET]);
+    if opts.small {
+        cmd.args(["--profile", "small", "-Z", "build-std=core,alloc,compiler_builtins", "-Z", "build-std-features=compiler-builtins-mem"]);
+    } else {
+        cmd.arg("--release");
+    }
     let mut features = vec![];
     if opts.selftest {
         features.push("disk-selftest");
@@ -19,7 +24,21 @@ fn build_kernel(opts: &Options) -> Result<PathBuf> {
     }
     cmd.args(["--features", &features.join(",")]);
     run(&mut cmd)?;
-    Ok(root().join("target").join(TARGET).join("release/kernel"))
+    Ok(kernel_path(opts))
+}
+
+fn kernel_path(opts: &Options) -> PathBuf {
+    root().join("target").join(TARGET).join(if opts.small { "small/kernel" } else { "release/kernel" })
+}
+
+/// A FAT12 image holding only BOOTX64.EFI, sized to fit (Limine's stock image is 3 MiB).
+fn make_efi_image(efi: &std::path::Path, out: &std::path::Path) -> Result<()> {
+    let sectors = std::fs::metadata(efi)?.len().div_ceil(512) + 96;
+    let _ = std::fs::remove_file(out);
+    run(Command::new("mformat").args(["-C", "-T", &sectors.to_string(), "-v", "ESP", "-i"]).arg(out).arg("::"))?;
+    run(Command::new("mmd").arg("-i").arg(out).args(["::/EFI", "::/EFI/BOOT"]))?;
+    run(Command::new("mcopy").arg("-i").arg(out).arg(efi).arg("::/EFI/BOOT/BOOTX64.EFI"))?;
+    Ok(())
 }
 
 pub fn iso_path() -> PathBuf {
@@ -47,17 +66,18 @@ pub fn build(opts: &Options) -> Result<PathBuf> {
     let hdd = disk::limine::parse_hdd_header(&std::fs::read_to_string(lim.file("limine-bios-hdd.h"))?);
     std::fs::write(tree.join("boot/limine-bios-hdd.bin"), hdd)?;
     std::fs::write(tree.join("boot/limine/limine.conf"), LIMINE_CONF)?;
-    for f in ["limine-bios.sys", "limine-bios-cd.bin", "limine-uefi-cd.bin"] {
+    for f in ["limine-bios.sys", "limine-bios-cd.bin"] {
         std::fs::copy(lim.file(f), tree.join("boot/limine").join(f))?;
     }
     std::fs::copy(lim.file("BOOTX64.EFI"), tree.join("EFI/BOOT/BOOTX64.EFI"))?;
+    make_efi_image(&lim.file("BOOTX64.EFI"), &tree.join("boot/limine/efi.img"))?;
 
     let iso = iso_path();
     run(Command::new("xorriso")
         .args(["-as", "mkisofs", "-R", "-r", "-no-pad"])
         .args(["-b", "boot/limine/limine-bios-cd.bin"])
         .args(["-no-emul-boot", "-boot-load-size", "4", "-boot-info-table"])
-        .args(["--efi-boot", "boot/limine/limine-uefi-cd.bin"])
+        .args(["--efi-boot", "boot/limine/efi.img"])
         .args(["-efi-boot-part", "--efi-boot-image", "--protective-msdos-label"])
         .arg(&tree)
         .arg("-o")
@@ -69,8 +89,32 @@ pub fn build(opts: &Options) -> Result<PathBuf> {
 
 pub fn size(opts: &Options) -> Result<()> {
     let iso = build(opts)?;
-    let kernel = root().join("target").join(TARGET).join("release/kernel");
-    println!("kernel: {} bytes", std::fs::metadata(kernel)?.len());
-    println!("iso:    {} bytes", std::fs::metadata(iso)?.len());
+    let tree = root().join("target/iso_root");
+    let mut files: Vec<(u64, String)> = Vec::new();
+    fn walk(dir: &std::path::Path, base: &std::path::Path, out: &mut Vec<(u64, String)>) -> std::io::Result<()> {
+        for e in std::fs::read_dir(dir)? {
+            let p = e?.path();
+            if p.is_dir() {
+                walk(&p, base, out)?;
+            } else {
+                out.push((std::fs::metadata(&p)?.len(), p.strip_prefix(base).unwrap().display().to_string()));
+            }
+        }
+        Ok(())
+    }
+    walk(&tree, &tree, &mut files)?;
+    files.sort_by(|a, b| b.0.cmp(&a.0));
+    println!("{:>10}  file (ISO contents)", "bytes");
+    for (n, name) in &files {
+        println!("{n:>10}  {name}");
+    }
+    let total = std::fs::metadata(&iso)?.len();
+    let payload: u64 = files.iter().map(|f| f.0).sum();
+    println!("{payload:>10}  payload total");
+    println!("{total:>10}  ISO ({} bytes of image overhead)", total - payload.min(total));
+    if total > opts.limit {
+        return Err(format!("ISO is {total} bytes, over the limit of {} (use --limit to change)", opts.limit).into());
+    }
+    println!("within the limit of {} bytes", opts.limit);
     Ok(())
 }

@@ -25,8 +25,19 @@ fn qemu(opts: &Options, disk: &Path, cdrom: Option<&Path>, log: &Path) -> Result
         cmd.arg("-cdrom").arg(iso);
     }
     cmd.arg("-drive").arg(format!("if=none,id=d0,format=raw,file={}", disk.display()));
-    cmd.args(["-device", "virtio-blk-pci,drive=d0,serial=TESTDISK0"]);
-    cmd.args(["-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0,disable-legacy=on"]);
+    match opts.disk.as_str() {
+        "virtio" => cmd.args(["-device", "virtio-blk-pci,drive=d0,serial=TESTDISK0"]),
+        "ahci" => cmd.args(["-device", "ich9-ahci,id=ahci", "-device", "ide-hd,drive=d0,bus=ahci.0,serial=TESTDISK0"]),
+        "nvme" => cmd.args(["-device", "nvme,drive=d0,serial=TESTDISK0"]),
+        other => return Err(format!("unknown disk type {other}").into()),
+    };
+    cmd.args(["-netdev", "user,id=n0"]);
+    match opts.nic.as_str() {
+        "virtio" => cmd.args(["-device", "virtio-net-pci,netdev=n0,disable-legacy=on"]),
+        "e1000" => cmd.args(["-device", "e1000,netdev=n0"]),
+        "e1000e" => cmd.args(["-device", "e1000e,netdev=n0"]),
+        other => return Err(format!("unknown nic type {other}").into()),
+    };
     cmd.stdout(Stdio::null()).stderr(Stdio::null());
     Ok(cmd.spawn()?)
 }
@@ -68,10 +79,10 @@ fn wait_for(child: &mut Child, log: &Path, marker: &str, abort: &[&str], timeout
 }
 
 pub fn run_e2e(opts: &Options) -> Result<()> {
-    let mode = if opts.uefi { "uefi" } else { "bios" };
+    let mode = &format!("{}-{}-{}", if opts.uefi { "uefi" } else { "bios" }, opts.disk, opts.nic);
     let dir = root().join("target/e2e");
     std::fs::create_dir_all(&dir)?;
-    let mut o = Options { config: root().join("examples/e2e.lua"), fault_test: false, selftest: false, uefi: opts.uefi, headless: true, disk: "virtio".into(), nic: "virtio".into() };
+    let mut o = Options { config: root().join("examples/e2e.lua"), fault_test: false, selftest: false, small: opts.small, limit: opts.limit, uefi: opts.uefi, headless: true, disk: opts.disk.clone(), nic: opts.nic.clone() };
     o.config = root().join("examples/e2e.lua");
     let iso_path = iso::build(&o)?;
 
@@ -101,7 +112,12 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
     let res = wait_for(&mut child, &log, "archbox login:", &["Kernel panic", "FATAL"], Duration::from_secs(10 * 60));
     let _ = child.kill();
     let _ = child.wait();
-    res?;
+    let text = res?;
+    // Units that failed to start on the installed system are a defect worth failing on.
+    let failed: Vec<&str> = text.lines().filter(|l| l.contains("FAILED") && l.contains("Failed to start")).collect();
+    if !failed.is_empty() {
+        return Err(format!("units failed on the second boot: {failed:?}").into());
+    }
     println!("e2e [{mode}]: OK");
     Ok(())
 }
