@@ -186,9 +186,11 @@ extern "C" fn entry(_sp: *const usize) -> ! {
     log!("init: root is {dev}");
 
     let fstype = cmdline.split_whitespace().find_map(|t| t.strip_prefix("rootfstype=")).unwrap_or("ext4");
+    // Like the kernel's own root handling: read-only unless `rw` is given.
+    let writable = cmdline.split_whitespace().rev().find(|t| *t == "rw" || *t == "ro") == Some("rw");
     let mut r = -1;
     for _ in 0..40 {
-        r = mount(dev, "/newroot", fstype, MS_RDONLY, "");
+        r = mount(dev, "/newroot", fstype, if writable { 0 } else { MS_RDONLY }, "");
         if r >= 0 {
             break;
         }
