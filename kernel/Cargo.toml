@@ -7,6 +7,9 @@ edition = "2021"
 config = { path = "../config" }
 hal = { path = "../crates/hal" }
 drivers = { path = "../crates/drivers" }
+net = { path = "../crates/net" }
+pgp-lite = { path = "../crates/pgp-lite" }
+getrandom = { version = "0.2", features = ["custom"] }
 limine = "0.6"
 talc = "5"
 spinning_top = "0.3"

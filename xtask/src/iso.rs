@@ -1,10 +1,10 @@
-use crate::{limine, lua, root, run, Options, Result};
+use crate::{keyring, limine, lua, root, run, Options, Result};
 use std::path::PathBuf;
 use std::process::Command;
 
 const TARGET: &str = "x86_64-unknown-none";
 
-const LIMINE_CONF: &str = "timeout: 0\n\n/archstaler\n    protocol: limine\n    path: boot():/boot/kernel\n    module_path: boot():/boot/config.bin\n";
+const LIMINE_CONF: &str = "timeout: 0\n\n/archstaler\n    protocol: limine\n    path: boot():/boot/kernel\n    module_path: boot():/boot/config.bin\n    module_path: boot():/boot/keyring.bin\n";
 
 fn build_kernel(opts: &Options) -> Result<PathBuf> {
     let mut cmd = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
@@ -29,6 +29,7 @@ pub fn iso_path() -> PathBuf {
 pub fn build(opts: &Options) -> Result<PathBuf> {
     let kernel = build_kernel(opts)?;
     let config_bin = lua::eval_config(&opts.config)?;
+    let keyring_blob = keyring::build()?;
     let lim = limine::fetch()?;
 
     let tree = root().join("target/iso_root");
@@ -37,6 +38,7 @@ pub fn build(opts: &Options) -> Result<PathBuf> {
     std::fs::create_dir_all(tree.join("EFI/BOOT"))?;
     std::fs::copy(&kernel, tree.join("boot/kernel"))?;
     std::fs::write(tree.join("boot/config.bin"), config_bin)?;
+    std::fs::write(tree.join("boot/keyring.bin"), keyring_blob)?;
     std::fs::write(tree.join("boot/limine/limine.conf"), LIMINE_CONF)?;
     for f in ["limine-bios.sys", "limine-bios-cd.bin", "limine-uefi-cd.bin"] {
         std::fs::copy(lim.file(f), tree.join("boot/limine").join(f))?;

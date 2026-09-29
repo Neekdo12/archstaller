@@ -11,6 +11,7 @@ mod idt;
 mod paging;
 mod platform;
 mod port;
+mod rng;
 mod serial;
 mod time;
 
@@ -178,6 +179,24 @@ extern "C" fn _start() -> ! {
         }
     }
 
+    let keyring = MODULES
+        .response()
+        .and_then(|r| r.modules().iter().find(|m| m.path().ends_with("keyring.bin")))
+        .and_then(|m| pgp_lite::Keyring::from_bytes(m.data()));
+    match &keyring {
+        Some(k) => println!("keyring: {} signing keys", k.keys.len()),
+        None => println!("keyring.bin module missing or invalid"),
+    }
+    #[cfg(feature = "net-selftest")]
+    if let Some(k) = &keyring {
+        pgp_selftest(k);
+    }
+
+    #[cfg(feature = "net-selftest")]
+    if let Some(nic) = devs.net.pop() {
+        stack_selftest(nic);
+    }
+
     #[cfg(feature = "fault-test")]
     unsafe {
         println!("triggering ud2");
@@ -217,4 +236,114 @@ fn net_selftest(d: &mut dyn hal::NetDevice, mac: [u8; 6]) -> bool {
         }
     }
     false
+}
+
+/// DHCP + HTTP GET against the xtask test server on the QEMU host (10.0.2.2:8000).
+#[cfg(feature = "net-selftest")]
+fn stack_selftest(nic: Box<dyn hal::NetDevice>) {
+    use net::Stream as _;
+    fn now_ms() -> u64 {
+        time::uptime_ns() / 1_000_000
+    }
+    let seed = unsafe { core::arch::x86_64::_rdtsc() };
+    let mut stack = net::Stack::new(nic, now_ms, seed);
+    match stack.dhcp(10_000) {
+        Ok(l) => println!("dhcp: {:?}/{} router {:?} dns {:?}", l.address, l.prefix, l.router, l.dns),
+        Err(e) => {
+            println!("dhcp failed: {e:?}");
+            return;
+        }
+    }
+    tls_selftest(&mut stack);
+    for path in ["/pattern.bin", "/chunked.bin"] {
+        let mut conn = match stack.connect([10, 0, 2, 2], 8000, 5000) {
+            Ok(c) => c,
+            Err(e) => {
+                println!("http: connect failed: {e:?}");
+                return;
+            }
+        };
+        let mut total = 0usize;
+        let mut bad = false;
+        let r = net::http::get(&mut conn, "10.0.2.2:8000", path, &mut |data| {
+            for (i, b) in data.iter().enumerate() {
+                if *b != ((total + i) * 7 + 3) as u8 {
+                    bad = true;
+                }
+            }
+            total += data.len();
+            Ok(())
+        });
+        let _ = conn.read(&mut []);
+        match r {
+            Ok(resp) => println!(
+                "http {path}: status {} body {} bytes {}",
+                resp.status,
+                total,
+                if !bad && total == 1_000_000 { "OK" } else { "FAILED" }
+            ),
+            Err(e) => println!("http {path}: error {e:?}"),
+        }
+    }
+}
+
+#[cfg(feature = "net-selftest")]
+fn tls_selftest(stack: &mut net::Stack) {
+    const HOST: &str = "geo.mirror.pkgbuild.com";
+    let ip = match stack.resolve(HOST, 5000) {
+        Ok(ip) => ip,
+        Err(e) => {
+            println!("dns {HOST}: {e:?} (offline?)");
+            return;
+        }
+    };
+    println!("dns {HOST}: {ip:?}");
+    let conn = match stack.connect(ip, 443, 5000) {
+        Ok(c) => c,
+        Err(e) => {
+            println!("https: connect failed: {e:?}");
+            return;
+        }
+    };
+    let cfg = net::tls::client_config(|| time::unix_time());
+    let mut tls = match net::tls::TlsStream::connect(conn, cfg, HOST) {
+        Ok(t) => t,
+        Err(e) => {
+            println!("https: handshake failed: {e:?}");
+            return;
+        }
+    };
+    let mut total = 0usize;
+    let r = net::http::get(&mut tls, HOST, "/core/os/x86_64/core.db", &mut |d| {
+        total += d.len();
+        Ok(())
+    });
+    match r {
+        Ok(resp) => println!("https core.db: status {} body {} bytes loc {:?}", resp.status, total, resp.location),
+        Err(e) => println!("https core.db: error {e:?}"),
+    }
+}
+
+/// Verifies two real Arch package signatures (RSA and EdDSA) against the keyring module.
+#[cfg(feature = "net-selftest")]
+fn pgp_selftest(k: &pgp_lite::Keyring) {
+    let cases: [(&str, &[u8], &[u8]); 2] = [
+        (
+            "rsa",
+            include_bytes!("../../crates/pgp-lite/tests/fixtures/pambase-20260616-1-any.pkg.tar.zst"),
+            include_bytes!("../../crates/pgp-lite/tests/fixtures/pambase-20260616-1-any.pkg.tar.zst.sig"),
+        ),
+        (
+            "eddsa",
+            include_bytes!("../../crates/pgp-lite/tests/fixtures/systemd-sysvcompat-261.1-1-x86_64.pkg.tar.zst"),
+            include_bytes!("../../crates/pgp-lite/tests/fixtures/systemd-sysvcompat-261.1-1-x86_64.pkg.tar.zst.sig"),
+        ),
+    ];
+    for (name, data, sig) in cases {
+        let r = pgp_lite::Verifier::from_packet(sig).and_then(|mut v| {
+            v.update(data);
+            v.finish(k, time::unix_time())
+        });
+        println!("pgp {name}: {}", if r.is_ok() { "OK" } else { "FAILED" });
+    }
 }

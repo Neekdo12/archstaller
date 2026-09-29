@@ -1,2 +1,13 @@
 [alias]
 xtask = "run -p xtask --"
+
+# The kernel target has no SSE; force the portable backends of the RustCrypto crates.
+[target.x86_64-unknown-none]
+rustflags = [
+    "--cfg", "polyval_force_soft",
+    "--cfg", "ghash_force_soft",
+    "--cfg", "aes_force_soft",
+    "--cfg", "chacha20_force_soft",
+    "--cfg", "poly1305_force_soft",
+    "--cfg", 'curve25519_dalek_backend="serial"',
+]

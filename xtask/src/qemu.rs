@@ -1,10 +1,45 @@
-use crate::{root, run, Options, Result};
+use crate::{root, Options, Result};
 use std::path::Path;
 use std::process::Command;
 
 const OVMF_DIR: &str = "/usr/share/edk2/x64";
 
+const PATTERN_LEN: usize = 1_000_000;
+
+/// Serves the deterministic pattern on 127.0.0.1:8000 (`/pattern.bin` plain, `/chunked.bin` chunked).
+fn spawn_test_server() -> Result<()> {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:8000")?;
+    std::thread::spawn(move || {
+        let body: Vec<u8> = (0..PATTERN_LEN).map(|i| (i * 7 + 3) as u8).collect();
+        for conn in listener.incoming().flatten() {
+            let mut conn = conn;
+            let mut req = [0u8; 2048];
+            let n = conn.read(&mut req).unwrap_or(0);
+            let req = String::from_utf8_lossy(&req[..n]);
+            if req.starts_with("GET /chunked.bin") {
+                let _ = conn.write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n");
+                for c in body.chunks(7000) {
+                    let _ = conn.write_all(format!("{:x}\r\n", c.len()).as_bytes());
+                    let _ = conn.write_all(c);
+                    let _ = conn.write_all(b"\r\n");
+                }
+                let _ = conn.write_all(b"0\r\n\r\n");
+            } else if req.starts_with("GET /pattern.bin") {
+                let _ = conn.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len()).as_bytes());
+                let _ = conn.write_all(&body);
+            } else {
+                let _ = conn.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+            }
+        }
+    });
+    Ok(())
+}
+
 pub fn run_iso(iso: &Path, opts: &Options) -> Result<()> {
+    if opts.selftest {
+        spawn_test_server()?;
+    }
     let mut cmd = Command::new("qemu-system-x86_64");
     cmd.args(["-machine", "q35", "-m", "512M", "-serial", "stdio", "-no-reboot"]);
     if Path::new("/dev/kvm").exists() {

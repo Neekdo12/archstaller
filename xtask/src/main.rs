@@ -1,4 +1,5 @@
 mod iso;
+mod keyring;
 mod limine;
 mod lua;
 mod qemu;
@@ -71,6 +72,9 @@ fn main() -> Result<()> {
         "run" => {
             let iso = iso::build(&opts)?;
             qemu::run_iso(&iso, &opts)?;
+        }
+        "keyring" => {
+            keyring::build()?;
         }
         "size" => iso::size(&opts)?,
         other => return Err(format!("unknown command {other}").into()),

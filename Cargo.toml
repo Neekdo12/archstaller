@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["xtask", "kernel", "config", "crates/hal", "crates/drivers"]
+members = ["xtask", "kernel", "config", "crates/hal", "crates/drivers", "crates/net", "crates/pgp-lite"]
 
 [profile.release]
 opt-level = "z"
