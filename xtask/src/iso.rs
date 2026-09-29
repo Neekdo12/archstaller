@@ -47,7 +47,7 @@ pub fn iso_path() -> PathBuf {
 
 pub fn build(opts: &Options) -> Result<PathBuf> {
     let kernel = build_kernel(opts)?;
-    let config_bin = lua::eval_config(&opts.config)?;
+    let config_bin = lua::eval_config(&opts.config, &opts.extra_kernel_params)?;
     let keyring_blob = keyring::build()?;
     run(Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
         .current_dir(root())
@@ -72,7 +72,10 @@ pub fn build(opts: &Options) -> Result<PathBuf> {
     std::fs::copy(lim.file("BOOTX64.EFI"), tree.join("EFI/BOOT/BOOTX64.EFI"))?;
     make_efi_image(&lim.file("BOOTX64.EFI"), &tree.join("boot/limine/efi.img"))?;
 
-    let iso = iso_path();
+    let iso = opts.out.clone().unwrap_or_else(iso_path);
+    if let Some(dir) = iso.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
     // libvirt may have taken ownership of a previous ISO; unlinking works, overwriting does not.
     let _ = std::fs::remove_file(&iso);
     run(Command::new("xorriso")

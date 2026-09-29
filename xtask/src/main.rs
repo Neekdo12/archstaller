@@ -1,6 +1,7 @@
 mod e2e;
 mod iso;
 mod keyring;
+mod presets;
 mod linux_test;
 mod limine;
 mod lua;
@@ -32,6 +33,10 @@ pub struct Options {
     pub small: bool,
     /// `xtask size` fails when the ISO exceeds this many bytes.
     pub limit: u64,
+    /// Output path of the ISO (default target/archstaler.iso).
+    pub out: Option<PathBuf>,
+    /// Appended to the config's kernel command line (used by e2e for a serial console).
+    pub extra_kernel_params: Vec<String>,
     pub uefi: bool,
     pub headless: bool,
     /// virtio | ahci | nvme
@@ -47,6 +52,8 @@ fn parse(args: &[String]) -> Result<Options> {
         selftest: false,
         small: false,
         limit: 3 << 20,
+        out: None,
+        extra_kernel_params: Vec::new(),
         uefi: false,
         headless: false,
         disk: "virtio".into(),
@@ -58,6 +65,7 @@ fn parse(args: &[String]) -> Result<Options> {
             "--config" => o.config = it.next().ok_or("--config needs a path")?.into(),
             "--fault-test" => o.fault_test = true,
             "--selftest" => o.selftest = true,
+            "--out" => o.out = Some(it.next().ok_or("--out needs a path")?.into()),
             "--small" => o.small = true,
             "--limit" => o.limit = it.next().ok_or("--limit needs bytes")?.parse()?,
             "--uefi" => o.uefi = true,
@@ -83,6 +91,8 @@ fn main() -> Result<()> {
             let iso = iso::build(&opts)?;
             qemu::run_iso(&iso, &opts)?;
         }
+        "presets" => presets::build_all(&opts)?,
+        "check-presets" => presets::check()?,
         "e2e" => e2e::run_e2e(&opts)?,
         "linux-test" => linux_test::run_test()?,
         "keyring" => {

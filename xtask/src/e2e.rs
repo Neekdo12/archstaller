@@ -82,8 +82,10 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
     let mode = &format!("{}-{}-{}", if opts.uefi { "uefi" } else { "bios" }, opts.disk, opts.nic);
     let dir = root().join("target/e2e");
     std::fs::create_dir_all(&dir)?;
-    let mut o = Options { config: root().join("examples/e2e.lua"), fault_test: false, selftest: false, small: opts.small, limit: opts.limit, uefi: opts.uefi, headless: true, disk: opts.disk.clone(), nic: opts.nic.clone() };
-    o.config = root().join("examples/e2e.lua");
+    let default_cfg = root().join("examples/config.lua");
+    // A preset can be tested with --config; otherwise use the serial-locked e2e config.
+    let config = if opts.config != default_cfg { opts.config.clone() } else { root().join("examples/e2e.lua") };
+    let o = Options { config: config.clone(), fault_test: false, selftest: false, small: opts.small, limit: opts.limit, out: Some(dir.join("e2e.iso")), extra_kernel_params: vec!["console=ttyS0,115200".into()], uefi: opts.uefi, headless: true, disk: opts.disk.clone(), nic: opts.nic.clone() };
     let iso_path = iso::build(&o)?;
 
     let disk = dir.join(format!("disk-{mode}.img"));
@@ -105,8 +107,11 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
     wait_for(&mut child, &log, "archstaler-firstboot: done", &["archstaler-firstboot: FAILED", "Kernel panic", "FATAL"], Duration::from_secs(30 * 60))?;
     let _ = child.wait();
     let fb = String::from_utf8_lossy(&std::fs::read(&log).unwrap_or_default()).to_string();
-    for want in ["user arch created", "service ly@tty2.service: enabled"] {
-        if !fb.contains(want) {
+    let cfg = crate::lua::load_config(&config)?;
+    let mut wants: Vec<String> = cfg.users.iter().map(|u| format!("user {} created", u.name)).collect();
+    wants.extend(cfg.services.iter().map(|s| format!("service {s}: enabled")));
+    for want in &wants {
+        if !fb.contains(want.as_str()) {
             return Err(format!("first boot log lacks '{want}' (log: {})", log.display()).into());
         }
     }

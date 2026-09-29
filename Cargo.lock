@@ -1604,6 +1604,7 @@ dependencies = [
  "initrd",
  "mlua",
  "pgp-lite",
+ "pkg",
  "postcard",
  "serde",
  "sha2 0.11.0",

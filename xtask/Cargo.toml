@@ -13,3 +13,4 @@ pgp-lite = { path = "../crates/pgp-lite", features = ["std"] }
 ext4w = { path = "../crates/ext4w" }
 disk = { path = "../crates/disk", features = ["std"] }
 initrd = { path = "../crates/initrd" }
+pkg = { path = "../crates/pkg" }
