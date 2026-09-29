@@ -40,9 +40,15 @@ cargo xtask build --config path/to/my.lua --out my.iso
 
 Every preset installs the `ly` login manager (`ly@tty2.service`) and creates the user `passwd_is_passwd`
 with the password `passwd` in group `wheel` (sudo works; root is locked). **Change that password** before
-the machine is reachable from a network, especially with the server preset, which enables SSH. The shared
-defaults live in `presets/common.lua`; `cargo xtask check-presets` resolves every preset against your local
-pacman sync databases and reports package counts, download sizes and provider choices.
+the machine is reachable from a network, especially with the server preset, which enables SSH. On the
+console-only presets (minimal, server) `ly` lists both `shell` and `xinitrc` sessions; pick `shell`,
+because `xinitrc` needs X and `xauth`. The shared defaults live in `presets/common.lua`; `cargo xtask
+check-presets` resolves every preset against your local pacman sync databases and reports package counts,
+download sizes and provider choices. All presets install the wired-NIC firmware
+(`linux-firmware-intel`, `linux-firmware-realtek`) or, on the desktop presets, the full `linux-firmware`.
+
+The presets use `disk.auto_largest = true`. For a machine with several disks, use `disk.confirm_serial`
+in your own config instead (see below).
 
 ### Trying it in QEMU
 
@@ -57,14 +63,30 @@ cargo xtask run --uefi --disk nvme --nic e1000e
 ### Virtual machines and USB sticks
 
 - Firmware: BIOS or UEFI both work; **Secure Boot must be off** (neither the ISO nor the installed system
-  supports it).
+  supports it). Only x86_64 is supported; there is no ARM or Raspberry Pi support.
 - The installer has **no USB drivers**. It sees NVMe, AHCI/SATA and virtio disks only, so an installer USB
   stick is never a candidate for `auto_largest`. It also means it cannot install onto a USB disk.
-- Networking: wired only. Supported NICs are virtio-net, Intel e1000/e1000e and Realtek RTL8168/8169. The
-  Realtek driver has **not** been tested on real hardware. There is no Wi-Fi support.
-- Multi-boot tools such as Ventoy start ISOs in their own way; it is untested whether Limine's BIOS/UEFI
-  stages survive that. If an ISO does not boot from Ventoy, write it to a spare stick with `dd` to rule
-  the ISO out.
+- Everything the installer needs is loaded into RAM by the boot loader before the kernel starts, and
+  packages come from the network, so the stick can be pulled once the installer's first log lines have
+  appeared. **Pull it before the final reboot**: if the firmware still prefers the stick, the machine boots
+  the installer again and, with `auto_largest`, erases the system that was just installed.
+- Networking: wired only, no Wi-Fi. The installer recognizes 30 PCI device IDs in three driver families:
+  virtio-net (2 IDs), Intel e1000 (14) and e1000e (10), and Realtek RTL8168/8169 (4). Only virtio and the
+  Intel drivers have been run, and only against QEMU's emulated NICs. The Realtek driver has never run on
+  real hardware, and newer Intel chips that share an ID (for example the PCH-integrated I217/I219) may
+  need setup the driver does not do.
+
+### Ventoy
+
+The ISOs boot from [Ventoy](https://www.ventoy.net): copy the `archstaler-*.iso` files to the Ventoy data
+partition, boot the stick, pick an ISO, and choose **Boot in normal mode** (the first entry of the boot
+mode menu that Ventoy shows; grub2 and memdisk mode are not needed).
+
+This was tested with Ventoy 1.1.17 in QEMU, in both BIOS and UEFI mode, using an image laid out like a
+Ventoy stick (MBR, Ventoy's boot code and EFI partition, FAT32 data partition) attached as a USB drive:
+the menu lists the ISOs, the installer starts, sees only the blank target disk, and keeps installing after
+the virtual stick is removed. Not tested: real hardware, an exFAT data partition (Ventoy's default; Ventoy
+reads FAT32 and exFAT alike), other Ventoy modes and Ventoy's Secure Boot mode.
 
 ## Configuration
 
@@ -117,7 +139,14 @@ validates them strictly at build time and rejects anything with unexpected chara
   (sha256-checked) when the ISO is built, using GnuPG's web of trust (a packager key needs certifications
   from at least 3 of the main keys).
 - A package signed by a packager who joined after the ISO was built fails with an unknown-key error. The
-  fix is to rebuild the ISO; in practice, rebuild regularly.
+  fix is to rebuild the ISO; in practice, rebuild every month or two (Arch publishes a new keyring roughly
+  that often). A key revoked after the build is still trusted by that ISO until it is rebuilt.
+- The keyring is pinned in `xtask/keyring.pin` (`<version> <sha256>`). `cargo xtask update-keyring` moves the
+  pin to the newest `archlinux-keyring` in the mirror's `core.db`: it downloads the package, checks its
+  SHA-256 against the database, tries to verify its signature with the previously pinned keyring (and says
+  so if it cannot), rewrites the pin and rebuilds the keyring blob. Then `cargo xtask presets` rebuilds
+  the ISOs. Nothing else in the ISO goes stale: package databases and packages are fetched at install
+  time, so each install gets whatever the mirror has that day.
 - Arch's sync databases are not signed; their integrity relies on HTTPS.
 - Out of scope: Wi-Fi, USB, SMP, Secure Boot, an interactive UI, filesystems other than ext4, architectures
   other than x86_64.
@@ -127,7 +156,7 @@ validates them strictly at build time and rejects anything with unexpected chara
 | Path | Contents |
 |---|---|
 | `kernel/` | the `no_std` installer kernel (`x86_64-unknown-none`): console, heap, exceptions, TSC clock, paging for MMIO, the install flow |
-| `xtask/` | host tooling: Lua evaluation, keyring blob, Limine fetch (pinned + sha256), ISO assembly, QEMU runs, tests |
+| `xtask/` | host tooling: Lua evaluation, keyring blob and its pin (`keyring.pin`), Limine fetch (pinned + sha256), ISO assembly, QEMU runs, tests |
 | `config/` | config types shared by `xtask` and the kernel, plus validation |
 | `crates/hal` | `BlockDevice`, `NetDevice`, `Clock`, `Rng` traits |
 | `crates/drivers` | PCI, virtio-blk/net, AHCI, NVMe, e1000/e1000e, r8169 (all polled) |
@@ -149,6 +178,8 @@ cargo xtask linux-test                       # boots the host kernel with our in
 cargo xtask e2e [--uefi] [--disk ahci --nic e1000]   # install onto a blank disk, then boot twice
 cargo xtask e2e --config presets/i3.lua      # the same for a preset
 cargo xtask size [--small] [--limit BYTES]   # ISO contents and size limit check
+cargo xtask check-presets                    # resolve every preset against the local pacman databases
+cargo xtask update-keyring                   # move the keyring pin to the newest release
 ```
 
 The host-side tests check the crates against real tools and data: `vercmp` against `/usr/bin/vercmp`,
@@ -162,8 +193,13 @@ lost.
 
 ## Status
 
-Verified in QEMU (BIOS and UEFI, virtio/AHCI/NVMe disks, virtio/e1000/e1000e NICs): install, first boot and
-a second boot to a login prompt. Not verified: the Realtek driver, real hardware in general, logging in with
-the default credentials, and the UEFI boot entry created by `efibootmgr` (booting works through the
-fallback path `EFI/BOOT/BOOTX64.EFI`). The ISO is about 2.4 MB; the design notes in `PLAN.md` describe what
-was aimed at and what remains.
+Verified in QEMU (BIOS and UEFI; virtio, AHCI and NVMe disks; virtio, e1000 and e1000e NICs): install, first
+boot and a second boot to a login prompt, for the `i3` preset and a minimal test config, plus the Ventoy
+boot described above. The other presets resolve (`check-presets`) but have not been through a full install
+in the test harness. Not verified: the Realtek driver, real hardware in general, logging in with the default
+credentials, and the UEFI boot entry created by `efibootmgr` (booting works through the fallback path
+`EFI/BOOT/BOOTX64.EFI`). The first-boot log is only in the journal and is not persisted.
+
+Not supported: Wi-Fi, USB, ARM and Raspberry Pi, and installing onto anything but NVMe, SATA/AHCI and virtio
+disks. The ISO is about 2.4 MB (2.26 MB with `--small`); the design notes in `PLAN.md` describe what was
+aimed at and what remains.
