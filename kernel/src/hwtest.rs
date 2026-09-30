@@ -90,7 +90,7 @@ pub fn run(cfg: &Config, devs: Devices, keyring: Option<&Keyring>) {
             println!("rebooting in {left}s...");
         }
         shown = left;
-        core::hint::spin_loop();
+        hal::idle();
     }
     crate::reboot()
 }

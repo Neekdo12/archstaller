@@ -7,6 +7,7 @@ extern crate alloc;
 mod console;
 mod fb;
 mod heap;
+mod idle;
 mod idt;
 mod hwtest;
 mod install;
@@ -148,6 +149,7 @@ extern "C" fn _start() -> ! {
 
     println!("calibrating clock...");
     time::init(DATE_AT_BOOT.response().map_or(0, |r| r.timestamp));
+    idle::init(hhdm);
     println!("tsc: {} MHz, unix time {}", time::tsc_hz() / 1_000_000, time::unix_time());
 
     let cfg = match MODULES.response().and_then(|r| r.modules().iter().find(|m| m.path().ends_with("config.bin"))) {

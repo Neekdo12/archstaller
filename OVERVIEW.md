@@ -36,7 +36,7 @@ that need a running Linux.
 
 | Path | Contents |
 |---|---|
-| `kernel/` | the installer kernel: console (`fb.rs`, `serial.rs`, `console.rs`), heap (`heap.rs`), exceptions (`idt.rs`), paging (`paging.rs`), TSC clock (`time.rs`), install flow (`install.rs`), entry point and `reboot()` (`main.rs`: 8042 pulse, then port 0xCF9, then triple fault) |
+| `kernel/` | the installer kernel: console (`fb.rs`, `serial.rs`, `console.rs`), heap (`heap.rs`), exceptions (`idt.rs`), idle tick (`idle.rs`: 1 kHz PIT via the legacy PIC, LAPIC LINT0 unmasked as ExtINT, so polling loops can `hlt` through `hal::idle()`; falls back to spinning if no tick arrives), paging (`paging.rs`), TSC clock (`time.rs`), install flow (`install.rs`), entry point and `reboot()` (`main.rs`: 8042 pulse, then port 0xCF9, then triple fault) |
 | `xtask/` | host tooling: `iso.rs` (build kernel + assemble ISO), `lua.rs` (config.lua -> config.bin), `keyring.rs` (keyring blob + pin), `limine.rs` (fetch pinned Limine), `qemu.rs` (run in QEMU), `e2e.rs` (install + boot test), `presets.rs`, `linux_test.rs`, `main.rs` (CLI) |
 | `config/` | `Config`/`Disk`/`User`/`UserFile`/`UserArchive` types shared by `xtask` and `kernel`, plus validation |
 | `crates/hal` | traits: `BlockDevice`, `NetDevice`, `Clock`, `Rng` |
