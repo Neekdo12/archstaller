@@ -189,6 +189,34 @@ extern "C" fn _start() -> ! {
         }
     }
 
+    #[cfg(feature = "usb-tethering")]
+    {
+        // iPhone USB tethering: xHCI -> usbmuxd -> lockdownd pair/session -> hotspot
+        // relay. Not a PCI device, so this is an explicit probe next to probe_all,
+        // per docs/iphone-tethering.md. A PCI NIC with link stays preferred by
+        // install::run, which picks the first device whose link is up.
+        struct Log;
+        impl imobiledevice::Progress for Log {
+            fn note(&mut self, msg: &str) {
+                println!("{msg}");
+            }
+        }
+        match imobiledevice::tether(time::unix_time, 120_000, &mut Log) {
+            Ok(dev) => {
+                let m = dev.mac();
+                println!(
+                    "usb: iPhone tethering up, mac {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                    m[0], m[1], m[2], m[3], m[4], m[5]
+                );
+                devs.net.push(Box::new(dev));
+            }
+            Err(e) => println!("usb: iPhone tethering unavailable: {e:?}"),
+        }
+    }
+
+    #[cfg(feature = "usb-selftest")]
+    usb_selftest();
+
     let keyring = MODULES
         .response()
         .and_then(|r| r.modules().iter().find(|m| m.path().ends_with("keyring.bin")))
@@ -213,7 +241,7 @@ extern "C" fn _start() -> ! {
         asm!("ud2");
     }
 
-    #[cfg(not(any(feature = "disk-selftest", feature = "net-selftest")))]
+    #[cfg(not(any(feature = "disk-selftest", feature = "net-selftest", feature = "usb-selftest")))]
     {
         let module = |suffix: &str| MODULES.response().and_then(|r| r.modules().iter().find(|m| m.path().ends_with(suffix))).map(|m| m.data());
         match (cfg, keyring, module("tiny-init"), module("limine-bios.sys"), module("limine-bios-hdd.bin"), module("BOOTX64.EFI")) {
@@ -232,7 +260,7 @@ extern "C" fn _start() -> ! {
     }
 
     println!("boot OK, halting");
-    #[cfg(any(feature = "disk-selftest", feature = "net-selftest"))]
+    #[cfg(any(feature = "disk-selftest", feature = "net-selftest", feature = "usb-selftest"))]
     unsafe {
         // QEMU isa-debug-exit
         port::outb(0xf4, 0);
@@ -376,4 +404,95 @@ fn pgp_selftest(k: &pgp_lite::Keyring) {
         });
         println!("pgp {name}: {}", if r.is_ok() { "OK" } else { "FAILED" });
     }
+}
+
+/// Enumerates xHCI controllers and their devices; on a USB mass-storage device, runs a
+/// BOT INQUIRY to exercise bulk transfers in both directions. QEMU smoke test only.
+#[cfg(feature = "usb-selftest")]
+fn usb_selftest() {
+    println!("usb-selftest: probing xHCI controllers");
+    let ctrls = usb::controllers();
+    println!("usb: {} xHCI controller(s)", ctrls.len());
+    for mut c in ctrls {
+        let devs = match c.enumerate() {
+            Ok(d) => d,
+            Err(e) => {
+                println!("usb: enumerate failed: {e:?}");
+                continue;
+            }
+        };
+        for mut d in devs {
+            println!(
+                "usb: device {:04x}:{:04x} serial='{}' interfaces {}",
+                d.vendor,
+                d.product,
+                d.serial,
+                d.interfaces.len()
+            );
+            for i in &d.interfaces {
+                println!(
+                    "usb:   if {} class {:02x}/{:02x}/{:02x} eps {}",
+                    i.num,
+                    i.class,
+                    i.subclass,
+                    i.protocol,
+                    i.endpoints.len()
+                );
+            }
+            if let Some(i) = d
+                .interfaces
+                .iter()
+                .find(|i| i.class == 0x08 && i.subclass == 0x06 && i.protocol == 0x50)
+                .cloned()
+            {
+                msc_selftest(&mut c, &mut d, &i);
+            }
+        }
+    }
+}
+
+/// BOT (bulk-only transport) INQUIRY against a USB mass-storage device.
+#[cfg(feature = "usb-selftest")]
+fn msc_selftest(c: &mut usb::Controller, d: &mut usb::Device, i: &usb::desc::InterfaceDesc) {
+    const TAG: u32 = 0x1111_1111;
+    let Some(ep_in) = d.bulk_in(i) else {
+        println!("usb-selftest: msc: no bulk IN endpoint");
+        return;
+    };
+    let Some(ep_out) = d.bulk_out(i) else {
+        println!("usb-selftest: msc: no bulk OUT endpoint");
+        return;
+    };
+    let cfg = d.configuration;
+    if let Err(e) = c.set_configuration(d, cfg, i) {
+        println!("usb-selftest: msc: set configuration failed: {e:?}");
+        return;
+    }
+    let mut cbw = [0u8; 31];
+    cbw[0..4].copy_from_slice(&0x4342_5355u32.to_le_bytes()); // 'USBC'
+    cbw[4..8].copy_from_slice(&TAG.to_le_bytes());
+    cbw[8..12].copy_from_slice(&36u32.to_le_bytes()); // data-in length
+    cbw[12] = 0x80; // flags: data-in
+    cbw[14] = 6; // CB length
+    cbw[15] = 0x12; // SCSI INQUIRY
+    cbw[19] = 36; // allocation length
+    let ok = (|| {
+        c.bulk_write(d, ep_out, &cbw).ok()?;
+        let mut data = [0u8; 36];
+        if c.bulk_read(d, ep_in, &mut data, 2000).ok()? < 36 {
+            return None;
+        }
+        let mut csw = [0u8; 13];
+        if c.bulk_read(d, ep_in, &mut csw, 2000).ok()? < 13 {
+            return None;
+        }
+        let sig = u32::from_le_bytes(csw[0..4].try_into().ok()?) == 0x5342_5355; // 'USBS'
+        let tag = u32::from_le_bytes(csw[4..8].try_into().ok()?) == TAG;
+        let status = csw[12] == 0;
+        let vendor = core::str::from_utf8(&data[8..16]).unwrap_or("?").trim();
+        let product = core::str::from_utf8(&data[16..32]).unwrap_or("?").trim();
+        println!("usb: msc INQUIRY '{vendor}' '{product}', csw sig={sig} tag={tag} status={status}");
+        Some(sig && tag && status)
+    })();
+    println!("usb-selftest: BOT INQUIRY {}", if ok == Some(true) { "OK" } else { "FAILED" });
 }

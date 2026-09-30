@@ -2,7 +2,7 @@ cargo-features = ["panic-immediate-abort"]
 
 [workspace]
 resolver = "2"
-members = ["xtask", "kernel", "config", "crates/hal", "crates/drivers", "crates/net", "crates/pgp-lite", "crates/pkg", "crates/ext4w", "crates/disk", "crates/initrd", "tiny-init"]
+members = ["xtask", "kernel", "config", "crates/hal", "crates/drivers", "crates/net", "crates/pgp-lite", "crates/pkg", "crates/ext4w", "crates/disk", "crates/initrd", "crates/usb", "crates/imobiledevice", "tiny-init"]
 
 [profile.release]
 opt-level = "z"

@@ -22,6 +22,9 @@ fn build_kernel(opts: &Options) -> Result<PathBuf> {
     if opts.fault_test {
         features.push("fault-test");
     }
+    if opts.usb {
+        features.push("usb-selftest");
+    }
     cmd.args(["--features", &features.join(",")]);
     run(&mut cmd)?;
     Ok(kernel_path(opts))

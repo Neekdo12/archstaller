@@ -43,6 +43,8 @@ pub struct Options {
     pub disk: String,
     /// virtio | e1000 | e1000e | igb | rtl8139
     pub nic: String,
+    /// Build with the usb-selftest kernel feature and attach qemu-xhci + usb-storage.
+    pub usb: bool,
 }
 
 fn parse(args: &[String]) -> Result<Options> {
@@ -58,6 +60,7 @@ fn parse(args: &[String]) -> Result<Options> {
         headless: false,
         disk: "virtio".into(),
         nic: "virtio".into(),
+        usb: false,
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -73,6 +76,7 @@ fn parse(args: &[String]) -> Result<Options> {
             "--headless" => o.headless = true,
             "--disk" => o.disk = it.next().ok_or("--disk needs a value")?.clone(),
             "--nic" => o.nic = it.next().ok_or("--nic needs a value")?.clone(),
+            "--usb" => o.usb = true,
             other => return Err(format!("unknown option {other}").into()),
         }
     }

@@ -80,6 +80,18 @@ pub fn run_iso(iso: &Path, opts: &Options) -> Result<()> {
         "rtl8139" => cmd.args(["-device", "rtl8139,netdev=n0"]),
         other => return Err(format!("unknown nic type {other}").into()),
     };
+    if opts.usb {
+        // Generic USB device behind QEMU's xHCI, to smoke-test the installer's xHCI
+        // driver (enumeration, descriptors, bulk transfers via BOT INQUIRY).
+        let img = root().join("target/usb-test.img");
+        if !img.exists() {
+            let f = std::fs::File::create(&img)?;
+            f.set_len(8 << 20)?;
+        }
+        cmd.args(["-device", "qemu-xhci,id=xhci"]);
+        cmd.arg("-drive").arg(format!("if=none,id=u0,format=raw,file={}", img.display()));
+        cmd.args(["-device", "usb-storage,bus=xhci.0,drive=u0"]);
+    }
     let status = cmd.status()?;
     // isa-debug-exit turns the kernel's `out 0xf4, 0` into exit code 1.
     match status.code() {

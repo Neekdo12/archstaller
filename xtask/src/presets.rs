@@ -67,6 +67,7 @@ pub fn build_all(opts: &Options) -> Result<()> {
             headless: false,
             disk: "virtio".into(),
             nic: "virtio".into(),
+            usb: false,
         };
         let iso = iso::build(&o)?;
         println!("{name}: {} ({} bytes)", iso.display(), std::fs::metadata(&iso)?.len());
