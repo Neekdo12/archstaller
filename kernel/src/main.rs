@@ -293,6 +293,7 @@ fn stack_selftest(nic: Box<dyn hal::NetDevice>) {
         };
         let mut total = 0usize;
         let mut bad = false;
+        let t0 = time::uptime_ns();
         let r = net::http::get(&mut conn, "10.0.2.2:8000", path, &mut |data| {
             for (i, b) in data.iter().enumerate() {
                 if *b != ((total + i) * 7 + 3) as u8 {
@@ -305,10 +306,11 @@ fn stack_selftest(nic: Box<dyn hal::NetDevice>) {
         let _ = conn.read(&mut []);
         match r {
             Ok(resp) => println!(
-                "http {path}: status {} body {} bytes {}",
+                "http {path}: status {} body {} bytes {} in {} ms",
                 resp.status,
                 total,
-                if !bad && total == 1_000_000 { "OK" } else { "FAILED" }
+                if !bad && total == 1_000_000 { "OK" } else { "FAILED" },
+                (time::uptime_ns() - t0) / 1_000_000
             ),
             Err(e) => println!("http {path}: error {e:?}"),
         }

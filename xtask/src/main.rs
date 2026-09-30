@@ -41,7 +41,7 @@ pub struct Options {
     pub headless: bool,
     /// virtio | ahci | nvme
     pub disk: String,
-    /// virtio | e1000 | e1000e | rtl8139
+    /// virtio | e1000 | e1000e | igb | rtl8139
     pub nic: String,
 }
 
@@ -81,7 +81,7 @@ fn parse(args: &[String]) -> Result<Options> {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|run|size> [options]")?;
+    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|keyring|update-keyring> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme] [--nic virtio|e1000|e1000e|igb|rtl8139] [--headless] [--selftest] [--small] [--limit BYTES]")?;
     let opts = parse(rest)?;
     match cmd.as_str() {
         "build" => {

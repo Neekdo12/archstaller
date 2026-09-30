@@ -36,6 +36,7 @@ fn qemu(opts: &Options, disk: &Path, cdrom: Option<&Path>, log: &Path) -> Result
         "virtio" => cmd.args(["-device", "virtio-net-pci,netdev=n0,disable-legacy=on"]),
         "e1000" => cmd.args(["-device", "e1000,netdev=n0"]),
         "e1000e" => cmd.args(["-device", "e1000e,netdev=n0"]),
+        "igb" => cmd.args(["-device", "igb,netdev=n0"]),
         other => return Err(format!("unknown nic type {other}").into()),
     };
     cmd.stdout(Stdio::null()).stderr(Stdio::null());

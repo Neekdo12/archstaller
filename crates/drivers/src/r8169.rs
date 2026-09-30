@@ -1,7 +1,8 @@
-//! Realtek RTL8168/8169 family gigabit NICs, polled.
+//! Realtek RTL8168/8169 gigabit and RTL8125/8126 multi-gigabit NICs, polled.
 //!
-//! UNTESTED on hardware: QEMU has no r8169 model. This is the generic init sequence shared by
-//! the family; chip revisions that need PHY or OCP setup may not link up.
+//! UNTESTED on hardware: QEMU has no r8169 or r8125 model. This is the generic init sequence
+//! shared by the family; chip revisions that need PHY or OCP setup (the 8125/8126 in particular
+//! have chip-specific MAC tuning in the Linux driver) may not link up.
 use crate::dma::Dma;
 use crate::mmio::Mmio;
 use crate::pci::PciDevice;
@@ -15,6 +16,10 @@ const CR: usize = 0x37;
 const TXPOLL: usize = 0x38;
 const INTR_MASK: usize = 0x3c;
 const INTR_STATUS: usize = 0x3e;
+// RTL8125/8126 move these and use a 32-bit interrupt status.
+const INTR_MASK_8125: usize = 0x38;
+const INTR_STATUS_8125: usize = 0x3c;
+const TXPOLL_8125: usize = 0x90;
 const TX_CONFIG: usize = 0x40;
 const RX_CONFIG: usize = 0x44;
 const CFG9346: usize = 0x50;
@@ -39,13 +44,13 @@ const RING: usize = 32;
 const BUF: usize = 2048;
 
 pub fn probe(dev: &PciDevice, out: &mut Devices) {
-    if dev.vendor != 0x10ec || !matches!(dev.device, 0x8168 | 0x8169 | 0x8161 | 0x8167) {
+    if dev.vendor != 0x10ec || !matches!(dev.device, 0x8168 | 0x8169 | 0x8161 | 0x8167 | 0x8125 | 0x8126) {
         return;
     }
     // Memory BAR is BAR2 on PCIe parts, BAR1 on older PCI ones.
     let Some(regs) = dev.map_bar(2).or_else(|| dev.map_bar(1)) else { return };
     dev.enable();
-    if let Ok(d) = R8169::new(regs) {
+    if let Ok(d) = R8169::new(regs, matches!(dev.device, 0x8125 | 0x8126)) {
         out.net.push(Box::new(d));
     }
 }
@@ -59,14 +64,20 @@ pub struct R8169 {
     rx_next: usize,
     tx_next: usize,
     mac: [u8; 6],
+    is8125: bool,
 }
 
 impl R8169 {
-    fn new(regs: Mmio) -> Result<R8169> {
+    fn new(regs: Mmio, is8125: bool) -> Result<R8169> {
         regs.write8(CR, CR_RST);
         platform::wait_until(100, || regs.read8(CR) & CR_RST == 0)?;
-        regs.write16(INTR_MASK, 0);
-        regs.write16(INTR_STATUS, 0xffff);
+        if is8125 {
+            regs.write32(INTR_MASK_8125, 0);
+            regs.write32(INTR_STATUS_8125, 0xffff_ffff);
+        } else {
+            regs.write16(INTR_MASK, 0);
+            regs.write16(INTR_STATUS, 0xffff);
+        }
 
         let mut mac = [0u8; 6];
         for (i, b) in mac.iter_mut().enumerate() {
@@ -96,7 +107,7 @@ impl R8169 {
         regs.write32(RX_CONFIG, 0x0000_e70e); // broadcast, own MAC, multicast; no FIFO limits
         regs.write8(CFG9346, 0x00);
 
-        Ok(R8169 { regs, rx_ring, tx_ring, rx_bufs, tx_buf, rx_next: 0, tx_next: 0, mac })
+        Ok(R8169 { regs, rx_ring, tx_ring, rx_bufs, tx_buf, rx_next: 0, tx_next: 0, mac, is8125 })
     }
 }
 
@@ -111,7 +122,11 @@ fn init_rx_desc(ring: &Dma, bufs: &Dma, i: usize) {
 
 impl NetDevice for R8169 {
     fn name(&self) -> &str {
-        "r8169"
+        if self.is8125 {
+            "r8125"
+        } else {
+            "r8169"
+        }
     }
 
     fn mac(&self) -> [u8; 6] {
@@ -134,7 +149,11 @@ impl NetDevice for R8169 {
         let eor = if self.tx_next == RING - 1 { DESC_EOR } else { 0 };
         d.write32(0, DESC_OWN | eor | DESC_FS | DESC_LS | frame.len() as u32);
         self.tx_next = (self.tx_next + 1) % RING;
-        self.regs.write8(TXPOLL, TXPOLL_NPQ);
+        if self.is8125 {
+            self.regs.write16(TXPOLL_8125, 1);
+        } else {
+            self.regs.write8(TXPOLL, TXPOLL_NPQ);
+        }
         platform::wait_until(1000, || d.read32(0) & DESC_OWN == 0)
     }
 
