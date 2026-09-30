@@ -12,9 +12,12 @@ the installed system.
 The installer is unattended by design. There is no interactive UI: the config decides everything, and the
 disk to erase is chosen either by serial number or, if you opt in, simply as the largest one.
 
-> **Warning.** With `disk.auto_largest = true` (the setting in `presets/`), booting the ISO **erases the
-> largest disk in the machine without asking.** Only boot these ISOs on hardware or VMs where that is what
-> you want.
+> **Warning.** With `disk.auto_largest = true` (the setting in `presets/` and in `examples/config.lua`),
+> booting the ISO **erases the largest disk in the machine without asking.** Only boot these ISOs on
+> hardware or VMs where that is what you want.
+
+This is a proof of concept for people who reinstall Arch often and want it automated. It has no prompts,
+countdowns or abort keys on purpose.
 
 ## Quick start
 
@@ -53,8 +56,11 @@ home directory (`.config/hypr/hyprland.lua`, `.config/hypr/modules/...`). It is 
 home on first boot, as that user. Set it to an empty string to skip it. If the server is down, or does not
 answer with a zip, the archive is skipped with a warning and Hyprland keeps its defaults. **Only point it at a
 server you trust**: a Hyprland config can run arbitrary commands when the session starts, and the archive is
-checked by nothing but HTTPS. The packages the downloaded config launches (status bar, notification daemon,
-and so on) are not installed unless you add them to the preset.
+checked by nothing but HTTPS. The preset installs the programs the current config launches (kitty, rofi,
+waybar, quickshell, awww, swaync, swayosd, hyprlock, hypridle, cliphist, Neovim with the tools LazyVim needs,
+and the three Nerd fonts). Things the config refers to that are **not** installed or not in the zip: a
+quickshell config, `zen-browser` and the `macOS` cursor theme (AUR only; Firefox is installed instead),
+`code`, `kitty-themes`, the wallpaper `~/Images/Wallpapers/special.jpg` and `~/.local/bin/satty-screenshot`.
 
 The presets use `disk.auto_largest = true`. For a machine with several disks, use `disk.confirm_serial`
 in your own config instead (see below).
@@ -67,7 +73,7 @@ cargo xtask run --uefi --disk nvme --nic e1000e
 ```
 
 `xtask run` builds the ISO from `examples/config.lua` and attaches `target/test-disk.img`. Options:
-`--disk virtio|ahci|nvme`, `--nic virtio|e1000|e1000e|rtl8139`, `--config FILE`, `--headless`.
+`--disk virtio|ahci|nvme`, `--nic virtio|e1000|e1000e|igb|rtl8139`, `--config FILE`, `--headless`.
 
 ### Virtual machines and USB sticks
 
@@ -79,11 +85,17 @@ cargo xtask run --uefi --disk nvme --nic e1000e
   packages come from the network, so the stick can be pulled once the installer's first log lines have
   appeared. **Pull it before the final reboot**: if the firmware still prefers the stick, the machine boots
   the installer again and, with `auto_largest`, erases the system that was just installed.
-- Networking: wired only, no Wi-Fi. The installer recognizes 30 PCI device IDs in three driver families:
-  virtio-net (2 IDs), Intel e1000 (14) and e1000e (10), and Realtek RTL8168/8169 (4). Only virtio and the
-  Intel drivers have been run, and only against QEMU's emulated NICs. The Realtek driver has never run on
-  real hardware, and newer Intel chips that share an ID (for example the PCH-integrated I217/I219) may
-  need setup the driver does not do.
+- Networking: wired only, no Wi-Fi. The installer recognizes 71 PCI device IDs in these driver families:
+  virtio-net (2 IDs), Intel e1000 (14) and e1000e (10), Intel igb (28, the 82576/82580/I350/I210/I211
+  generations) and igc (10, I225/I226), Realtek RTL8168/8169 (4) and RTL8125/8126 (2), and the old Realtek
+  RTL8139 (1). Tested, in QEMU's emulated NICs only: virtio, e1000, e1000e, igb and rtl8139, each with an
+  ARP exchange, DHCP, a TLS download from the Arch mirror and a 1 MB HTTP transfer, and for igb and
+  rtl8139 also the start of a real installation. **Never run**: igc, RTL8168/8169 and RTL8125/8126, because
+  QEMU has no models for them; they follow the Linux drivers' setup and may not work on a given chip
+  revision (the RTL8125/8126 in particular need chip-specific tuning in Linux). Some PCI IDs, especially
+  igc's, were written from memory and are unchecked. Newer Intel chips that share an ID (for example the
+  PCH-integrated I217/I219) may need setup the e1000e driver does not do. Not supported: Broadcom `tg3`,
+  Marvell/Aquantia `atlantic`, VMware `vmxnet3`, USB Ethernet and 10 Gbit NICs.
 
 ### Ventoy
 
@@ -170,7 +182,7 @@ validates them strictly at build time and rejects anything with unexpected chara
 | `xtask/` | host tooling: Lua evaluation, keyring blob and its pin (`keyring.pin`), Limine fetch (pinned + sha256), ISO assembly, QEMU runs, tests |
 | `config/` | config types shared by `xtask` and the kernel, plus validation |
 | `crates/hal` | `BlockDevice`, `NetDevice`, `Clock`, `Rng` traits |
-| `crates/drivers` | PCI, virtio-blk/net, AHCI, NVMe, e1000/e1000e, r8169 (all polled) |
+| `crates/drivers` | PCI, virtio-blk/net, AHCI, NVMe, Intel e1000/e1000e/igb/igc, Realtek r8169/r8125/rtl8139 (all polled) |
 | `crates/net` | smoltcp stack, HTTP/1.1 client, TLS |
 | `crates/pgp-lite` | OpenPGP v4 signature verification (RSA, EdDSA) |
 | `crates/pkg` | sync database parser, `vercmp`, resolver, tar/zstd/gzip readers |
@@ -196,20 +208,24 @@ cargo xtask update-keyring                   # move the keyring pin to the newes
 The host-side tests check the crates against real tools and data: `vercmp` against `/usr/bin/vercmp`,
 resolution against `pacman -Sp`, `ext4w` images with `e2fsck`/`debugfs`, GPT with `sfdisk`/`fdisk`, FAT32
 with `fsck.fat`, and the BIOS installer byte-for-byte against `limine bios-install`. `xtask e2e` downloads
-several hundred MiB from the Arch mirror. `--selftest` builds are destructive to every disk they see and are
-meant for QEMU scratch disks only.
+several hundred MiB from the Arch mirror. `xtask run` recreates its scratch disk `target/test-disk.img` on
+every run (a partition table left by an earlier run would make the firmware try the disk before the ISO).
+`xtask e2e` overwrites nothing of yours, but `xtask run --selftest` builds are destructive to every disk
+they see and are meant for QEMU scratch disks only.
 
 `--small` builds the kernel with `build-std` and immediate-abort panics: smaller, but panic messages are
 lost.
 
 ## Status
 
-Verified in QEMU (BIOS and UEFI; virtio, AHCI and NVMe disks; virtio, e1000 and e1000e NICs): install, first
-boot and a second boot to a login prompt, for the `i3` preset and a minimal test config, plus the Ventoy
-boot described above. The other presets resolve (`check-presets`) but have not been through a full install
-in the test harness. Not verified: the Realtek driver, real hardware in general, logging in with the default
-credentials, and the UEFI boot entry created by `efibootmgr` (booting works through the fallback path
-`EFI/BOOT/BOOTX64.EFI`). The first-boot log is only in the journal and is not persisted.
+Verified in QEMU (BIOS and UEFI; virtio, AHCI and NVMe disks; virtio, e1000, e1000e, igb and rtl8139 NICs):
+install, first boot and a second boot to a login prompt, for the `i3` and `hyprland` presets and a minimal
+test config, plus the Ventoy boot described above. The `minimal`, `server` and `plasma` presets resolve
+(`check-presets`) but have not been through a full install in the test harness. Not verified: the igc and
+Realtek drivers (RTL8168/8169, RTL8125/8126), real hardware in general, logging in with the default
+credentials, starting the Hyprland session with the downloaded config, and the UEFI boot entry created by
+`efibootmgr` (booting works through the fallback path `EFI/BOOT/BOOTX64.EFI`). The first-boot log is only in
+the journal and is not persisted.
 
 Not supported: Wi-Fi, USB, ARM and Raspberry Pi, and installing onto anything but NVMe, SATA/AHCI and virtio
 disks. The ISO is about 2.4 MB (2.26 MB with `--small`); the design notes in `PLAN.md` describe what was

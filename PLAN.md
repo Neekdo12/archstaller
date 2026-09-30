@@ -118,3 +118,26 @@ Odhad: výchozí ~3,5–5 MB, po optimalizacích ~1,5–2 MB, minimální varian
 4. `xtask test`: QEMU OVMF + SeaBIOS × (virtio-blk | ahci | nvme) × (virtio-net | e1000) → instalace → boot
    disku oběma režimy → serial log potvrdí dokončení firstbootu a čisté `pacman -Qk`.
 5. Manuálně na reálném stroji s Intel/Realtek NIC.
+
+## Stav implementace (odchylky od plánu)
+
+Všechny fáze 1–6 jsou hotové a ověřené v QEMU (BIOS i UEFI). Podrobnosti a pokyny k použití jsou v `README.md`.
+Rozdíly oproti plánu výše:
+
+- **Ovladače sítě:** k plánovaným e1000/e1000e, r8169 a virtio přibyly igb, igc, RTL8125/8126 a RTL8139. V QEMU
+  proběhly virtio, e1000, e1000e, igb a rtl8139; igc, RTL8168/8169 a RTL8125/8126 nikdy neběžely (QEMU je
+  neemuluje). Wi-Fi, USB, `tg3`, `atlantic` a `vmxnet3` chybí.
+- **Výběr disku:** kromě `confirm_serial` je volitelné `disk.auto_largest` (smaže největší disk bez ptaní).
+- **Provider z configu:** nejednoznačná závislost se nevyhodí jako chyba; použije se první kandidát podle priority
+  repozitáře a jména (jako výchozí odpověď pacmanu) a zaloguje se. `providers` v configu ji přepíše.
+- **První boot:** pacman při `-U` ponechá soubory z `backup=()` jako `.pacnew`, proto se konfigurace z `/etc`
+  ukládá i jako overlay a po `pacman -U` se znovu aplikuje. Initramfs obsahuje také `vfat`/`fat`, protože před
+  prvním `depmod` neexistuje `modules.dep`. `tiny-init` používá `init_module` místo `finit_module`.
+- **Keyring:** pin je v `xtask/keyring.pin`, `cargo xtask update-keyring` ho posune na nejnovější balíček.
+- **`.sig` soubory se nepřipravují**, takže `pacman -U` při prvním bootu podpisy znovu neověřuje (bod „pojistka“
+  z části o keyringu není splněn); podpisy ověřuje jen instalátor.
+- **Neimplementováno:** `xtask test` s celou maticí disk × NIC × režim (je `xtask e2e` s volbami a ručně spuštěné
+  kombinace), kontrola čistého `pacman -Qk`, trvalý log instalace, velikostní optimalizace HTTP-only / pinned CA
+  a komprese kernelu, `cargo bloat` v `xtask size`. ISO má ~2,4 MB (2,26 MB s `--small`), cíl 1,5–2 MB nesplněn.
+- **Přidáno navíc:** presety (`presets/`), `user_files` a `user_archives` (stažení souborů/zip do domovů uživatelů),
+  `ly` jako display manager, `xtask e2e`, `xtask check-presets`, `xtask linux-test`, testy se Ventoy (1.1.17).

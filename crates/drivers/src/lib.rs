@@ -6,12 +6,14 @@ extern crate alloc;
 pub mod ahci;
 pub mod dma;
 pub mod e1000;
+pub mod igb;
 pub mod mmio;
 pub mod nvme;
 pub mod pci;
 pub mod platform;
 pub mod port;
 pub mod r8169;
+pub mod rtl8139;
 pub mod virtio;
 
 use alloc::{boxed::Box, vec::Vec};
@@ -31,7 +33,9 @@ pub fn probe_all() -> Devices {
         ahci::probe(&dev, &mut devs);
         nvme::probe(&dev, &mut devs);
         e1000::probe(&dev, &mut devs);
+        igb::probe(&dev, &mut devs);
         r8169::probe(&dev, &mut devs);
+        rtl8139::probe(&dev, &mut devs);
     }
     devs
 }

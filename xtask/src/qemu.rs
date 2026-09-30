@@ -60,10 +60,10 @@ pub fn run_iso(iso: &Path, opts: &Options) -> Result<()> {
 
     // Blank test disk; the serial lets the installer's confirm_serial check be exercised.
     let disk = root().join("target/test-disk.img");
-    if !disk.exists() {
-        let f = std::fs::File::create(&disk)?;
-        f.set_len(1 << 30)?;
-    }
+    // Always start from a blank disk: a partition table left by an earlier run would make the
+    // firmware try the disk before the ISO.
+    let f = std::fs::File::create(&disk)?;
+    f.set_len(1 << 30)?;
     cmd.arg("-drive").arg(format!("if=none,id=d0,format=raw,file={}", disk.display()));
     match opts.disk.as_str() {
         "virtio" => cmd.args(["-device", "virtio-blk-pci,drive=d0,serial=TESTDISK0"]),
@@ -76,6 +76,7 @@ pub fn run_iso(iso: &Path, opts: &Options) -> Result<()> {
         "virtio" => cmd.args(["-device", "virtio-net-pci,netdev=n0,disable-legacy=on"]),
         "e1000" => cmd.args(["-device", "e1000,netdev=n0"]),
         "e1000e" => cmd.args(["-device", "e1000e,netdev=n0"]),
+        "igb" => cmd.args(["-device", "igb,netdev=n0"]),
         "rtl8139" => cmd.args(["-device", "rtl8139,netdev=n0"]),
         other => return Err(format!("unknown nic type {other}").into()),
     };
