@@ -114,6 +114,7 @@ extern "C" fn _start() -> ! {
     let b = Box::new(v.iter().sum::<u64>());
     println!("heap test: {}", if *b == 499_500 && v[0] == 999 { "OK" } else { "FAILED" });
 
+    println!("calibrating clock...");
     time::init(DATE_AT_BOOT.response().map_or(0, |r| r.timestamp));
     println!("tsc: {} MHz, unix time {}", time::tsc_hz() / 1_000_000, time::unix_time());
 

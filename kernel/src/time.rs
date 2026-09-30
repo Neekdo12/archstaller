@@ -12,6 +12,23 @@ static BOOT_UNIX: AtomicU64 = AtomicU64::new(0);
 
 /// Calibrates the TSC against PIT channel 2 (one-shot, polled).
 pub fn init(boot_unix: i64) {
+    // CPUID first: no port I/O, cannot hang. The PIT is only the fallback (older or AMD CPUs).
+    let hz = match cpuid_tsc_hz() {
+        Some(hz) if (500_000_000..10_000_000_000).contains(&hz) => hz,
+        _ => match pit_tsc_hz() {
+            Some(hz) if (500_000_000..10_000_000_000).contains(&hz) => hz,
+            _ => 2_000_000_000, // unknown: only timeouts and TLS time checks are off
+        },
+    };
+    TSC_HZ.store(hz, Ordering::Relaxed);
+    TSC_BASE.store(unsafe { _rdtsc() }, Ordering::Relaxed);
+    BOOT_UNIX.store(boot_unix.max(0) as u64, Ordering::Relaxed);
+}
+
+/// Calibrates against PIT channel 2 (one-shot, polled). The wait is bounded in TSC cycles (about
+/// a second at typical clocks) because some chipsets never raise the output bit, and port reads
+/// on real hardware are slow, so an iteration cap alone can look like a hang.
+fn pit_tsc_hz() -> Option<u64> {
     unsafe {
         let gate = inb(0x61);
         outb(0x61, (gate & !0x02) | 0x01); // gate on, speaker off
@@ -23,20 +40,21 @@ pub fn init(boot_unix: i64) {
         outb(0x61, g);
         outb(0x61, g | 0x01);
         let start = _rdtsc();
-        // Bounded: some chipsets never raise PIT channel 2's output bit, which would hang here.
-        let mut spins = 0u32;
-        while inb(0x61) & 0x20 == 0 && spins < 20_000_000 {
-            spins += 1;
+        let mut end = start;
+        let mut fired = false;
+        while end - start < 3_000_000_000 {
+            if inb(0x61) & 0x20 != 0 {
+                fired = true;
+                break;
+            }
+            end = _rdtsc();
         }
-        let end = _rdtsc();
+        if fired {
+            end = _rdtsc();
+        }
         outb(0x61, gate);
-        let pit_hz = if spins < 20_000_000 { (end - start) * PIT_HZ / CAL_TICKS as u64 } else { 0 };
-        // Trust the PIT only when the result is plausible (0.5 to 10 GHz); otherwise ask CPUID.
-        let hz = if (500_000_000..10_000_000_000).contains(&pit_hz) { pit_hz } else { cpuid_tsc_hz().unwrap_or(2_000_000_000) };
-        TSC_HZ.store(hz, Ordering::Relaxed);
-        TSC_BASE.store(_rdtsc(), Ordering::Relaxed);
+        fired.then(|| (end - start) * PIT_HZ / CAL_TICKS as u64)
     }
-    BOOT_UNIX.store(boot_unix.max(0) as u64, Ordering::Relaxed);
 }
 
 /// TSC frequency from CPUID leaf 0x15 (crystal ratio), else leaf 0x16 (base MHz).
