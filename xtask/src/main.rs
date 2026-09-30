@@ -45,6 +45,8 @@ pub struct Options {
     pub nic: String,
     /// Build with the usb-selftest kernel feature and attach qemu-xhci + usb-storage.
     pub usb: bool,
+    /// Build with the usb-tethering kernel feature (iPhone Personal Hotspot over USB; needs a real iPhone).
+    pub tethering: bool,
 }
 
 fn parse(args: &[String]) -> Result<Options> {
@@ -61,6 +63,7 @@ fn parse(args: &[String]) -> Result<Options> {
         disk: "virtio".into(),
         nic: "virtio".into(),
         usb: false,
+        tethering: false,
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -77,6 +80,7 @@ fn parse(args: &[String]) -> Result<Options> {
             "--disk" => o.disk = it.next().ok_or("--disk needs a value")?.clone(),
             "--nic" => o.nic = it.next().ok_or("--nic needs a value")?.clone(),
             "--usb" => o.usb = true,
+            "--tethering" => o.tethering = true,
             other => return Err(format!("unknown option {other}").into()),
         }
     }
@@ -85,7 +89,7 @@ fn parse(args: &[String]) -> Result<Options> {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|keyring|update-keyring> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme] [--nic virtio|e1000|e1000e|igb|rtl8139] [--headless] [--selftest] [--small] [--limit BYTES]")?;
+    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|keyring|update-keyring> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme] [--nic virtio|e1000|e1000e|igb|rtl8139] [--headless] [--selftest] [--usb] [--tethering] [--small] [--limit BYTES]")?;
     let opts = parse(rest)?;
     match cmd.as_str() {
         "build" => {

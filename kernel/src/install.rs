@@ -31,13 +31,13 @@ pub struct BootFiles {
 }
 
 const ARCH: &str = "x86_64";
-const REPOS: [&str; 2] = ["core", "extra"];
+pub(crate) const REPOS: [&str; 2] = ["core", "extra"];
 const CACHE_DIR: &str = "var/cache/pacman/pkg";
 const STATE_DIR: &str = "var/lib/archstaler";
 
-type R<T> = Result<T, String>;
+pub(crate) type R<T> = Result<T, String>;
 
-fn dbg_err<E: core::fmt::Debug>(ctx: &'static str) -> impl FnOnce(E) -> String {
+pub(crate) fn dbg_err<E: core::fmt::Debug>(ctx: &'static str) -> impl FnOnce(E) -> String {
     move |e| format!("{ctx}: {e:?}")
 }
 
@@ -81,7 +81,7 @@ impl<S: Storage> Read for CacheReader<S> {
     }
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     time::uptime_ns() / 1_000_000
 }
 
@@ -95,7 +95,7 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn expand(mirror: &str, repo: &str) -> String {
+pub(crate) fn expand(mirror: &str, repo: &str) -> String {
     mirror.replace("$repo", repo).replace("$arch", ARCH)
 }
 
@@ -146,11 +146,11 @@ fn select_largest(devs: &mut Devices) -> R<Box<dyn BlockDevice>> {
     Ok(devs.block.remove(biggest[0]))
 }
 
-const USER_FILE_MAX: usize = 1 << 20;
-const USER_ARCHIVE_MAX: usize = 16 << 20;
+pub(crate) const USER_FILE_MAX: usize = 1 << 20;
+pub(crate) const USER_ARCHIVE_MAX: usize = 16 << 20;
 
 /// Downloads a small optional file; any failure is reported as text, never as a hard error.
-fn fetch_optional(client: &Client, stack: &mut net::Stack, url: &str, max: usize) -> Result<Vec<u8>, String> {
+pub(crate) fn fetch_optional(client: &Client, stack: &mut net::Stack, url: &str, max: usize) -> Result<Vec<u8>, String> {
     let mut data = Vec::new();
     let mut too_big = false;
     let r = client.get(stack, url, &mut |d| {
@@ -169,7 +169,7 @@ fn fetch_optional(client: &Client, stack: &mut net::Stack, url: &str, max: usize
     }
 }
 
-fn bring_up_network(devs: &mut Devices) -> R<net::Stack> {
+pub(crate) fn bring_up_network(devs: &mut Devices) -> R<net::Stack> {
     if devs.net.is_empty() {
         return Err("no supported network interface".into());
     }
@@ -191,7 +191,7 @@ fn bring_up_network(devs: &mut Devices) -> R<net::Stack> {
     Ok(stack)
 }
 
-fn fetch_to_vec(client: &Client, stack: &mut net::Stack, cfg: &Config, path: &str, repo: &str) -> R<Vec<u8>> {
+pub(crate) fn fetch_to_vec(client: &Client, stack: &mut net::Stack, cfg: &Config, path: &str, repo: &str) -> R<Vec<u8>> {
     let mut last = String::new();
     for m in &cfg.mirrors {
         let url = format!("{}/{}", expand(m, repo), path);

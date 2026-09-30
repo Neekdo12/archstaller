@@ -8,6 +8,7 @@ mod console;
 mod fb;
 mod heap;
 mod idt;
+mod hwtest;
 mod install;
 mod paging;
 mod platform;
@@ -113,6 +114,7 @@ extern "C" fn _start() -> ! {
     let b = Box::new(v.iter().sum::<u64>());
     println!("heap test: {}", if *b == 499_500 && v[0] == 999 { "OK" } else { "FAILED" });
 
+    println!("calibrating clock...");
     time::init(DATE_AT_BOOT.response().map_or(0, |r| r.timestamp));
     println!("tsc: {} MHz, unix time {}", time::tsc_hz() / 1_000_000, time::unix_time());
 
@@ -203,6 +205,7 @@ extern "C" fn _start() -> ! {
         }
         match imobiledevice::tether(time::unix_time, 120_000, &mut Log) {
             Ok(dev) => {
+                use hal::NetDevice as _;
                 let m = dev.mac();
                 println!(
                     "usb: iPhone tethering up, mac {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
@@ -245,6 +248,7 @@ extern "C" fn _start() -> ! {
     {
         let module = |suffix: &str| MODULES.response().and_then(|r| r.modules().iter().find(|m| m.path().ends_with(suffix))).map(|m| m.data());
         match (cfg, keyring, module("tiny-init"), module("limine-bios.sys"), module("limine-bios-hdd.bin"), module("BOOTX64.EFI")) {
+            (Some(cfg), keyring, ..) if cfg.dry_run => hwtest::run(&cfg, devs, keyring.as_ref()),
             (Some(cfg), Some(keyring), Some(tiny_init), Some(bios_sys), Some(hdd), Some(efi)) => {
                 let boot = install::BootFiles { tiny_init, limine_bios_sys: bios_sys, limine_bios_hdd: hdd, bootx64_efi: efi };
                 match install::run(&cfg, devs, &keyring, &boot) {

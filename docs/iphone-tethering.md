@@ -1,5 +1,7 @@
 # Implementation spec: iPhone USB tethering as a network source
 
+> **Status: implemented** in `crates/usb` and `crates/imobiledevice` (kernel feature `usb-tethering`, `cargo xtask build --tethering`); see `OVERVIEW.md`. Parts that need a real iPhone are marked UNVERIFIED in the code. Deviations from this spec: the plist codec also reads XML plists, and pairing is not persisted.
+
 Goal: let the installer get network access from an iPhone/iPad's Personal Hotspot over a USB cable,
 in addition to the existing PCI NICs in `crates/drivers`. No Wi-Fi, no firmware blobs. This is a from-scratch
 addition; nothing in the tree implements USB today.

@@ -14,7 +14,8 @@ that need a running Linux.
 1. **Limine** loads `kernel`, plus modules: `config.bin`, `keyring.bin`, `tiny-init`, Limine's own
    BIOS/UEFI files (see `xtask/src/iso.rs`'s `LIMINE_CONF`).
 2. **kernel** (`kernel/src/main.rs`, `install.rs`) runs, single core, polling only:
-   - enumerates disks/NICs via `crates/drivers::probe_all()` (PCI scan).
+   - enumerates disks/NICs via `crates/drivers::probe_all()` (PCI scan). With the `usb-tethering` kernel
+     feature it also tries `imobiledevice::tether()` and, on success, adds the iPhone as one more NIC.
    - selects the target disk per `Config.disk` (serial match, or `auto_largest`); writes nothing until
      this succeeds.
    - DHCP, then downloads `core.db`/`extra.db` over HTTPS (`crates/net`).
@@ -40,6 +41,8 @@ that need a running Linux.
 | `config/` | `Config`/`Disk`/`User`/`UserFile`/`UserArchive` types shared by `xtask` and `kernel`, plus validation |
 | `crates/hal` | traits: `BlockDevice`, `NetDevice`, `Clock`, `Rng` |
 | `crates/drivers` | PCI enumeration (`pci.rs`), virtio blk/net, AHCI, NVMe, Intel e1000/e1000e/igb(+igc), Realtek r8169/r8125/rtl8139 — all polled, no IRQs |
+| `crates/usb` | xHCI host controller driver (polled): command/event/transfer rings, enumeration of enabled ports, descriptors, control + bulk transfers. One controller, no hubs |
+| `crates/imobiledevice` | iPhone USB tethering: plist (binary + XML) codec, usbmuxd framing over bulk endpoints (`mux.rs`), pairing with a generated RSA-2048 host identity (`cert.rs`, `pair.rs`), TLS-wrapped lockdownd session + `StartService` (`lockdown.rs`), `hal::NetDevice` adapter (`netdev.rs`). Unit-tested on the host only; needs a real phone end-to-end |
 | `crates/net` | `smoltcp` stack glue (`stack.rs`), HTTP/1.1 client (`http.rs`, `client.rs`), TLS via `rustls` + `rustls-rustcrypto` + `webpki-roots` (`tls.rs`) |
 | `crates/pgp-lite` | OpenPGP v4 signature verification (RSA, EdDSA) against an embedded keyring blob |
 | `crates/pkg` | sync DB parser (`desc.rs`, `db.rs`), `vercmp` port, dependency resolver (`resolve.rs`), tar/zstd/gzip readers (`tar.rs`, `compress.rs`, `io.rs`) |
@@ -49,7 +52,7 @@ that need a running Linux.
 | `tiny-init/` | the initramfs `/init`: raw syscalls only, no libc, `no_std`; loads modules, mounts root, `switch_root` |
 | `firstboot/` | systemd unit files + `firstboot.sh`, embedded into the image at install time, run on first boot |
 | `presets/`, `examples/` | Lua configs; `presets/common.lua` holds shared defaults, `examples/config.lua` is the documented example, `examples/e2e.lua` is used by `xtask e2e` |
-| `docs/` | specs for not-yet-implemented, optional features: `wifi.md`, `iphone-tethering.md` |
+| `docs/` | `wifi.md` (spec for a not-implemented feature), `iphone-tethering.md` (spec the tethering crates were written from) |
 | `sizes.md` | measured ISO size breakdown and size-reduction options |
 | `PLAN.md` | original design plan/decision log |
 
@@ -88,11 +91,24 @@ Current total ~2.3 MiB; see `sizes.md` for the full byte-by-byte breakdown and r
 - `cargo xtask linux-test`: boots the host Linux kernel with our initramfs + an ext4w-built root.
 - `cargo xtask e2e [--uefi] [--disk ...] [--nic ...] [--config FILE]`: full install in QEMU onto a blank
   disk, then boots the result twice.
+- `cargo xtask run --usb`: adds `qemu-xhci` + `usb-storage` and builds the `usb-selftest` kernel, which enumerates the USB device and runs a SCSI INQUIRY over bulk endpoints.
 - `cargo xtask size [--small] [--limit BYTES]`: ISO content breakdown + size budget check.
 - `cargo xtask check-presets`: resolves every preset against local pacman sync DBs.
 
+## iPhone USB tethering (optional)
+
+Off by default; build with `--features usb-tethering` on the kernel (`cargo xtask build --tethering`).
+`kernel/src/main.rs` calls `imobiledevice::tether()` after `probe_all()`: xHCI init, find an Apple device,
+usbmux `Connect` to lockdownd (port 62078), `Pair` (the user taps "Trust"; retried for 120 s; the pairing
+record is not persisted), TLS `StartSession`, `StartService` for the hotspot relay, then a second mux
+channel that becomes `IphoneNet`. `crates/net` is untouched: the relay carries raw IP, so `IphoneNet`
+adds/strips a 14-byte Ethernet header (`RELAY_RAW_IP` in `crates/imobiledevice/src/lib.rs`). `install::run`
+uses the first NIC with link, so a wired NIC wins if present. The relay service name, mux device id and
+raw-IP-vs-Ethernet choice are marked UNVERIFIED in the code: they were never run against a real iPhone.
+The xHCI driver itself is smoke-tested in QEMU with `cargo xtask run --usb` (`qemu-xhci` + `usb-storage`,
+bulk-only INQUIRY). Adds about 120 KiB to the kernel.
+
 ## Out of scope
 
-Wi-Fi, USB, SMP, Secure Boot, an interactive UI, filesystems other than ext4, architectures other than
-x86_64. Specs exist for two possible future additions in `docs/`: Wi-Fi (`docs/wifi.md`) and iPhone USB
-tethering (`docs/iphone-tethering.md`) — neither is implemented.
+Wi-Fi, other USB devices, SMP, Secure Boot, an interactive UI, filesystems other than ext4, architectures
+other than x86_64. A spec exists for Wi-Fi in `docs/wifi.md`; it is not implemented.

@@ -79,13 +79,14 @@ cargo xtask run --uefi --disk nvme --nic e1000e
 
 - Firmware: BIOS or UEFI both work; **Secure Boot must be off** (neither the ISO nor the installed system
   supports it). Only x86_64 is supported; there is no ARM or Raspberry Pi support.
-- The installer has **no USB drivers**. It sees NVMe, AHCI/SATA and virtio disks only, so an installer USB
-  stick is never a candidate for `auto_largest`. It also means it cannot install onto a USB disk.
+- The installer has **no USB storage drivers**. It sees NVMe, AHCI/SATA and virtio disks only, so an installer USB
+  stick is never a candidate for `auto_largest`. It also means it cannot install onto a USB disk. The only
+  USB code is the optional iPhone tethering described under Networking.
 - Everything the installer needs is loaded into RAM by the boot loader before the kernel starts, and
   packages come from the network, so the stick can be pulled once the installer's first log lines have
   appeared. **Pull it before the final reboot**: if the firmware still prefers the stick, the machine boots
   the installer again and, with `auto_largest`, erases the system that was just installed.
-- Networking: wired only, no Wi-Fi. The installer recognizes 71 PCI device IDs in these driver families:
+- Networking: wired PCI NICs, plus an optional iPhone Personal Hotspot over USB (below). No Wi-Fi. The installer recognizes 71 PCI device IDs in these driver families:
   virtio-net (2 IDs), Intel e1000 (14) and e1000e (10), Intel igb (28, the 82576/82580/I350/I210/I211
   generations) and igc (10, I225/I226), Realtek RTL8168/8169 (4) and RTL8125/8126 (2), and the old Realtek
   RTL8139 (1). Tested, in QEMU's emulated NICs only: virtio, e1000, e1000e, igb and rtl8139, each with an
@@ -96,6 +97,14 @@ cargo xtask run --uefi --disk nvme --nic e1000e
   igc's, were written from memory and are unchecked. Newer Intel chips that share an ID (for example the
   PCH-integrated I217/I219) may need setup the e1000e driver does not do. Not supported: Broadcom `tg3`,
   Marvell/Aquantia `atlantic`, VMware `vmxnet3`, USB Ethernet and 10 Gbit NICs.
+- iPhone USB tethering (optional, off by default, **never run against a real iPhone**): build with
+  `cargo xtask build --tethering`, plug in an unlocked iPhone with Personal Hotspot available, and tap
+  "Trust" when it asks (the installer waits 120 s). It uses an xHCI controller (`crates/usb`) and Apple's
+  usbmuxd/lockdownd protocols (`crates/imobiledevice`) and appears as one more NIC; a wired NIC with link
+  is preferred. Pairing is redone on every run. The hotspot service name, the mux device id and whether
+  the relay carries raw IP or Ethernet frames are best guesses (marked UNVERIFIED in the code) and may need
+  adjusting after a capture from a real phone. Only the xHCI driver was tested, in QEMU with `xtask run
+  --usb`. It adds about 120 KiB to the kernel.
 
 ### Ventoy
 
@@ -171,7 +180,7 @@ validates them strictly at build time and rejects anything with unexpected chara
   the ISOs. Nothing else in the ISO goes stale: package databases and packages are fetched at install
   time, so each install gets whatever the mirror has that day.
 - Arch's sync databases are not signed; their integrity relies on HTTPS.
-- Out of scope: Wi-Fi, USB, SMP, Secure Boot, an interactive UI, filesystems other than ext4, architectures
+- Out of scope: Wi-Fi, other USB devices, SMP, Secure Boot, an interactive UI, filesystems other than ext4, architectures
   other than x86_64.
 
 ## Repository layout
@@ -183,6 +192,8 @@ validates them strictly at build time and rejects anything with unexpected chara
 | `config/` | config types shared by `xtask` and the kernel, plus validation |
 | `crates/hal` | `BlockDevice`, `NetDevice`, `Clock`, `Rng` traits |
 | `crates/drivers` | PCI, virtio-blk/net, AHCI, NVMe, Intel e1000/e1000e/igb/igc, Realtek r8169/r8125/rtl8139 (all polled) |
+| `crates/usb` | xHCI driver with control and bulk transfers (used only for iPhone tethering) |
+| `crates/imobiledevice` | iPhone USB tethering: plist, usbmuxd, pairing, lockdownd, `NetDevice` adapter |
 | `crates/net` | smoltcp stack, HTTP/1.1 client, TLS |
 | `crates/pgp-lite` | OpenPGP v4 signature verification (RSA, EdDSA) |
 | `crates/pkg` | sync database parser, `vercmp`, resolver, tar/zstd/gzip readers |
@@ -200,6 +211,7 @@ cargo test --release -p pgp-lite --features std -p pkg -p ext4w -p disk -p initr
 cargo xtask linux-test                       # boots the host kernel with our initramfs and an ext4w root
 cargo xtask e2e [--uefi] [--disk ahci --nic e1000]   # install onto a blank disk, then boot twice
 cargo xtask e2e --config presets/i3.lua      # the same for a preset
+cargo xtask run --usb --headless            # xHCI smoke test: qemu-xhci + usb-storage, SCSI INQUIRY
 cargo xtask size [--small] [--limit BYTES]   # ISO contents and size limit check
 cargo xtask check-presets                    # resolve every preset against the local pacman databases
 cargo xtask update-keyring                   # move the keyring pin to the newest release
@@ -227,6 +239,8 @@ credentials, starting the Hyprland session with the downloaded config, and the U
 `efibootmgr` (booting works through the fallback path `EFI/BOOT/BOOTX64.EFI`). The first-boot log is only in
 the journal and is not persisted.
 
-Not supported: Wi-Fi, USB, ARM and Raspberry Pi, and installing onto anything but NVMe, SATA/AHCI and virtio
+iPhone tethering is unverified on real hardware; its crates pass host unit tests and the xHCI driver passes the QEMU smoke test, but `xtask e2e` cannot exercise it (QEMU cannot emulate an iPhone).
+
+Not supported: Wi-Fi, other USB devices, ARM and Raspberry Pi, and installing onto anything but NVMe, SATA/AHCI and virtio
 disks. The ISO is about 2.4 MB (2.26 MB with `--small`); the design notes in `PLAN.md` describe what was
 aimed at and what remains.

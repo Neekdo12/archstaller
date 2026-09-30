@@ -12,7 +12,7 @@ Ten nainstaluje Arch z mirroru na ext4 podle předem připraveného Lua configu.
 - Root FS: ext4
 - Hooky/scriptlety: při prvním bootu (`pacman -U` z cache)
 - Secure Boot: nepodporován (ISO ani cíl) – musí být vypnutý
-- Mimo rozsah: Wi-Fi, USB/xHCI, SMP, Secure Boot, interaktivní TUI, jiné FS než ext4, jiné architektury
+- Mimo rozsah: Wi-Fi, USB kromě tetheringu iPhonu (viz níže), SMP, Secure Boot, interaktivní TUI, jiné FS než ext4, jiné architektury
 
 ## Struktura workspace
 
@@ -126,7 +126,7 @@ Rozdíly oproti plánu výše:
 
 - **Ovladače sítě:** k plánovaným e1000/e1000e, r8169 a virtio přibyly igb, igc, RTL8125/8126 a RTL8139. V QEMU
   proběhly virtio, e1000, e1000e, igb a rtl8139; igc, RTL8168/8169 a RTL8125/8126 nikdy neběžely (QEMU je
-  neemuluje). Wi-Fi, USB, `tg3`, `atlantic` a `vmxnet3` chybí.
+  neemuluje). Wi-Fi, USB Ethernet, `tg3`, `atlantic` a `vmxnet3` chybí.
 - **Výběr disku:** kromě `confirm_serial` je volitelné `disk.auto_largest` (smaže největší disk bez ptaní).
 - **Provider z configu:** nejednoznačná závislost se nevyhodí jako chyba; použije se první kandidát podle priority
   repozitáře a jména (jako výchozí odpověď pacmanu) a zaloguje se. `providers` v configu ji přepíše.
@@ -139,5 +139,9 @@ Rozdíly oproti plánu výše:
 - **Neimplementováno:** `xtask test` s celou maticí disk × NIC × režim (je `xtask e2e` s volbami a ručně spuštěné
   kombinace), kontrola čistého `pacman -Qk`, trvalý log instalace, velikostní optimalizace HTTP-only / pinned CA
   a komprese kernelu, `cargo bloat` v `xtask size`. ISO má ~2,4 MB (2,26 MB s `--small`), cíl 1,5–2 MB nesplněn.
+- **Tethering iPhonu přes USB (volitelný, feature `usb-tethering`, ve výchozím stavu vypnutý):** `crates/usb` (xHCI,
+  ověřeno v QEMU s `usb-storage`) a `crates/imobiledevice` (plist, usbmuxd, párování, lockdownd přes TLS,
+  `NetDevice`). Přidává ~120 KiB. Na skutečném iPhonu nikdy neběžel; název služby hotspotu, id zařízení a to, zda
+  relay nese IP nebo Ethernet, jsou označeny UNVERIFIED v kódu. Párování se neukládá.
 - **Přidáno navíc:** presety (`presets/`), `user_files` a `user_archives` (stažení souborů/zip do domovů uživatelů),
   `ly` jako display manager, `xtask e2e`, `xtask check-presets`, `xtask linux-test`, testy se Ventoy (1.1.17).

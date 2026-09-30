@@ -362,46 +362,43 @@ impl Controller {
         }
     }
 
-    /// Fills the input context for `slot`: control context + slot context + EP0 context,
-    /// plus optionally one context per ring beyond EP0 (used by Configure Endpoint).
-    pub(crate) fn build_input_ctx(&mut self, slot: u8, config_value: u8) {
+    /// Fills the input context for `slot`. With no `eps` this is the Address Device form
+    /// (slot + EP0 contexts). With `eps` (`(dci, xHCI endpoint type, max packet)`) it is the
+    /// Configure Endpoint form: only the listed endpoints are added, EP0 is left alone.
+    pub(crate) fn build_input_ctx(&mut self, slot: u8, config_value: u8, eps: &[(u8, u32, u32)]) {
         let cs = self.ctx_size;
         let Some(s) = &mut self.slots[(slot - 1) as usize] else { return };
         let in_ctx = Mmio::new(s.in_ctx.as_ptr());
         s.in_ctx.as_mut_slice().fill(0);
-        let max_dci = s.rings.len() as u8; // rings[0] is EP0 (DCI 1)
         let mut add = 1u32; // slot context
-        for dci in 1..=max_dci {
-            if config_value == 0 && dci > 1 {
-                break;
-            }
+        let mut entries = 1u8;
+        if eps.is_empty() {
+            add |= 1 << 1;
+        }
+        for &(dci, _, _) in eps {
             add |= 1 << dci;
+            entries = entries.max(dci);
         }
         in_ctx.write32(4, add); // add flags (drop flags stay 0)
-        if config_value != 0 {
+        if !eps.is_empty() {
             in_ctx.write32(7 * 4, config_value as u32);
         }
         // Slot context.
         let sctx = in_ctx.offset(cs);
-        let entries = if config_value == 0 { 1 } else { max_dci };
         sctx.write32(0, ((entries as u32) << 27) | ((s.speed as u32) << 20));
         sctx.write32(4, (s.port as u32) << 16);
-        // Endpoint contexts for every ring.
-        for (i, ring) in s.rings.iter().enumerate() {
-            let dci = i as u8 + 1;
-            if config_value == 0 && dci > 1 {
-                break;
-            }
+        if eps.is_empty() {
+            let ectx = in_ctx.offset(cs * 2);
+            ectx.write32(4, (3 << 1) | (4 << 3) | ((Self::ep0_mps(s.speed) as u32) << 16));
+            ectx.write64(8, s.rings[0].phys() | 1); // TR dequeue + DCS
+            ectx.write32(16, 8);
+        }
+        for &(dci, ty, mps) in eps {
             let ectx = in_ctx.offset(cs * (1 + dci as usize));
-            let (ty, mps) = if dci == 1 {
-                (4u32, Self::ep0_mps(s.speed) as u32) // control
-            } else {
-                (2u32, 512u32) // bulk out (MPS fixed up by caller before configure)
-            };
-            ectx.write32(0, 0); // interval 0
-            ectx.write32(4, (3 << 1) | (ty << 3) | ((mps as u32) << 16));
-            ectx.write64(8, ring.phys() | 1); // TR dequeue + DCS
-            ectx.write32(16, if dci == 1 { 8 } else { 1024 });
+            ectx.write32(0, 0);
+            ectx.write32(4, (3 << 1) | (ty << 3) | (mps << 16));
+            ectx.write64(8, s.rings[(dci - 1) as usize].phys() | 1);
+            ectx.write32(16, 1024);
         }
     }
 
@@ -447,7 +444,7 @@ impl Controller {
             Mmio::new(self.dcbaa.as_ptr()).write64(slot as usize * 8, out_ctx.phys());
             let rings = alloc::vec![Ring::new(RING_TRBS)];
             self.slots[(slot - 1) as usize] = Some(Slot { out_ctx, in_ctx, rings, speed, port });
-            self.build_input_ctx(slot, 0);
+            self.build_input_ctx(slot, 0, &[]);
             self.address_device(slot)
         })();
         if result.is_err() {
@@ -470,16 +467,11 @@ impl Controller {
                 s.rings.push(Ring::new(RING_TRBS));
             }
         }
-        self.build_input_ctx(slot, config_value);
-        // Patch each endpoint context with its real type/MPS.
-        let cs = self.ctx_size;
-        let Some(s) = &self.slots[(slot - 1) as usize] else { return Err(Error::InvalidArgument) };
-        let in_ctx = Mmio::new(s.in_ctx.as_ptr());
-        for ep in eps {
-            let ectx = in_ctx.offset(cs * (1 + ep.dci() as usize));
-            let ty = if ep.is_in() { 6u32 } else { 2u32 }; // bulk in / bulk out
-            ectx.write32(4, (3 << 1) | (ty << 3) | ((ep.max_packet as u32) << 16));
-        }
+        let list: alloc::vec::Vec<(u8, u32, u32)> = eps
+            .iter()
+            .map(|ep| (ep.dci(), if ep.is_in() { 6u32 } else { 2u32 }, ep.max_packet as u32))
+            .collect();
+        self.build_input_ctx(slot, config_value, &list);
         self.configure(slot, TRB_CONFIGURE_EP)
     }
 

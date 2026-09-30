@@ -12,6 +12,23 @@ static BOOT_UNIX: AtomicU64 = AtomicU64::new(0);
 
 /// Calibrates the TSC against PIT channel 2 (one-shot, polled).
 pub fn init(boot_unix: i64) {
+    // CPUID first: no port I/O, cannot hang. The PIT is only the fallback (older or AMD CPUs).
+    let hz = match cpuid_tsc_hz() {
+        Some(hz) if (500_000_000..10_000_000_000).contains(&hz) => hz,
+        _ => match pit_tsc_hz() {
+            Some(hz) if (500_000_000..10_000_000_000).contains(&hz) => hz,
+            _ => 2_000_000_000, // unknown: only timeouts and TLS time checks are off
+        },
+    };
+    TSC_HZ.store(hz, Ordering::Relaxed);
+    TSC_BASE.store(unsafe { _rdtsc() }, Ordering::Relaxed);
+    BOOT_UNIX.store(boot_unix.max(0) as u64, Ordering::Relaxed);
+}
+
+/// Calibrates against PIT channel 2 (one-shot, polled). The wait is bounded in TSC cycles (about
+/// a second at typical clocks) because some chipsets never raise the output bit, and port reads
+/// on real hardware are slow, so an iteration cap alone can look like a hang.
+fn pit_tsc_hz() -> Option<u64> {
     unsafe {
         let gate = inb(0x61);
         outb(0x61, (gate & !0x02) | 0x01); // gate on, speaker off
@@ -23,13 +40,40 @@ pub fn init(boot_unix: i64) {
         outb(0x61, g);
         outb(0x61, g | 0x01);
         let start = _rdtsc();
-        while inb(0x61) & 0x20 == 0 {}
-        let end = _rdtsc();
+        let mut end = start;
+        let mut fired = false;
+        while end - start < 3_000_000_000 {
+            if inb(0x61) & 0x20 != 0 {
+                fired = true;
+                break;
+            }
+            end = _rdtsc();
+        }
+        if fired {
+            end = _rdtsc();
+        }
         outb(0x61, gate);
-        TSC_HZ.store((end - start) * PIT_HZ / CAL_TICKS as u64, Ordering::Relaxed);
-        TSC_BASE.store(end, Ordering::Relaxed);
+        fired.then(|| (end - start) * PIT_HZ / CAL_TICKS as u64)
     }
-    BOOT_UNIX.store(boot_unix.max(0) as u64, Ordering::Relaxed);
+}
+
+/// TSC frequency from CPUID leaf 0x15 (crystal ratio), else leaf 0x16 (base MHz).
+fn cpuid_tsc_hz() -> Option<u64> {
+    use core::arch::x86_64::__cpuid;
+    let max = __cpuid(0).eax;
+    if max >= 0x15 {
+        let l = __cpuid(0x15);
+        if l.eax != 0 && l.ebx != 0 && l.ecx != 0 {
+            return Some(l.ecx as u64 * l.ebx as u64 / l.eax as u64);
+        }
+    }
+    if max >= 0x16 {
+        let mhz = __cpuid(0x16).eax as u64 & 0xffff;
+        if mhz != 0 {
+            return Some(mhz * 1_000_000);
+        }
+    }
+    None
 }
 
 pub fn tsc_hz() -> u64 {
