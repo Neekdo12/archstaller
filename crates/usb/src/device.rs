@@ -88,14 +88,14 @@ impl Controller {
         let mut out = Vec::new();
         for (port, speed) in self.enabled_ports() {
             match self.enumerate_port(port, speed) {
-                Ok(d) => out.push(d),
+                Ok(devices) => out.extend(devices),
                 Err(_) => continue, // a port that won't enumerate is not fatal
             }
         }
         Ok(out)
     }
 
-    fn enumerate_port(&mut self, port: u8, speed: u8) -> Result<Device> {
+    fn enumerate_port(&mut self, port: u8, speed: u8) -> Result<Vec<Device>> {
         let slot = self.add_device(port, speed)?;
         let probe = Device {
             slot,
@@ -135,24 +135,37 @@ impl Controller {
         if num_configs == 0 {
             return Err(Error::Unsupported);
         }
-        let mut chead = [0u8; 9];
-        self.get_descriptor(&probe, desc::DT_CONFIG, 0, &mut chead)?;
-        let total = u16::from_le_bytes([chead[2], chead[3]]) as usize;
-        if total < 9 || total > 4096 {
-            return Err(Error::Io);
+        let mut devices = Vec::new();
+        for config_index in 0..num_configs {
+            let mut chead = [0u8; 9];
+            if self.get_descriptor(&probe, desc::DT_CONFIG, config_index, &mut chead).is_err()
+                || chead[1] != desc::DT_CONFIG
+            {
+                continue;
+            }
+            let total = u16::from_le_bytes([chead[2], chead[3]]) as usize;
+            if total < 9 || total > 4096 {
+                continue;
+            }
+            let mut cblob = alloc::vec![0u8; total];
+            if self.get_descriptor(&probe, desc::DT_CONFIG, config_index, &mut cblob).is_err()
+                || cblob[1] != desc::DT_CONFIG
+            {
+                continue;
+            }
+            devices.push(Device {
+                slot,
+                vendor,
+                product,
+                serial: serial.clone(),
+                configuration: cblob[5],
+                interfaces: desc::parse_config(&cblob),
+            });
         }
-        let mut cblob = alloc::vec![0u8; total];
-        self.get_descriptor(&probe, desc::DT_CONFIG, 0, &mut cblob)?;
-        let configuration = cblob[5];
-
-        Ok(Device {
-            slot,
-            vendor,
-            product,
-            serial,
-            configuration,
-            interfaces: desc::parse_config(&cblob),
-        })
+        if devices.is_empty() {
+            return Err(Error::Unsupported);
+        }
+        Ok(devices)
     }
 
     /// SET_CONFIGURATION + xHCI Configure Endpoint for the interface's bulk endpoints.

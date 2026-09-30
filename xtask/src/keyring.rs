@@ -180,6 +180,7 @@ pub fn build() -> Result<Vec<u8>> {
     let home = dir.join("gnupg");
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home)?;
+    #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700))?;

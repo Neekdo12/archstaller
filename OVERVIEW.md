@@ -37,11 +37,11 @@ that need a running Linux.
 | Path | Contents |
 |---|---|
 | `kernel/` | the installer kernel: console (`fb.rs`, `serial.rs`, `console.rs`), heap (`heap.rs`), exceptions (`idt.rs`), paging (`paging.rs`), TSC clock (`time.rs`), install flow (`install.rs`), entry point (`main.rs`) |
-| `xtask/` | host tooling: `iso.rs` (build kernel + assemble ISO), `lua.rs` (config.lua -> config.bin), `keyring.rs` (keyring blob + pin), `limine.rs` (fetch pinned Limine), `qemu.rs` (run in QEMU), `e2e.rs` (install + boot test), `presets.rs`, `linux_test.rs`, `main.rs` (CLI) |
+| `xtask/` | host tooling: `iso.rs` (build kernel + assemble ISO), `lua.rs` (config.lua -> config.bin, including shared preset modules on Windows), `keyring.rs` (keyring blob + pin), `limine.rs` (fetch pinned Limine), `qemu.rs` (run in QEMU), `e2e.rs` (install + boot test), `presets.rs`, `linux_test.rs`, `main.rs` (CLI) |
 | `config/` | `Config`/`Disk`/`User`/`UserFile`/`UserArchive` types shared by `xtask` and `kernel`, plus validation |
 | `crates/hal` | traits: `BlockDevice`, `NetDevice`, `Clock`, `Rng` |
 | `crates/drivers` | PCI enumeration (`pci.rs`), virtio blk/net, AHCI, NVMe, Intel e1000/e1000e/igb(+igc), Realtek r8169/r8125/rtl8139 — all polled, no IRQs |
-| `crates/usb` | xHCI host controller driver (polled): command/event/transfer rings, enumeration of enabled ports, descriptors, control + bulk transfers. One controller, no hubs |
+| `crates/usb` | xHCI host controller driver (polled): command/event/transfer rings, enumeration of enabled ports and USB configurations, descriptors, control + bulk transfers. One controller, no hubs |
 | `crates/imobiledevice` | iPhone USB tethering: plist (binary + XML) codec, usbmuxd framing over bulk endpoints (`mux.rs`), pairing with a generated RSA-2048 host identity (`cert.rs`, `pair.rs`), TLS-wrapped lockdownd session + `StartService` (`lockdown.rs`), `hal::NetDevice` adapter (`netdev.rs`). Unit-tested on the host only; needs a real phone end-to-end |
 | `crates/net` | `smoltcp` stack glue (`stack.rs`), HTTP/1.1 client (`http.rs`, `client.rs`), TLS via `rustls` + `rustls-rustcrypto` + `webpki-roots` (`tls.rs`) |
 | `crates/pgp-lite` | OpenPGP v4 signature verification (RSA, EdDSA) against an embedded keyring blob |
@@ -51,7 +51,7 @@ that need a running Linux.
 | `crates/initrd` | cpio newc writer (`cpio.rs`), kernel module dependency resolution from ELF `.modinfo` (`modules.rs`) |
 | `tiny-init/` | the initramfs `/init`: raw syscalls only, no libc, `no_std`; loads modules, mounts root, `switch_root` |
 | `firstboot/` | systemd unit files + `firstboot.sh`, embedded into the image at install time, run on first boot |
-| `presets/`, `examples/` | Lua configs; `presets/common.lua` holds shared defaults, `examples/config.lua` is the documented example, `examples/e2e.lua` is used by `xtask e2e` |
+| `presets/`, `examples/` | Lua configs; `presets/common.lua` holds shared defaults and supports opt-in `dry_run` mode, `presets/tester.lua` is read-only hardware testing, `examples/config.lua` is the documented example, `examples/e2e.lua` is used by `xtask e2e` |
 | `docs/` | `wifi.md` (spec for a not-implemented feature), `iphone-tethering.md` (spec the tethering crates were written from) |
 | `sizes.md` | measured ISO size breakdown and size-reduction options |
 | `PLAN.md` | original design plan/decision log |
@@ -69,7 +69,8 @@ loader config).
 
 - Keyring blob (`boot/keyring.bin`) is derived at build time from a pinned `archlinux-keyring` package
   (`xtask/keyring.pin`, sha256-checked), reduced to fingerprint + pubkey + expiry per packager key that
-  has web-of-trust certification from the main Arch signing keys (`xtask/src/keyring.rs`).
+  has web-of-trust certification from the main Arch signing keys (`xtask/src/keyring.rs`). The host-side
+  GnuPG home is mode `0700` on Unix; on Windows it uses the inherited filesystem ACL.
 - Package signatures come from the sync DB's `%PGPSIG%` field, verified against that blob
   (`crates/pgp-lite`) before extraction; SHA-256 from `%SHA256SUM%` is checked too.
 - Sync databases themselves are not signed; their integrity relies on HTTPS.
