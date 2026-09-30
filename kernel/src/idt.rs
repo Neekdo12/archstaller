@@ -72,7 +72,7 @@ impl Gate {
     }
 }
 
-static mut IDT: [Gate; 32] = [Gate::MISSING; 32];
+static mut IDT: [Gate; 48] = [Gate::MISSING; 48];
 
 fn report(name: &str, vector: u8, code: Option<u64>, f: &InterruptStackFrame) -> ! {
     unsafe { crate::console::force_unlock() };
@@ -121,6 +121,10 @@ handler!(x87_fp, 16, "x87 floating point");
 handler!(alignment_check, 17, "alignment check", err);
 handler!(machine_check, 18, "machine check");
 handler!(simd_fp, 19, "SIMD floating point");
+
+extern "x86-interrupt" fn timer_tick(_f: InterruptStackFrame) {
+    crate::idle::on_tick();
+}
 
 pub fn init() {
     unsafe {
@@ -181,8 +185,9 @@ pub fn init() {
         set(17, alignment_check as *const () as u64, 0);
         set(18, machine_check as *const () as u64, 0);
         set(19, simd_fp as *const () as u64, 0);
+        set(crate::idle::VECTOR, timer_tick as *const () as u64, 0);
 
-        let idtr = DescTablePtr { limit: (size_of::<[Gate; 32]>() - 1) as u16, base: idt as u64 };
+        let idtr = DescTablePtr { limit: (size_of::<[Gate; 48]>() - 1) as u16, base: idt as u64 };
         asm!("lidt [{}]", in(reg) &idtr, options(readonly, nostack));
     }
 }

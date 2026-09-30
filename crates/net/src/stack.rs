@@ -158,7 +158,7 @@ impl Stack {
                         None => Err(Error::Dns),
                     };
                 }
-                Err(dns::GetQueryResultError::Pending) => {}
+                Err(dns::GetQueryResultError::Pending) => hal::idle(),
                 Err(_) => return Err(Error::Dns),
             }
         }
@@ -190,6 +190,7 @@ impl Stack {
             if (conn.stack.now_ms)() >= end {
                 return Err(Error::Timeout);
             }
+            hal::idle();
         }
     }
 }
@@ -223,6 +224,7 @@ impl TcpConn<'_> {
         let end = self.stack.deadline(2000);
         while (self.stack.now_ms)() < end && self.sock().is_active() {
             self.stack.poll();
+            hal::idle();
         }
     }
 }
@@ -242,6 +244,7 @@ impl Stream for TcpConn<'_> {
             if (self.stack.now_ms)() >= end {
                 return Err(Error::Timeout);
             }
+            hal::idle();
         }
     }
 
@@ -259,6 +262,8 @@ impl Stream for TcpConn<'_> {
                 end = self.stack.deadline(self.timeout_ms);
             } else if (self.stack.now_ms)() >= end {
                 return Err(Error::Timeout);
+            } else {
+                hal::idle();
             }
         }
         // Push out what is queued.

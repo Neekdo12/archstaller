@@ -7,6 +7,7 @@ extern crate alloc;
 mod console;
 mod fb;
 mod heap;
+mod idle;
 mod idt;
 mod hwtest;
 mod install;
@@ -67,6 +68,38 @@ pub fn halt() -> ! {
     }
 }
 
+/// Resets the machine. The keyboard-controller pulse alone does nothing on machines
+/// without a legacy 8042 (most UEFI-only boards), so fall through to the chipset reset
+/// register and finally a triple fault, which every x86 CPU turns into a reset.
+pub fn reboot() -> ! {
+    unsafe {
+        asm!("cli", options(nomem, nostack));
+        // 8042: wait (bounded) for the input buffer to drain, then pulse the reset line.
+        for _ in 0..100_000 {
+            if port::inb(0x64) & 2 == 0 {
+                break;
+            }
+        }
+        port::outb(0x64, 0xfe);
+        settle();
+        // Chipset reset control register: system reset, then hard reset.
+        port::outb(0xcf9, 0x02);
+        port::outb(0xcf9, 0x06);
+        settle();
+        // Triple fault: an empty IDT makes the next exception escalate to a reset.
+        let empty: [u8; 10] = [0; 10];
+        asm!("lidt [{}]", "int3", in(reg) empty.as_ptr(), options(nostack));
+    }
+    halt()
+}
+
+/// About a millisecond-scale pause: port 0x80 writes take ~1 us each.
+fn settle() {
+    for _ in 0..50_000 {
+        unsafe { port::outb(0x80, 0) };
+    }
+}
+
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     unsafe { console::force_unlock() };
@@ -116,6 +149,7 @@ extern "C" fn _start() -> ! {
 
     println!("calibrating clock...");
     time::init(DATE_AT_BOOT.response().map_or(0, |r| r.timestamp));
+    idle::init(hhdm);
     println!("tsc: {} MHz, unix time {}", time::tsc_hz() / 1_000_000, time::unix_time());
 
     let cfg = match MODULES.response().and_then(|r| r.modules().iter().find(|m| m.path().ends_with("config.bin"))) {
@@ -252,10 +286,7 @@ extern "C" fn _start() -> ! {
             (Some(cfg), Some(keyring), Some(tiny_init), Some(bios_sys), Some(hdd), Some(efi)) => {
                 let boot = install::BootFiles { tiny_init, limine_bios_sys: bios_sys, limine_bios_hdd: hdd, bootx64_efi: efi };
                 match install::run(&cfg, devs, &keyring, &boot) {
-                    Ok(()) => unsafe {
-                        // Reset through the keyboard controller.
-                        port::outb(0x64, 0xfe);
-                    },
+                    Ok(()) => reboot(),
                     Err(e) => println!("INSTALLATION FAILED: {e}"),
                 }
             }
