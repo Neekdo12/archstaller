@@ -1,0 +1,14 @@
+[Unit]
+Description=archstaler post-install self test (prints results, then reboots)
+After=multi-user.target network-online.target NetworkManager.service systemd-networkd.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/archstaler/selftest.sh
+StandardOutput=journal+console
+StandardError=journal+console
+TimeoutStartSec=infinity
+
+[Install]
+WantedBy=multi-user.target

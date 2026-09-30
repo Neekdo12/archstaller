@@ -513,6 +513,9 @@ pub fn run(cfg: &Config, mut devs: Devices, keyring: &Keyring, boot: &BootFiles)
     put(&w, "usr/lib/systemd/system/archstaler-firstboot.target", 0o644, include_bytes!("../../firstboot/archstaler-firstboot.target"))?;
     put(&w, "usr/lib/systemd/system/archstaler-firstboot.service", 0o644, include_bytes!("../../firstboot/archstaler-firstboot.service"))?;
     put(&w, "usr/lib/archstaler/firstboot.sh", 0o755, include_bytes!("../../firstboot/firstboot.sh"))?;
+    // Inert unless a config enables it (the "tester" preset does).
+    put(&w, "usr/lib/systemd/system/archstaler-selftest.service", 0o644, include_bytes!("../../firstboot/archstaler-selftest.service"))?;
+    put(&w, "usr/lib/archstaler/selftest.sh", 0o755, include_bytes!("../../firstboot/selftest.sh"))?;
 
     // 16. Initramfs for the first boot and the kernel image.
     let vmlinuz_path = idx.vmlinuz.clone().ok_or("the installed packages contain no kernel (add the 'linux' package)")?;
