@@ -23,13 +23,39 @@ pub fn init(boot_unix: i64) {
         outb(0x61, g);
         outb(0x61, g | 0x01);
         let start = _rdtsc();
-        while inb(0x61) & 0x20 == 0 {}
+        // Bounded: some chipsets never raise PIT channel 2's output bit, which would hang here.
+        let mut spins = 0u32;
+        while inb(0x61) & 0x20 == 0 && spins < 20_000_000 {
+            spins += 1;
+        }
         let end = _rdtsc();
         outb(0x61, gate);
-        TSC_HZ.store((end - start) * PIT_HZ / CAL_TICKS as u64, Ordering::Relaxed);
-        TSC_BASE.store(end, Ordering::Relaxed);
+        let pit_hz = if spins < 20_000_000 { (end - start) * PIT_HZ / CAL_TICKS as u64 } else { 0 };
+        // Trust the PIT only when the result is plausible (0.5 to 10 GHz); otherwise ask CPUID.
+        let hz = if (500_000_000..10_000_000_000).contains(&pit_hz) { pit_hz } else { cpuid_tsc_hz().unwrap_or(2_000_000_000) };
+        TSC_HZ.store(hz, Ordering::Relaxed);
+        TSC_BASE.store(_rdtsc(), Ordering::Relaxed);
     }
     BOOT_UNIX.store(boot_unix.max(0) as u64, Ordering::Relaxed);
+}
+
+/// TSC frequency from CPUID leaf 0x15 (crystal ratio), else leaf 0x16 (base MHz).
+fn cpuid_tsc_hz() -> Option<u64> {
+    use core::arch::x86_64::__cpuid;
+    let max = __cpuid(0).eax;
+    if max >= 0x15 {
+        let l = __cpuid(0x15);
+        if l.eax != 0 && l.ebx != 0 && l.ecx != 0 {
+            return Some(l.ecx as u64 * l.ebx as u64 / l.eax as u64);
+        }
+    }
+    if max >= 0x16 {
+        let mhz = __cpuid(0x16).eax as u64 & 0xffff;
+        if mhz != 0 {
+            return Some(mhz * 1_000_000);
+        }
+    }
+    None
 }
 
 pub fn tsc_hz() -> u64 {

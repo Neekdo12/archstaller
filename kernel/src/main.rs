@@ -8,6 +8,7 @@ mod console;
 mod fb;
 mod heap;
 mod idt;
+mod hwtest;
 mod install;
 mod paging;
 mod platform;
@@ -217,6 +218,7 @@ extern "C" fn _start() -> ! {
     {
         let module = |suffix: &str| MODULES.response().and_then(|r| r.modules().iter().find(|m| m.path().ends_with(suffix))).map(|m| m.data());
         match (cfg, keyring, module("tiny-init"), module("limine-bios.sys"), module("limine-bios-hdd.bin"), module("BOOTX64.EFI")) {
+            (Some(cfg), keyring, ..) if cfg.dry_run => hwtest::run(&cfg, devs, keyring.as_ref()),
             (Some(cfg), Some(keyring), Some(tiny_init), Some(bios_sys), Some(hdd), Some(efi)) => {
                 let boot = install::BootFiles { tiny_init, limine_bios_sys: bios_sys, limine_bios_hdd: hdd, bootx64_efi: efi };
                 match install::run(&cfg, devs, &keyring, &boot) {

@@ -1,15 +1,20 @@
--- Tester: minimal console system that checks its own installation. On the boot of the installed
--- system, archstaler-selftest.service prints a PASS/FAIL report (users, packages, services, mounts,
--- journal, network, ...) to the console and reboots about 60 seconds later.
--- WARNING: it reboots forever. With auto_largest, pull the installer medium (or change the boot
--- order) before the first reboot of the installed system, or the ISO will erase it again.
--- Needs a disk of about 4 GiB or more.
-local common = dofile(CONFIG_DIR .. "/common.lua")
-
-return common.build{
+-- Tester: READ-ONLY hardware test. Boots the installer kernel in dry-run mode: probes PCI, reads
+-- every disk (writes are refused by the kernel), brings up the network, downloads and resolves the
+-- package databases, prints a PASS/FAIL report and reboots after 60 seconds.
+-- It installs nothing and needs no disk selector: no disk is ever written.
+return {
   hostname = "tester",
-  packages = { "networkmanager", "curl" },
-  services = { "NetworkManager.service", "archstaler-selftest.service" },
-  -- Report on the screen and on the serial port (harmless where there is no serial port).
-  kernel_params = { "console=tty0", "console=ttyS0,115200" },
+  timezone = "Europe/Prague",
+  locale = "en_US.UTF-8",
+  keymap = "us",
+  dry_run = true,
+
+  disk = { esp_mib = 1024 },
+  mirrors = { "https://geo.mirror.pkgbuild.com/$repo/os/$arch" },
+  -- Only resolved, never downloaded.
+  packages = { "base", "linux", "mkinitcpio", "efibootmgr", "sudo", "nano" },
+  providers = { { "initramfs", "mkinitcpio" } },
+  users = {},
+  services = {},
+  kernel_params = {},
 }

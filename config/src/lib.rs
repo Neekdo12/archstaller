@@ -36,6 +36,11 @@ pub struct Config {
     /// `user_files`.
     #[serde(default)]
     pub user_archives: Vec<UserArchive>,
+    /// Hardware test mode: probe devices, read disks (never write), bring up the network, fetch
+    /// and resolve the package databases, print a report and reboot. No disk is selected, so
+    /// `disk.confirm_serial` is not needed. The kernel wraps every disk so writes are refused.
+    #[serde(default)]
+    pub dry_run: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,7 +108,7 @@ impl Config {
         if !ident(&self.keymap, "._-") {
             return bad("keymap", &self.keymap);
         }
-        if !self.disk.auto_largest && self.disk.confirm_serial.trim().is_empty() {
+        if !self.dry_run && !self.disk.auto_largest && self.disk.confirm_serial.trim().is_empty() {
             return Err("disk.confirm_serial must be set (or enable disk.auto_largest)".into());
         }
         if self.disk.esp_mib < 64 || self.disk.esp_mib > 8192 {
