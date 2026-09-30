@@ -2,7 +2,7 @@
 //! waits a minute and reboots. It never writes to a disk: every block device is wrapped so that
 //! `write` and `flush` are refused, and nothing in this module calls the installer's write paths.
 use crate::install::{bring_up_network, fetch_optional, fetch_to_vec, now_ms, REPOS, USER_ARCHIVE_MAX, USER_FILE_MAX};
-use crate::{port, println, time};
+use crate::{println, time};
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::format;
@@ -92,10 +92,7 @@ pub fn run(cfg: &Config, devs: Devices, keyring: Option<&Keyring>) {
         shown = left;
         core::hint::spin_loop();
     }
-    unsafe {
-        // Reset through the keyboard controller.
-        port::outb(0x64, 0xfe);
-    }
+    crate::reboot()
 }
 
 fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Report) {
