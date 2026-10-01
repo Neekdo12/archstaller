@@ -265,7 +265,16 @@ extern "C" fn _start() -> ! {
     #[cfg(not(any(feature = "disk-selftest", feature = "net-selftest", feature = "usb-selftest")))]
     {
         let module = |suffix: &str| MODULES.response().and_then(|r| r.modules().iter().find(|m| m.path().ends_with(suffix))).map(|m| m.data());
-        match (cfg, keyring, module("tiny-init"), module("limine-bios.sys"), module("limine-bios-hdd.bin"), module("BOOTX64.EFI")) {
+        // BOOTX64.EFI is a module of its own, or (smallest ISO) a slice of the efi.img module, whose
+        // cmdline is "offset:length".
+        let bootx64_efi = module("BOOTX64.EFI").or_else(|| {
+            let m = MODULES.response()?.modules().iter().find(|m| m.path().ends_with("efi.img"))?;
+            let (off, len) = m.cmdline().split_once(':')?;
+            let off: usize = off.parse().ok()?;
+            m.data().get(off..off.checked_add(len.parse().ok()?)?)
+        });
+        hal::log!("boot files: BOOTX64.EFI {} bytes, starts with {:02x?}", bootx64_efi.map_or(0, |e| e.len()), bootx64_efi.and_then(|e| e.get(..2)));
+        match (cfg, keyring, module("tiny-init"), module("limine-bios.sys"), module("limine-bios-hdd.bin"), bootx64_efi) {
             (Some(cfg), keyring, ..) if cfg.dry_run => hwtest::run(&cfg, devs, keyring.as_ref()),
             (Some(cfg), Some(keyring), Some(tiny_init), Some(bios_sys), Some(hdd), Some(efi)) => {
                 let boot = install::BootFiles { tiny_init, limine_bios_sys: bios_sys, limine_bios_hdd: hdd, bootx64_efi: efi };

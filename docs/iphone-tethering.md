@@ -6,7 +6,7 @@
 > speaks usbmuxd's device-side binary protocol, `mux.rs`), and that tethering is a lockdown service reached through a
 > TLS session and `StartService` (it is the phone's standard `ipheth` USB interface, `netdev.rs`; lockdown is only
 > used to pair so the phone enables it). Steps 3, 5 and 6 below are therefore obsolete. Also: the plist codec reads
-> XML as well as binary, and pairing is not persisted. Not verified against a real iPhone.
+> XML as well as binary, and pairing is not persisted. Verified on a real iPhone.
 
 Goal: let the installer get network access from an iPhone/iPad's Personal Hotspot over a USB cable,
 in addition to the existing PCI NICs in `crates/drivers`. No Wi-Fi, no firmware blobs. This is a from-scratch

@@ -3,7 +3,7 @@
 An Arch Linux installer written in Rust that does **not** run on top of Linux.
 
 The ISO boots through [Limine](https://github.com/Limine-Bootloader/Limine) (BIOS and UEFI) into a small
-`no_std` kernel of its own: one CPU core, polling drivers, no interrupts other than CPU exceptions. That
+`no_std` kernel of its own: one CPU core, polling drivers, no device interrupts (the only interrupt is a 1 kHz timer tick that lets idle loops halt the CPU instead of spinning). That
 kernel reads a configuration that was baked into the ISO, downloads packages from an Arch mirror over
 HTTPS, verifies them, lays down GPT + FAT32 + ext4 and writes the system to disk. Anything that needs a
 running Linux (pacman scriptlets, alpm hooks, `mkinitcpio`, user creation) is deferred to the first boot of
@@ -29,6 +29,7 @@ OVMF (`/usr/share/edk2/x64`). `rust-toolchain.toml` selects the toolchain.
 cargo xtask build --debug    # verbose driver/network tracing (always on for the tester preset)
 cargo xtask presets          # one ISO per preset -> target/isos/archstaler-<preset>.iso (with USB tethering; --no-tethering leaves it out)
 cargo xtask build            # a single ISO from examples/config.lua -> target/archstaler.iso
+cargo xtask build --super-small   # smallest ISO (about 1.4 MiB instead of 2.4); also accepted by `presets`
 cargo xtask build --config path/to/my.lua --out my.iso
 ```
 
@@ -66,6 +67,11 @@ and the three Nerd fonts). Things the config refers to that are **not** installe
 quickshell config, `zen-browser` and the `macOS` cursor theme (AUR only; Firefox is installed instead),
 `code`, `kitty-themes`, the wallpaper `~/Images/Wallpapers/special.jpg` and `~/.local/bin/satty-screenshot`.
 
+`presets/tester.lua` is not an installer: it is a read-only hardware test (`archstaler-tester.iso`). It probes the
+machine, brings up the network, downloads the package databases, pings the gateway and 1.1.1.1, runs a download speed
+test, prints PASS/FAIL with full debug output, and reboots. It never writes a disk. Use it to check whether a machine's
+NIC, tethering phone or dongle works before installing.
+
 The presets use `disk.auto_largest = true`. For a machine with several disks, use `disk.confirm_serial`
 in your own config instead (see below).
 
@@ -93,15 +99,21 @@ cargo xtask run --uefi --disk nvme --nic e1000e
 - Networking: wired PCI NICs, plus optional iPhone and Android USB tethering and USB Ethernet dongles (below). No Wi-Fi. The installer recognizes 71 PCI device IDs in these driver families:
   virtio-net (2 IDs), Intel e1000 (14) and e1000e (10), Intel igb (28, the 82576/82580/I350/I210/I211
   generations) and igc (10, I225/I226), Realtek RTL8168/8169 (4) and RTL8125/8126 (2), and the old Realtek
-  RTL8139 (1). Tested, in QEMU's emulated NICs only: virtio, e1000, e1000e, igb and rtl8139, each with an
+  RTL8139 (1). Tested in QEMU's emulated NICs: virtio, e1000, e1000e, igb and rtl8139, each with an
   ARP exchange, DHCP, a TLS download from the Arch mirror and a 1 MB HTTP transfer, and for igb and
-  rtl8139 also the start of a real installation. **Never run**: igc, RTL8168/8169 and RTL8125/8126, because
-  QEMU has no models for them; they follow the Linux drivers' setup and may not work on a given chip
-  revision (the RTL8125/8126 in particular need chip-specific tuning in Linux). Some PCI IDs, especially
+  rtl8139 also the start of a real installation. **Real hardware**: the RTL8168evl/8111evl (xid 0x2c9, Gigabyte GA-F2A88XM-D3H) works, including DHCP, the
+  package downloads and a full install, on a network that needed the DHCP address probe (below); the AX88179 USB
+  dongle works too. **Never run**: igc, the other RTL8168/8169 revisions and RTL8125/8126, because QEMU has no
+  models for them; they follow the Linux drivers' setup and may not work on a given chip revision (the RTL8125/8126
+  in particular need chip-specific tuning in Linux). Some PCI IDs, especially
   igc's, were written from memory and are unchecked. Newer Intel chips that share an ID (for example the
   PCH-integrated I217/I219) may need setup the e1000e driver does not do. Not supported: Broadcom `tg3`,
-  Marvell/Aquantia `atlantic`, VMware `vmxnet3`, USB Ethernet and 10 Gbit NICs.
-- USB tethering (optional, off by default): build with `cargo xtask build --tethering`. It only runs when no
+  Marvell/Aquantia `atlantic`, VMware `vmxnet3` and 10 Gbit NICs.
+- DHCP behaviour: the offered address is ARP-probed before use, like Linux clients do. If another host already uses it
+  (a static device inside a DHCP range), the installer sends a DHCPDECLINE and asks again, up to 4 times. DNS falls
+  back to 1.1.1.1 and 8.8.8.8 if the DHCP-provided servers do not answer. Old CPUs without `RDRAND` get a weaker
+  timing-jitter random generator (the tester reports a warning).
+- USB tethering (optional; off in a plain `cargo xtask build`, on in `cargo xtask presets` unless `--no-tethering`): build with `cargo xtask build --tethering`. It only runs when no
   wired NIC has link, and the phone then appears as one more NIC. It uses an xHCI controller (`crates/usb`).
   - **iPhone** (worked on one real iPhone): plug in an unlocked iPhone with Personal Hotspot on and tap "Trust"
     (and enter the passcode) when it asks; the installer waits up to 120 s. It pairs through lockdownd over
@@ -112,8 +124,8 @@ cargo xtask run --uefi --disk nvme --nic e1000e
     installer scans again for about 20 s, so enabling tethering after plugging in also works. No pairing is needed.
   - **USB Ethernet dongles** (`crates/usbnet`): class-compliant adapters that offer CDC-ECM or CDC-NCM, and
     ASIX AX88179 gigabit adapters (for example the Axagon ADE-SG; vendor-specific protocol, matched by USB id).
-    Plug a cable into a router first: the AX88179 driver waits up to 15 s for link. **Untested on real
-    hardware**: only RNDIS and ECM have run, against QEMU's emulated adapter, and the NCM and AX88179 framing
+    Plug a cable into a router first: the AX88179 driver waits up to 15 s for link. The AX88179 works on real
+    hardware (link, DHCP, downloads). RNDIS and ECM have run against QEMU's emulated adapter; the NCM framing
     has host unit tests only. Other vendor-specific chips (ASIX AX88772, Realtek RTL8152/8153) are not
     supported unless the dongle also offers an ECM or NCM configuration.
   Every step prints a `usb:` log line, so a failure shows how far it got.
@@ -192,27 +204,28 @@ validates them strictly at build time and rejects anything with unexpected chara
   the ISOs. Nothing else in the ISO goes stale: package databases and packages are fetched at install
   time, so each install gets whatever the mirror has that day.
 - Arch's sync databases are not signed; their integrity relies on HTTPS.
-- Out of scope: Wi-Fi, USB devices other than tethering phones, SMP, Secure Boot, an interactive UI, filesystems other than ext4, architectures
+- Out of scope: Wi-Fi, USB devices other than tethering phones and Ethernet dongles, SMP, Secure Boot, an interactive UI, filesystems other than ext4, architectures
   other than x86_64.
 
 ## Repository layout
 
 | Path | Contents |
 |---|---|
-| `kernel/` | the `no_std` installer kernel (`x86_64-unknown-none`): console, heap, exceptions, TSC clock, paging for MMIO, the install flow |
+| `kernel/` | the `no_std` installer kernel (`x86_64-unknown-none`): console, heap, exceptions, idle timer tick, random numbers, TSC clock, paging for MMIO, the install flow, the hardware test |
 | `xtask/` | host tooling: Lua evaluation, keyring blob and its pin (`keyring.pin`), Limine fetch (pinned + sha256), ISO assembly, QEMU runs, tests |
 | `config/` | config types shared by `xtask` and the kernel, plus validation |
 | `crates/hal` | `BlockDevice`, `NetDevice`, `Clock`, `Rng` traits |
 | `crates/drivers` | PCI, virtio-blk/net, AHCI, NVMe, Intel e1000/e1000e/igb/igc, Realtek r8169/r8125/rtl8139 (all polled) |
-| `crates/usb` | xHCI driver with control and bulk transfers (used only for phone tethering) |
+| `crates/usb` | xHCI driver with control and bulk transfers (used only for tethering phones and USB dongles) |
 | `crates/imobiledevice` | iPhone USB tethering: plist, usbmuxd, pairing, lockdownd, `NetDevice` adapter |
 | `crates/usbnet` | Android tethering and USB Ethernet dongles: RNDIS, CDC-ECM, CDC-NCM and ASIX AX88179 `NetDevice` |
-| `crates/net` | smoltcp stack, HTTP/1.1 client, TLS |
+| `crates/net` | smoltcp stack (DHCP with address probe, DNS fallbacks), HTTP/1.1 client, TLS |
 | `crates/pgp-lite` | OpenPGP v4 signature verification (RSA, EdDSA) |
 | `crates/pkg` | sync database parser, `vercmp`, resolver, tar/zstd/gzip readers |
 | `crates/ext4w` | write-once ext4 writer |
 | `crates/disk` | GPT, FAT32 writer, Limine BIOS boot code installer |
 | `crates/initrd` | cpio writer, kernel module dependency resolution |
+| `kstub/` | loader stub for `--super-small` ISOs: unpacks the compressed kernel |
 | `tiny-init/` | the initramfs `init` (raw syscalls, no libc) |
 | `firstboot/` | systemd units and script for the first boot |
 | `presets/`, `examples/` | Lua configs |
@@ -240,21 +253,25 @@ every run (a partition table left by an earlier run would make the firmware try 
 they see and are meant for QEMU scratch disks only.
 
 `--small` builds the kernel with `build-std` and immediate-abort panics: smaller, but panic messages are
-lost.
+lost. `--super-small` adds two things on top: the kernel is stored deflate-compressed and loaded by a 21 KiB
+stub (`kstub/`), and `BOOTX64.EFI` is stored once instead of twice. The ISO drops from 2.3 MiB (`--small`) to 1.4 MiB.
+It boots in QEMU in BIOS and UEFI mode; a failure to unpack prints a `kstub:` line on COM1 and halts.
 
 ## Status
 
 Verified in QEMU (BIOS and UEFI; virtio, AHCI and NVMe disks; virtio, e1000, e1000e, igb and rtl8139 NICs):
 install, first boot and a second boot to a login prompt, for the `i3` and `hyprland` presets and a minimal
 test config, plus the Ventoy boot described above. The `minimal`, `server` and `plasma` presets resolve
-(`check-presets`) but have not been through a full install in the test harness. Not verified: the igc and
-Realtek drivers (RTL8168/8169, RTL8125/8126), real hardware in general, logging in with the default
+(`check-presets`) but have not been through a full install in the test harness. Verified on real hardware: installs on an old Gigabyte GA-F2A88XM-D3H (RTL8168evl, no RDRAND) through
+first boot; the second boot failed there once with a missing journal, which is fixed by writing a real internal
+journal (checked with `e2fsck`/`debugfs` and in QEMU, not yet re-run on that machine). Not verified: the igc and
+other Realtek drivers (other RTL8168/8169 revisions, RTL8125/8126), real hardware in general, logging in with the default
 credentials, starting the Hyprland session with the downloaded config, and the UEFI boot entry created by
 `efibootmgr` (booting works through the fallback path `EFI/BOOT/BOOTX64.EFI`). The first-boot log is only in
 the journal and is not persisted.
 
-USB tethering: the iPhone path worked on real hardware once (an ASUS ExpertBook with an unlocked iPhone); the Android path (RNDIS, CDC-ECM) worked on one real phone and in QEMU's emulated adapters. `xtask e2e` does not exercise tethering.
+USB tethering: the iPhone path worked on real hardware (an ASUS ExpertBook with an unlocked iPhone); the Android path (RNDIS, CDC-ECM) worked on one real phone and in QEMU's emulated adapters; the AX88179 dongle worked on real hardware. `xtask e2e` does not exercise tethering.
 
-Not supported: Wi-Fi, USB devices other than tethering phones, ARM and Raspberry Pi, and installing onto anything but NVMe, SATA/AHCI and virtio
-disks. The ISO is about 2.4 MB (2.26 MB with `--small`); the design notes in `PLAN.md` describe what was
+Not supported: Wi-Fi, USB devices other than tethering phones and Ethernet dongles, ARM and Raspberry Pi, and installing onto anything but NVMe, SATA/AHCI and virtio
+disks. The ISO is about 2.4 MB (2.3 MB with `--small`; tethering adds about 105 KiB); the design notes in `PLAN.md` describe what was
 aimed at and what remains.

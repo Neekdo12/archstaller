@@ -8,6 +8,7 @@ config = { path = "../config", features = ["std"] }
 mlua = { version = "0.12", features = ["lua54", "vendored", "serialize"] }
 postcard = { version = "1", features = ["use-std"] }
 sha2 = "0.11"
+miniz_oxide = "0.9"
 serde = "1"
 pgp-lite = { path = "../crates/pgp-lite", features = ["std"] }
 ext4w = { path = "../crates/ext4w" }
