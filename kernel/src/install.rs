@@ -87,7 +87,7 @@ pub(crate) fn now_ms() -> u64 {
 
 fn random<const N: usize>() -> [u8; N] {
     let mut b = [0u8; N];
-    rng::fill(&mut b).expect("RDRAND is required");
+    rng::fill(&mut b).expect("random number generator failed");
     b
 }
 
@@ -187,7 +187,7 @@ pub(crate) fn bring_up_network(devs: &mut Devices) -> R<net::Stack> {
     println!("network: {} link {}", nic.name(), "up");
     let mut stack = net::Stack::new(nic, now_ms, unsafe { core::arch::x86_64::_rdtsc() });
     let lease = stack.dhcp(30_000).map_err(dbg_err("DHCP"))?;
-    println!("network: {:?}/{} gateway {:?} dns {:?}", lease.address, lease.prefix, lease.router, lease.dns);
+    hal::log!("network: {:?}/{} gateway {:?} dns {:?}", lease.address, lease.prefix, lease.router, lease.dns);
     Ok(stack)
 }
 

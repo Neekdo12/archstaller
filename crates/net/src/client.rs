@@ -53,12 +53,37 @@ impl Client {
         let mut current = String::from(url);
         for _ in 0..=MAX_REDIRECTS {
             let u = parse(&current)?;
-            let ip = stack.resolve(u.host, 8000)?;
+            let now = stack.clock();
+            let t0 = now();
+            let ip = stack.resolve(u.host, 8000).map_err(|e| {
+                hal::log!("net: DNS lookup of {} failed after {} ms: {e:?}", u.host, now() - t0);
+                e
+            })?;
+            hal::log!("net: {} is {}.{}.{}.{} ({} ms)", u.host, ip[0], ip[1], ip[2], ip[3], now() - t0);
             let host_header = if (u.https && u.port == 443) || (!u.https && u.port == 80) { String::from(u.host) } else { alloc::format!("{}:{}", u.host, u.port) };
-            let conn = stack.connect(ip, u.port, 8000)?;
+            let t1 = now();
+            let conn = stack.connect(ip, u.port, 8000).map_err(|e| {
+                hal::log!("net: TCP connect to {}:{} failed after {} ms: {e:?}", u.host, u.port, now() - t1);
+                e
+            })?;
             let resp = if u.https {
-                let mut t = TlsStream::connect(conn, self.tls.clone(), u.host)?;
-                http::get(&mut t, &host_header, u.path, sink)?
+                let t2 = now();
+                let mut t = TlsStream::connect(conn, self.tls.clone(), u.host).map_err(|e| {
+                    hal::log!("net: TLS handshake with {} failed: {e:?}", u.host);
+                    e
+                })?;
+                hal::log!("net: TCP connected in {} ms, TLS handshake {} ms", t2 - t1, now() - t2);
+                let t3 = now();
+                let mut got = 0usize;
+                let r = http::get(&mut t, &host_header, u.path, &mut |d| {
+                    got += d.len();
+                    sink(d)
+                });
+                match &r {
+                    Ok(resp) => hal::log!("net: {} HTTP {}, {} body bytes in {} ms", u.path, resp.status, got, now() - t3),
+                    Err(e) => hal::log!("net: {} failed after {} body bytes, {} ms: {e:?}", u.path, got, now() - t3),
+                }
+                r?
             } else {
                 let mut c = conn;
                 let r = http::get(&mut c, &host_header, u.path, sink)?;

@@ -10,16 +10,36 @@ const MAX_HEAP: u64 = 512 << 20;
 
 static HEAP_BYTES: AtomicU64 = AtomicU64::new(0);
 
-/// Claims the largest usable region (through the HHDM) as the heap.
+/// The bootloader's higher-half direct map is only guaranteed to cover the first 4 GiB.
+const HHDM_SAFE: u64 = 4 << 30;
+/// A heap smaller than this below 4 GiB is not worth it; fall back to the biggest region anywhere.
+const MIN_LOW_HEAP: u64 = 32 << 20;
+
+/// Claims a usable region (through the HHDM) as the heap: the largest one that lies below 4 GiB,
+/// where the direct map is guaranteed to exist. Machines with lots of RAM often have their
+/// biggest region above 4 GiB, and writing there faulted on real hardware. Only if the low
+/// memory is tiny is the biggest region anywhere used.
 pub fn init(hhdm: u64, memmap: &[&limine::memmap::Entry]) {
-    let best = memmap
-        .iter()
-        .filter(|e| e.type_ == limine::memmap::MEMMAP_USABLE)
-        .max_by_key(|e| e.length)
-        .expect("no usable memory");
-    let size = best.length.min(MAX_HEAP);
-    let base = (hhdm + best.base) as *mut u8;
-    unsafe { TALC.lock().claim(base, size as usize) }.expect("heap claim failed");
+    let usable = || memmap.iter().filter(|e| e.type_ == limine::memmap::MEMMAP_USABLE);
+    let largest = usable().max_by_key(|e| e.length).expect("no usable memory");
+    let low = usable()
+        .filter(|e| e.base < HHDM_SAFE)
+        .map(|e| (e.base, e.length.min(HHDM_SAFE - e.base)))
+        .max_by_key(|&(_, len)| len);
+    let (base, len) = match low {
+        Some((b, l)) if l >= MIN_LOW_HEAP => (b, l),
+        _ => (largest.base, largest.length),
+    };
+    let size = len.min(MAX_HEAP);
+    // Printed before the first write into the region, so a fault there still leaves the layout on screen.
+    crate::println!(
+        "heap region {:#x} +{} MiB (largest usable region {:#x} +{} MiB)",
+        base,
+        size >> 20,
+        largest.base,
+        largest.length >> 20
+    );
+    unsafe { TALC.lock().claim((hhdm + base) as *mut u8, size as usize) }.expect("heap claim failed");
     HEAP_BYTES.store(size, Ordering::Relaxed);
 }
 

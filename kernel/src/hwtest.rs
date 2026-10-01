@@ -15,6 +15,8 @@ use net::client::Client;
 use pgp_lite::Keyring;
 
 const WAIT_SECONDS: u64 = 60;
+/// Countdown after a failed run.
+const FAIL_WAIT_SECONDS: u64 = 300;
 
 /// Read-only view of a disk: writes are refused, reads pass through.
 struct ReadOnly(Box<dyn BlockDevice>);
@@ -79,14 +81,18 @@ pub fn run(cfg: &Config, devs: Devices, keyring: Option<&Keyring>) {
     println!("=========================================================================================");
     println!("RESULT: {}   ({} ok, {} warnings, {} failed)", if r.fail == 0 { "PASS" } else { "FAIL" }, r.pass, r.warn, r.fail);
     println!("archstaler-hwtest: done");
-    let end = now_ms() + WAIT_SECONDS * 1000;
+    println!("--- driver and device log (repeated here so it stays on screen) ---");
+    crate::digest::print_all();
+    // After a failure stay up longer, so the screen can be read or photographed.
+    let wait = if r.fail > 0 { FAIL_WAIT_SECONDS } else { WAIT_SECONDS };
+    let end = now_ms() + wait * 1000;
     let mut shown = u64::MAX;
     loop {
         let left = end.saturating_sub(now_ms()).div_ceil(1000);
         if left == 0 {
             break;
         }
-        if left != shown && (left % 10 == 0 || left <= 5) {
+        if left != shown && (left % if wait > 60 { 60 } else { 10 } == 0 || left <= 5) {
             println!("rebooting in {left}s...");
         }
         shown = left;
@@ -97,7 +103,13 @@ pub fn run(cfg: &Config, devs: Devices, keyring: Option<&Keyring>) {
 
 fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Report) {
     println!("--- platform ---");
-    r.check(core::arch::x86_64::__cpuid(1).ecx & (1 << 30) != 0, "RDRAND available");
+    if crate::rng::has_rdrand() {
+        r.ok("RDRAND available");
+    } else if crate::rng::jitter_selfcheck() {
+        r.warn("no RDRAND (old CPU): randomness for TLS and keys comes from timing jitter, which is weaker");
+    } else {
+        r.bad("no RDRAND and the timing-jitter fallback failed its self-check");
+    }
     r.check(time::tsc_hz() > 100_000_000, &format!("TSC calibrated: {} MHz", time::tsc_hz() / 1_000_000));
     // 2024-01-01; a clock before that means the firmware gave no date.
     if time::unix_time() > 1_704_067_200 {
@@ -107,6 +119,12 @@ fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Repo
     }
     let pci = drivers::pci::enumerate();
     println!("PCI devices: {}", pci.len());
+    for d in pci.iter().filter(|d| d.class == 0x02) {
+        crate::digest::push(format!(
+            "PCI network card {:04x}:{:04x} rev {:#04x} at {:02x}:{:02x}.{}",
+            d.vendor, d.device, d.revision, d.addr.bus, d.addr.dev, d.addr.func
+        ));
+    }
     for d in &pci {
         println!("  {:02x}:{:02x}.{} {:04x}:{:04x} class {:02x}{:02x}", d.addr.bus, d.addr.dev, d.addr.func, d.vendor, d.device, d.class, d.subclass);
     }
@@ -149,6 +167,7 @@ fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Repo
     for n in devs.net.iter_mut() {
         let m = n.mac();
         let up = n.link_up();
+        crate::digest::push(format!("network device {} mac {:02x?} link {}", n.name(), m, if up { "up" } else { "down" }));
         println!("  {} mac {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} link {}", n.name(), m[0], m[1], m[2], m[3], m[4], m[5], if up { "up" } else { "down" });
     }
     let mut stack = match bring_up_network(&mut devs) {
@@ -162,6 +181,31 @@ fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Repo
         }
     };
 
+    // Where does traffic stop? Ping the gateway, the DHCP DNS server and a public address.
+    println!("--- reachability (ping, then a direct TCP connection, no DNS) ---");
+    let mut targets: alloc::vec::Vec<(&str, [u8; 4])> = alloc::vec::Vec::new();
+    if let Some(g) = stack.gateway() {
+        targets.push(("gateway", g));
+    }
+    if let Some(d) = stack.dhcp_dns().first() {
+        targets.push(("DHCP DNS server", *d));
+    }
+    targets.push(("public 1.1.1.1", [1, 1, 1, 1]));
+    for (what, ip) in targets {
+        match stack.ping(ip, 2000) {
+            Some(ms) => r.ok(&format!("ping {what} {}.{}.{}.{}: {ms} ms", ip[0], ip[1], ip[2], ip[3])),
+            None => r.warn(&format!("ping {what} {}.{}.{}.{}: no reply (may just be filtered)", ip[0], ip[1], ip[2], ip[3])),
+        }
+    }
+    match stack.connect([1, 1, 1, 1], 443, 6000) {
+        Ok(conn) => {
+            drop(conn);
+            r.ok("TCP connection to 1.1.1.1:443 works (the internet is reachable by address)");
+        }
+        Err(e) => r.warn(&format!(
+            "TCP connection to 1.1.1.1:443 failed ({e:?}): the network does not forward our traffic to the internet (needs a login or MAC registration?)"
+        )),
+    }
     println!("--- mirror and packages ---");
     match keyring {
         Some(k) => r.ok(&format!("keyring: {} signing keys", k.keys.len())),

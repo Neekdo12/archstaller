@@ -72,7 +72,7 @@ impl Gate {
     }
 }
 
-static mut IDT: [Gate; 48] = [Gate::MISSING; 48];
+static mut IDT: [Gate; 256] = [Gate::MISSING; 256];
 
 fn report(name: &str, vector: u8, code: Option<u64>, f: &InterruptStackFrame) -> ! {
     unsafe { crate::console::force_unlock() };
@@ -124,6 +124,44 @@ handler!(simd_fp, 19, "SIMD floating point");
 
 extern "x86-interrupt" fn timer_tick(_f: InterruptStackFrame) {
     crate::idle::on_tick();
+}
+
+// The legacy PIC can raise IRQ7 (master) and IRQ15 (slave) as "spurious" interrupts even while they
+// are masked, and a masked line can glitch too. Without a gate for these vectors the CPU takes a
+// general protection fault (error code = vector << 3 | 3), seen on real hardware as 0x13b for vector
+// 0x27. A spurious interrupt must not be acknowledged; a real one must.
+extern "x86-interrupt" fn spurious_master(_f: InterruptStackFrame) {
+    unsafe {
+        crate::port::outb(0x20, 0x0b); // read the in-service register
+        if crate::port::inb(0x20) & 0x80 != 0 {
+            crate::port::outb(0x20, 0x20);
+        }
+    }
+}
+
+extern "x86-interrupt" fn spurious_slave(_f: InterruptStackFrame) {
+    unsafe {
+        crate::port::outb(0xa0, 0x0b);
+        if crate::port::inb(0xa0) & 0x80 != 0 {
+            crate::port::outb(0xa0, 0x20);
+        }
+        crate::port::outb(0x20, 0x20); // the master saw the cascade line either way
+    }
+}
+
+/// The local APIC's spurious-interrupt vector (0xff, set in `idle.rs`): never acknowledged.
+extern "x86-interrupt" fn lapic_spurious(_f: InterruptStackFrame) {}
+
+/// Any other PIC line (all masked): acknowledge so the controller does not wedge.
+extern "x86-interrupt" fn irq_master(_f: InterruptStackFrame) {
+    unsafe { crate::port::outb(0x20, 0x20) };
+}
+
+extern "x86-interrupt" fn irq_slave(_f: InterruptStackFrame) {
+    unsafe {
+        crate::port::outb(0xa0, 0x20);
+        crate::port::outb(0x20, 0x20);
+    }
 }
 
 pub fn init() {
@@ -186,8 +224,15 @@ pub fn init() {
         set(18, machine_check as *const () as u64, 0);
         set(19, simd_fp as *const () as u64, 0);
         set(crate::idle::VECTOR, timer_tick as *const () as u64, 0);
+        set(0xff, lapic_spurious as *const () as u64, 0);
+        for v in 0x21..0x28 {
+            set(v, if v == 0x27 { spurious_master as *const () as u64 } else { irq_master as *const () as u64 }, 0);
+        }
+        for v in 0x28..0x30 {
+            set(v, if v == 0x2f { spurious_slave as *const () as u64 } else { irq_slave as *const () as u64 }, 0);
+        }
 
-        let idtr = DescTablePtr { limit: (size_of::<[Gate; 48]>() - 1) as u16, base: idt as u64 };
+        let idtr = DescTablePtr { limit: (size_of::<[Gate; 256]>() - 1) as u16, base: idt as u64 };
         asm!("lidt [{}]", in(reg) &idtr, options(readonly, nostack));
     }
 }

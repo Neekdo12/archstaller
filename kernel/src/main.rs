@@ -7,6 +7,7 @@ extern crate alloc;
 mod console;
 mod fb;
 mod heap;
+mod digest;
 mod idle;
 mod idt;
 mod hwtest;
@@ -117,7 +118,7 @@ extern "C" fn _start() -> ! {
     }
 
     idt::init();
-    hal::set_log_hook(|a| println!("{a}"));
+    hal::set_log_hook(digest::log);
 
     if let Some(resp) = FRAMEBUFFER.response() {
         if let Some(fb) = resp.framebuffers().first() {

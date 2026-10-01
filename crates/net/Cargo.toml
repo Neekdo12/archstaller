@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 hal = { path = "../hal" }
-smoltcp = { version = "0.14", default-features = false, features = ["alloc", "medium-ethernet", "proto-ipv4", "proto-dhcpv4", "proto-dns", "socket-tcp", "socket-dhcpv4", "socket-dns"] }
+smoltcp = { version = "0.14", default-features = false, features = ["alloc", "medium-ethernet", "proto-ipv4", "proto-dhcpv4", "proto-dns", "socket-icmp", "socket-tcp", "socket-dhcpv4", "socket-dns"] }
 rustls = { version = "0.23", default-features = false, features = ["hashbrown", "tls12", "custom-provider"] }
 rustls-rustcrypto = { version = "0.0.2-alpha", default-features = false, features = ["alloc", "tls12"] }
 webpki-roots = "1"

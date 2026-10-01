@@ -23,7 +23,7 @@ Ten nainstaluje Arch z mirroru na ext4 podle předem připraveného Lua configu.
 | `config/` | sdílené serde typy configu (xtask + kernel) |
 | `crates/hal` | traity `BlockDevice`, `NetDevice`, `Clock`, `Rng` |
 | `crates/drivers` | PCI, virtio-blk/net, AHCI, NVMe, e1000/e1000e, r8169 (polling) |
-| `crates/net` | `smoltcp` (DHCP/DNS/TCP), HTTP/1.1 klient, `rustls` no_std + `rustls-rustcrypto` + `webpki-roots`, RDRAND |
+| `crates/net` | `smoltcp` (DHCP/DNS/TCP), HTTP/1.1 klient, `rustls` no_std + `rustls-rustcrypto` + `webpki-roots`, RDRAND (na starších CPU bez RDRAND záložní zdroj z kolísání časování, slabší) |
 | `crates/pgp-lite` | ověření v4 podpisů (RSA PKCS#1 v1.5, EdDSA) proti vloženému keyringu |
 | `crates/pkg` | „pacman-lite“: parser db, `vercmp`, resolver, tar/pax, `ruzstd`, `miniz_oxide` |
 | `crates/ext4w` | mkfs + write-once ext4 writer |
