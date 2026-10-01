@@ -11,6 +11,7 @@ const ISIZE: usize = 256;
 const EXTRA_ISIZE: u16 = 32;
 const FIRST_INO: u32 = 11;
 const ROOT_INO: u32 = 2;
+const JOURNAL_INO: u32 = 8;
 const LPF_INO: u32 = 11;
 const LPF_BLOCKS: usize = 4;
 const MAX_EXTENT_LEN: u64 = 32768;
@@ -175,6 +176,22 @@ fn put32(b: &mut [u8], off: usize, v: u32) {
     b[off..off + 4].copy_from_slice(&v.to_le_bytes());
 }
 
+/// Journal size in blocks for a filesystem of `blocks` 4 KiB blocks, as `mke2fs` chooses it (capped at
+/// 64 MiB so the journal fits at most a few extents). Filesystems under 32 MiB get none.
+fn journal_blocks(blocks: u64) -> u64 {
+    match blocks {
+        0..=8191 => 0,
+        8192..=32767 => 1024,
+        32768..=262143 => 4096,
+        262144..=524287 => 8192,
+        _ => 16384,
+    }
+}
+
+fn put_be32(b: &mut [u8], off: usize, v: u32) {
+    b[off..off + 4].copy_from_slice(&v.to_be_bytes());
+}
+
 fn is_power_of(mut n: u32, base: u32) -> bool {
     while n % base == 0 {
         n /= base;
@@ -275,8 +292,47 @@ impl<S: Storage> Ext4Writer<S> {
         root.nlink += 1;
         w.inodes[ROOT_INO as usize] = Some(root);
         w.inodes[LPF_INO as usize] = Some(lpf);
+        let jb = journal_blocks(w.blocks);
+        if jb > 0 {
+            w.add_journal(jb)?;
+        }
         Ok(w)
     }
+
+    /// Creates the internal journal: contiguous blocks mapped by inode 8 and a version 2 jbd2
+    /// superblock in its first block (empty journal: `s_start` 0), as `mke2fs -j` writes it. The
+    /// filesystem superblock gets the journal feature and a backup of the inode's block map.
+    fn add_journal(&mut self, jblocks: u64) -> Result<()> {
+        let mut extents = Vec::new();
+        let mut done = 0u64;
+        while done < jblocks {
+            let (pblk, len) = self.alloc_run(jblocks - done)?;
+            extents.push(Extent { lblk: done as u32, len: len as u32, pblk });
+            done += len;
+        }
+        if extents.len() > 4 {
+            return Err(Error::Invalid("journal too fragmented"));
+        }
+        let mut j = Inode::new(FileKind::Regular, &Meta { mode: 0o600, mtime: self.opts.now, ..Default::default() });
+        j.size = jblocks * BS as u64;
+        j.extents = extents.clone();
+        self.inodes[JOURNAL_INO as usize] = Some(j);
+        self.build_extent_root(JOURNAL_INO)?;
+
+        let mut jsb = vec![0u8; BS];
+        put_be32(&mut jsb, 0, 0xC03B_3998); // JBD2 magic
+        put_be32(&mut jsb, 4, 4); // superblock, version 2
+        put_be32(&mut jsb, 12, BS as u32); // block size
+        put_be32(&mut jsb, 16, jblocks as u32); // length of the journal in blocks
+        put_be32(&mut jsb, 20, 1); // first log block
+        put_be32(&mut jsb, 24, 1); // first expected commit sequence
+        // s_start (28) stays 0: the journal is empty and needs no recovery.
+        jsb[48..64].copy_from_slice(&self.opts.uuid);
+        put_be32(&mut jsb, 64, 1); // users
+        self.st.write_at(extents[0].pblk * BS as u64, &jsb)?;
+        Ok(())
+    }
+
 
     pub fn into_storage(self) -> S {
         self.st
@@ -858,7 +914,8 @@ impl<S: Storage> Ext4Writer<S> {
         put32(&mut sb, 0x54, FIRST_INO);
         put16(&mut sb, 0x58, ISIZE as u16);
         put16(&mut sb, 0x5a, group as u16);
-        put32(&mut sb, 0x5c, 0x8 | 0x20); // ext_attr, dir_index
+        let journal = self.inodes.get(JOURNAL_INO as usize).and_then(|n| n.as_ref());
+        put32(&mut sb, 0x5c, 0x8 | 0x20 | if journal.is_some() { 0x4 } else { 0 }); // ext_attr, dir_index, has_journal
         put32(&mut sb, 0x60, 0x2 | 0x40); // filetype, extents
         put32(&mut sb, 0x64, 0x1 | 0x2 | 0x20 | 0x40 | 0x400); // sparse_super, large_file, dir_nlink, extra_isize, metadata_csum
         sb[0x68..0x78].copy_from_slice(&self.opts.uuid);
@@ -870,6 +927,14 @@ impl<S: Storage> Ext4Writer<S> {
         }
         sb[0xfc] = 1; // half-MD4 directory hash
         put32(&mut sb, 0x100, 0x0c); // default mount opts: user_xattr, acl
+        if let Some(j) = journal {
+            put32(&mut sb, 0xe0, JOURNAL_INO); // s_journal_inum (journal_uuid and journal_dev stay 0: internal)
+            // s_jnl_blocks: backup of the journal inode's block map, then its size (high, low).
+            sb[0x10c..0x10c + 60].copy_from_slice(&j.i_block);
+            put32(&mut sb, 0x10c + 60, (j.size >> 32) as u32);
+            put32(&mut sb, 0x10c + 64, j.size as u32);
+            sb[0xfd] = 1; // s_jnl_backup_type: block map backed up in s_jnl_blocks
+        }
         put32(&mut sb, 0x108, self.opts.now as u32); // mkfs time
         put16(&mut sb, 0x15c, EXTRA_ISIZE);
         put16(&mut sb, 0x15e, EXTRA_ISIZE);

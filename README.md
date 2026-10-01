@@ -166,7 +166,7 @@ validates them strictly at build time and rejects anything with unexpected chara
    repo priority, conflicts). Where the config leaves a provider choice open the first candidate by repo
    priority and name is used, like pacman's default answer, and the choice is logged.
 5. **Partition and format.** GPT with a protective MBR: 1 MiB BIOS boot partition, ESP, root. The root is a
-   write-once ext4 image (extents, xattrs, `metadata_csum`, no journal) built by `ext4w`.
+   write-once ext4 image (extents, xattrs, `metadata_csum`, an internal journal) built by `ext4w`.
 6. **Packages.** Each package is streamed into `/var/cache/pacman/pkg` on the target while its SHA-256 and
    PGP signature are checked (the signature comes from the database's `%PGPSIG%`, verified against a keyring
    blob derived from the pinned `archlinux-keyring`). Only after verification is it extracted.
@@ -174,7 +174,7 @@ validates them strictly at build time and rejects anything with unexpected chara
    modules it needs) are written; Limine goes onto the ESP and, for BIOS, into the BIOS boot partition.
 8. **First boot.** The system boots into `archstaler-firstboot.target`: it initializes the pacman keyring,
    runs `pacman -U` on the cached packages (which runs every scriptlet and hook), re-applies the
-   configuration, creates users, enables services, adds an ext4 journal, builds the real initramfs, writes
+   configuration, creates users, enables services, builds the real initramfs, writes
    the final Limine entry and reboots into the installed system.
 
 ### Trust model and limits

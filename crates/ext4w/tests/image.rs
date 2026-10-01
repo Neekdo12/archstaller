@@ -254,3 +254,27 @@ fn huge_file_needs_extent_tree_and_big_directory() {
     let _ = std::fs::remove_file(&dump);
     let _ = std::fs::remove_file(&img);
 }
+
+/// The journal is created with the filesystem (mke2fs layout), not added later: the superblock names
+/// inode 8, the jbd2 superblock is valid, and the block map is backed up.
+#[test]
+fn internal_journal_is_valid() {
+    let dir = scratch("journal");
+    for (size, journal_kib) in [(64u64 << 20, 4096u64), (1 << 30, 32768), (4 << 30, 65536)] {
+        let img = build_image(&dir, size, &[]);
+        fsck_clean(&img);
+        let info = run_ok(Command::new("dumpe2fs").arg("-h").arg(&img));
+        assert!(info.contains("has_journal"), "{info}");
+        assert!(info.contains("Journal inode:            8"), "{info}");
+        assert!(info.contains("Journal backup:           inode blocks"), "{info}");
+        let size_text = if journal_kib >= 1024 && journal_kib % 1024 == 0 && journal_kib > 4096 { format!("{}M", journal_kib / 1024) } else { format!("{journal_kib}k") };
+        assert!(info.contains(&format!("Total journal size:       {size_text}")), "{info}");
+        assert!(info.contains("Journal start:            0"), "{info}");
+        // The journal superblock parses and the journal is empty (nothing to recover).
+        let log = run_ok(Command::new("debugfs").args(["-R", "logdump"]).arg(&img));
+        assert!(!log.to_lowercase().contains("error"), "{log}");
+        assert!(!info.contains("needs_recovery"), "{info}");
+        let _ = std::fs::remove_file(&img);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -51,7 +51,7 @@ Ten nainstaluje Arch z mirroru na ext4 podle předem připraveného Lua configu.
    `vercmp` port z libalpm, verzové constrainty, soname provides, skupiny, priorita repo (core > extra),
    výběr providera z configu, kontrola konfliktů, tar/pax včetně `SCHILY.xattr.*`.
    Neextrahovat `.PKGINFO`, `.MTREE`, `.INSTALL`, `.BUILDINFO`.
-8. `ext4w`: extents, filetype, xattr bloky, fast symlinky, hardlinky; bez journalu, `metadata_csum`, `dir_index`.
+8. `ext4w`: extents, filetype, xattr bloky, fast symlinky, hardlinky; s vnitřním journalem (vytváří se spolu se souborovým systémem), `metadata_csum`, `dir_index`.
    Metadata v RAM, data streamem na disk. Největší riziko projektu.
 9. `disk`: GPT – BIOS boot 1 MiB, ESP 1 GiB FAT32 (`/boot`), root ext4 zbytek; `limine bios-install` port.
 10. Initramfs: `tiny-init` + moduly (ext4, jbd2, mbcache, crc32c, nvme, ahci, libahci, libata, sd_mod, virtio_blk, …)

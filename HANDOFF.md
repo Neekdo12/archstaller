@@ -210,12 +210,14 @@ fails, the last `usb:` line names the failing step; ask the user for all of them
   downloads time out there; that is expected and unrelated to the USB work.
 - The user commits and pushes themselves (AGENTS.md); leave changes uncommitted.
 
-## Second boot hang on the old machine (reported, not yet explained)
+## Second boot failed with "failed to locate journal superblock" (fixed, verified in QEMU only)
 
-After a normal install on the GA-F2A88XM-D3H (AMD FM2+, integrated GPU or none) the first boot (our firstboot step) was fine,
-but the second boot reported "FAILED to mount /sysroot" and then hung at "Fatal error during GPU init" (an amdgpu message).
-The e2e test in QEMU (virtio/AHCI/NVMe) passes both boots, so this is hardware specific. Changes made on a hypothesis:
-the firstboot step now removes the `kms` hook from `/etc/mkinitcpio.conf` (a failing GPU driver cannot block the root mount)
-and the default firmware list now includes `linux-firmware-amdgpu` and `linux-firmware-radeon` (desktop presets already
-had the full `linux-firmware`). Unconfirmed: which preset was installed and the lines before the failure. Rescue on an
-installed system: at the Limine menu (3 s timeout) edit the entry and add `nomodeset` to the kernel command line.
+On the old machine the second boot (the real system) failed to mount /sysroot, after a message that the journal inode could
+not be loaded / the journal superblock was not found, and a plain reboot sometimes fixed it. Cause: `ext4w` wrote the
+filesystem without a journal and the first-boot step ran `tune2fs -j` on the mounted root. That creates the journal as a
+`/.journal` file and relies on a later `e2fsck` to convert it to inode 8; when the next boot mounted first, the superblock
+named a journal inode that was empty. Fix: `Ext4Writer::new` now creates a real internal journal (inode 8 mapped by
+extents, a version 2 jbd2 superblock, `s_jnl_blocks` backup, `s_jnl_backup_type`), sized like mke2fs but capped at 64 MiB and
+omitted under 32 MiB, and `firstboot.sh` no longer runs `tune2fs -j`. Tested with `dumpe2fs`/`e2fsck`/`debugfs logdump`
+(`internal_journal_is_valid`) and two e2e installs (virtio and AHCI). Not yet run on the old machine. Earlier hypothesis kept
+as a harmless change: the `kms` hook is removed from the initramfs and the default firmware list has the AMD GPU firmware.

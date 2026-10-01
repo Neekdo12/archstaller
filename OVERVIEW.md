@@ -23,14 +23,14 @@ that need a running Linux.
    - resolves packages (`crates/pkg`): pacman-compatible `vercmp`, versioned deps, soname provides,
      groups, repo priority, conflicts.
    - partitions (`crates/disk`): GPT + protective MBR, BIOS boot partition, ESP (FAT32, `/boot`), root.
-   - writes root as ext4 (`crates/ext4w`), write-once, no journal.
+   - writes root as ext4 (`crates/ext4w`), write-once, with an internal journal (inode 8, a valid jbd2 superblock, 4-64 MiB depending on size, none under 32 MiB) created together with the filesystem.
    - streams each package into `/var/cache/pacman/pkg` on the target, verifying SHA-256 and PGP signature
      (`crates/pgp-lite` + `keyring.bin`) before extracting.
    - writes `/etc` (fstab, hostname, locale, mirrorlist, ...), builds an initramfs (`crates/initrd` +
      `tiny-init`), installs Limine onto the target ESP/BIOS boot partition, reboots.
 3. **First boot** (`firstboot/`): `archstaler-firstboot.target`/`.service` runs `pacman-key --init/
    --populate`, `pacman -U --overwrite '*'` on the cached packages (runs real scriptlets/hooks, writes
-   the local pacman DB), creates users, enables services, adds the ext4 journal, builds the real
+   the local pacman DB), creates users, enables services, builds the real
    initramfs (without the `kms` hook, so a failing GPU driver cannot block the boot), rewrites the Limine entry, reboots into the installed system.
 
 ## Repository layout
@@ -50,7 +50,7 @@ that need a running Linux.
 | `crates/net` | `smoltcp` stack glue (`stack.rs`; 256 KiB TCP receive window with window scaling (a 64 KiB window caps a download at 64 KiB / round-trip time, about 3 MiB/s at 20 ms; much larger than the NIC rings makes a fast sender overflow them while the CPU decrypts)), DNS resolvers: the DHCP ones first, then 1.1.1.1 and 8.8.8.8 as fallbacks (a campus resolver that never answered was seen), an ARP probe of the leased address before using it (RFC 5227; a host already using it gets a DHCPDECLINE and the DHCP exchange restarts, up to 4 times), a gratuitous ARP after DHCP, an ICMP ping helper and ARP/ethertype tracing for diagnostics, HTTP/1.1 client (`http.rs`, `client.rs`; logs each stage of a download), TLS via `rustls` + `rustls-rustcrypto` + `webpki-roots` (`tls.rs`). The TCP receive buffer is 256 KiB (window scaling on) and TLS reads the socket in 16 KiB chunks (4 KiB chunks made downloads about 10x slower) |
 | `crates/pgp-lite` | OpenPGP v4 signature verification (RSA, EdDSA) against an embedded keyring blob |
 | `crates/pkg` | sync DB parser (`desc.rs`, `db.rs`), `vercmp` port, dependency resolver (`resolve.rs`), tar/zstd/gzip readers (`tar.rs`, `compress.rs`, `io.rs`) |
-| `crates/ext4w` | write-once ext4 writer (`writer.rs`): extents, xattrs, symlinks, hardlinks; no journal/metadata_csum/dir_index at install time |
+| `crates/ext4w` | write-once ext4 writer (`writer.rs`): extents, xattrs, symlinks, hardlinks; an internal journal and `metadata_csum`; no `dir_index` hashing at install time |
 | `crates/disk` | GPT + protective MBR (`gpt.rs`), FAT32 writer (`fat32.rs`), CRC32 (`crc32.rs`), Limine BIOS installer port (`limine.rs`), region helpers (`region.rs`) |
 | `crates/initrd` | cpio newc writer (`cpio.rs`), kernel module dependency resolution from ELF `.modinfo` (`modules.rs`) |
 | `tiny-init/` | the initramfs `/init`: raw syscalls only, no libc, `no_std`; loads modules, mounts root, `switch_root` |

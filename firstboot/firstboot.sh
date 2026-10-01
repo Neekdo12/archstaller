@@ -71,8 +71,9 @@ if [ -s "$D/services.list" ]; then
     while read -r unit; do say "service $unit: $(systemctl is-enabled "$unit" 2>&1)"; done < "$D/services.list"
 fi
 
-ROOT_DEV=$(findmnt -no SOURCE /)
-tune2fs -j "$ROOT_DEV" || say "warning: could not add a journal"
+# The journal is created when the file system is written (crates/ext4w), not here: adding one with
+# `tune2fs -j` while the root is mounted leaves a /.journal file that only a later fsck turns into the
+# journal inode, and a boot that mounts first fails with "failed to locate journal superblock".
 
 # Leave out the "kms" hook (early graphics): it loads the GPU driver before the root file system is
 # mounted, and a GPU that fails to initialise (missing firmware, a chip the driver cannot handle) then
