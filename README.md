@@ -29,6 +29,7 @@ OVMF (`/usr/share/edk2/x64`). `rust-toolchain.toml` selects the toolchain.
 cargo xtask build --debug    # verbose driver/network tracing (always on for the tester preset)
 cargo xtask presets          # one ISO per preset -> target/isos/archstaler-<preset>.iso (with USB tethering; --no-tethering leaves it out)
 cargo xtask build            # a single ISO from examples/config.lua -> target/archstaler.iso
+cargo xtask build --super-small   # smallest ISO (about 1.4 MiB instead of 2.4); also accepted by `presets`
 cargo xtask build --config path/to/my.lua --out my.iso
 ```
 
@@ -224,6 +225,7 @@ validates them strictly at build time and rejects anything with unexpected chara
 | `crates/ext4w` | write-once ext4 writer |
 | `crates/disk` | GPT, FAT32 writer, Limine BIOS boot code installer |
 | `crates/initrd` | cpio writer, kernel module dependency resolution |
+| `kstub/` | loader stub for `--super-small` ISOs: unpacks the compressed kernel |
 | `tiny-init/` | the initramfs `init` (raw syscalls, no libc) |
 | `firstboot/` | systemd units and script for the first boot |
 | `presets/`, `examples/` | Lua configs |
@@ -251,7 +253,9 @@ every run (a partition table left by an earlier run would make the firmware try 
 they see and are meant for QEMU scratch disks only.
 
 `--small` builds the kernel with `build-std` and immediate-abort panics: smaller, but panic messages are
-lost.
+lost. `--super-small` adds two things on top: the kernel is stored deflate-compressed and loaded by a 21 KiB
+stub (`kstub/`), and `BOOTX64.EFI` is stored once instead of twice. The ISO drops from 2.3 MiB (`--small`) to 1.4 MiB.
+It boots in QEMU in BIOS and UEFI mode; a failure to unpack prints a `kstub:` line on COM1 and halts.
 
 ## Status
 

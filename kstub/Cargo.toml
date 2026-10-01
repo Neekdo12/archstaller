@@ -1,0 +1,8 @@
+[package]
+name = "kstub"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+limine = "0.6"
+miniz_oxide = { version = "0.9", default-features = false }

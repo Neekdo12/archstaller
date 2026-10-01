@@ -49,6 +49,15 @@ commits and pushes; leave changes uncommitted. (From the agent's shell, `git pus
 - xHCI: a multi-TRB transfer misreports the length on a short packet; one TRB up to 64 KiB, aligned buffers.
 - iPhone: device-side usbmux protocol, `ipheth` data path, a Pair reply may carry only an `EscrowBag`.
 
+## `--super-small` ISO
+
+`cargo xtask build|presets|size --super-small` (implies `--small`): compressed kernel behind the `kstub` loader and
+`BOOTX64.EFI` stored once, 1.40 MiB. Verified in QEMU BIOS and UEFI with the tester (kernel boots, modules and the
+BOOTX64.EFI slice are right); a full install from it and real hardware are not tested. The stub's requests must match
+the kernel's (`kstub/src/main.rs`); if a new Limine request is added to the kernel, add it there too or the kernel gets
+no answer. If the kernel image outgrows 4 MiB, raise `PAYLOAD_SIZE` in `kstub/linker.ld`, `kstub/src/main.rs` and
+`xtask/src/iso.rs`.
+
 ## Debug flag
 
 Verbose tracing (`hal::log!`) is compiled out unless the kernel feature `debug` is on (`cargo xtask build --debug`;
@@ -66,7 +75,7 @@ cargo xtask e2e [--uefi] [--disk ahci --nic e1000]      # full install and two b
 cargo test -p usb -p imobiledevice -p usbnet --features usb/std,imobiledevice/std
 cargo test -p net                         # includes the DHCP probe/decline tests (no `std` feature)
 QEMU_EXTRA='-trace usb_* -D /tmp/qtrace.log' cargo xtask run ...   # raw QEMU args
-cargo xtask size [--small]                # ISO 2.34 MiB (2.20 small), limit 3 MiB; tethering adds ~105 KiB
+cargo xtask size [--small|--super-small]   # ISO 2.34 MiB (2.20 small, 1.40 super-small), limit 3 MiB; tethering adds ~105 KiB
 ```
 
 `presets/tester.lua` is a read-only dry run: probes hardware, brings up the network (wired, then tethering if no

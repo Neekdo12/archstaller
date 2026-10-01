@@ -51,6 +51,7 @@ that need a running Linux.
 | `crates/ext4w` | write-once ext4 writer (`writer.rs`): extents, xattrs, symlinks, hardlinks; an internal journal and `metadata_csum`; no `dir_index` hashing at install time |
 | `crates/disk` | GPT + protective MBR (`gpt.rs`), FAT32 writer (`fat32.rs`), CRC32 (`crc32.rs`), Limine BIOS installer port (`limine.rs`), region helpers (`region.rs`) |
 | `crates/initrd` | cpio newc writer (`cpio.rs`), kernel module dependency resolution from ELF `.modinfo` (`modules.rs`) |
+| `kstub/` | loader stub used only by `--super-small` ISOs (`no_std`, no allocator): Limine loads it instead of the kernel; it inflates the module `kernel.z` (deflate, via `miniz_oxide`) into 4 MiB it reserves at the kernel's link address `0xffffffff80000000` (a segment without file contents, which Limine maps and zeroes; Limine loads the whole span between the lowest and highest segment as one block, so the stub sits right above it), copies Limine's answers from its own copies of the kernel's requests (matched by request id) into the unpacked kernel, and jumps to the kernel entry. Its requests must stay equal to `kernel/src/main.rs`'s |
 | `tiny-init/` | the initramfs `/init`: raw syscalls only, no libc, `no_std`; loads modules, mounts root, `switch_root` |
 | `firstboot/` | systemd unit files + `firstboot.sh`, embedded into the image at install time, run on first boot |
 | `presets/`, `examples/` | Lua configs; `presets/common.lua` holds shared defaults (firmware: `linux-firmware-{intel,realtek,amdgpu,radeon}`; desktop presets use full `linux-firmware`) and supports opt-in `dry_run` mode, `presets/tester.lua` is read-only hardware testing (probes, DHCP, mirror and package resolution, pings of the gateway, the DHCP DNS server and 1.1.1.1 plus a direct TCP connect to 1.1.1.1:443 (separating "no internet" from "DNS only"), and, if all of that passed, a throughput test that downloads up to 24 MiB of the largest resolved package and prints MiB/s and Mbit/s; then it reprints the driver/device log lines (NIC identification, link and receive diagnostics) and reboots after 60 s (300 s after a failed run) via `reboot()`: 8042, port 0xCF9, triple fault), `examples/config.lua` is the documented example, `examples/e2e.lua` is used by `xtask e2e` |
@@ -85,6 +86,7 @@ loader config).
 ISO9660 (via `xorriso`, hybrid El Torito BIOS + UEFI), containing `boot/kernel`, `boot/config.bin`,
 `boot/keyring.bin`, `boot/tiny-init`, `boot/limine/*` (Limine's BIOS files + `limine.conf`),
 `boot/limine-bios-hdd.bin` (MBR stage 1 for the *target* disk's BIOS install), `EFI/BOOT/BOOTX64.EFI`.
+`--super-small` (`xtask/src/iso.rs`): `boot/kernel` is the `kstub` loader (21 KiB), `boot/kernel.z` is the compressed kernel image (`[entry][length][raw deflate]`), and there is no loose `EFI/BOOT/BOOTX64.EFI`: the kernel takes it from the `efi.img` module (Limine `module_cmdline: offset:length`, found by xtask) when it writes the target's ESP. `efi.img` also has less slack. About 1.4 MiB total.
 Current total ~2.3 MiB; see `sizes.md` for the full byte-by-byte breakdown and reduction ideas.
 
 ## Testing
@@ -96,7 +98,7 @@ Current total ~2.3 MiB; see `sizes.md` for the full byte-by-byte breakdown and r
 - `cargo xtask e2e [--uefi] [--disk ...] [--nic ...] [--config FILE]`: full install in QEMU onto a blank
   disk, then boots the result twice.
 - `cargo xtask run --usb`: adds `qemu-xhci` + `usb-storage` and builds the `usb-selftest` kernel, which enumerates the USB device and runs a SCSI INQUIRY over bulk endpoints.
-- `cargo xtask size [--small] [--limit BYTES]`: ISO content breakdown + size budget check.
+- `cargo xtask size [--small|--super-small] [--limit BYTES]`: ISO content breakdown + size budget check.
 - `cargo xtask check-presets`: resolves every preset against local pacman sync DBs.
 
 ## Debug output

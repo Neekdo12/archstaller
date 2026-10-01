@@ -61,6 +61,7 @@ pub fn build_all(opts: &Options) -> Result<()> {
             fault_test: false,
             selftest: false,
             small: opts.small,
+            super_small: opts.super_small,
             limit: opts.limit,
             extra_kernel_params: Vec::new(),
             uefi: false,

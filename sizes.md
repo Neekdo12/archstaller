@@ -5,6 +5,10 @@ Rozpad kernelu podle crate je z nestripnutého buildu (`CARGO_PROFILE_RELEASE_ST
 
 **Celkem: 2 449 408 B (2,34 MiB).** S `--small`: 2 306 048 B (2,20 MiB). Kernel bez `--tethering`; tethering přidává asi 105 KiB.
 
+## `--super-small`: změřeno
+
+`cargo xtask size --super-small` dává **1 470 464 B (1,40 MiB)** (proti 2 306 048 B u `--small`). Kernel je deflate (`miniz_oxide`, úroveň 10) 936 400 → 487 890 B (52 %, zstd by dal asi 46 %, ale loader pak nepotřebuje alokátor), loader `kstub` má 21 KiB, `BOOTX64.EFI` je jen v `efi.img` (rezerva obrazu 20 KiB místo 48 KiB). Zbytek je Limine (1 130 KiB). Neřešeno: `tiny-init` padding (~20 KiB), TLS dieta (body 2, 5 níže).
+
 ## Co je na ISO
 
 | Soubor | Velikost | % ISO | Kdo to čte | K čemu |
@@ -60,7 +64,7 @@ vtables, řetězce hlášek, PSF font (5 KiB), firstboot soubory (4,4 KiB), CRC 
 
 Seřazeno podle poměru úspory a rizika. Úspory jsou odhady, pokud není uvedeno „změřeno“.
 
-### 1. Neukládat `BOOTX64.EFI` dvakrát: −368 KiB (−15 %)
+### 1. Neukládat `BOOTX64.EFI` dvakrát (hotovo v `--super-small`): −368 KiB (−15 %)
 Stejný soubor je na ISO dvakrát: jednou uvnitř `efi.img` (pro firmware), jednou volně (jako modul pro kernel).
 Kernel si ho může vzít z `efi.img`: dostane `efi.img` jako modul a přečte `EFI/BOOT/BOOTX64.EFI` z FAT12. Stačí
 minimální čtečka root/podadresáře a FAT řetězu v `crates/disk`, nebo xtask při buildu zapíše offset a délku souboru
@@ -99,7 +103,7 @@ v `tiny-init/linker.ld` a zarovnání segmentů. Zlepší to méně PT_LOAD segm
 `println!("... {e:?}")` táhne `Debug` implementace chybových typů z `rustls`, `smoltcp` a dalších crate. Chybové kódy
 nebo `&'static str` místo `{:?}` ušetří část `core::fmt` a řetězců. Přesný dopad ukáže až měření.
 
-### 7. Komprimovaný kernel + stub: ~−500 KiB (náročné)
+### 7. Komprimovaný kernel + stub: ~−430 KiB (hotovo v `--super-small`)
 Kernel se přes zstd -19 zmenší na ~46 %. Limine kernel nedekomprimuje, takže by Limine načetl malý stub a ten by
 rozbalil skutečný kernel (dekodér `ruzstd` ~20 KiB je už v projektu), namapoval ho a skočil do něj. To znamená
 vlastní ELF loader a stránkování ve stubu, tedy nejvíc práce ze všech bodů. Limine soubory (`efi.img`, `BOOTX64.EFI`,

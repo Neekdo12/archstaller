@@ -677,6 +677,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "kstub"
+version = "0.1.0"
+dependencies = [
+ "limine",
+ "miniz_oxide",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1638,6 +1646,7 @@ dependencies = [
  "disk",
  "ext4w",
  "initrd",
+ "miniz_oxide",
  "mlua",
  "pgp-lite",
  "pkg",

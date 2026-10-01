@@ -31,6 +31,8 @@ pub struct Options {
     pub selftest: bool,
     /// Size-optimized kernel: build-std with panics that abort without messages.
     pub small: bool,
+    /// Smallest ISO: `small`, plus a compressed kernel behind a loader stub (`kstub`) and BOOTX64.EFI stored once.
+    pub super_small: bool,
     /// `xtask size` fails when the ISO exceeds this many bytes.
     pub limit: u64,
     /// Output path of the ISO (default target/archstaler.iso).
@@ -58,6 +60,7 @@ fn parse(args: &[String]) -> Result<Options> {
         fault_test: false,
         selftest: false,
         small: false,
+        super_small: false,
         limit: 3 << 20,
         out: None,
         extra_kernel_params: Vec::new(),
@@ -77,6 +80,10 @@ fn parse(args: &[String]) -> Result<Options> {
             "--selftest" => o.selftest = true,
             "--out" => o.out = Some(it.next().ok_or("--out needs a path")?.into()),
             "--small" => o.small = true,
+            "--super-small" => {
+                o.small = true;
+                o.super_small = true;
+            }
             "--limit" => o.limit = it.next().ok_or("--limit needs bytes")?.parse()?,
             "--uefi" => o.uefi = true,
             "--bios" => o.uefi = false,
@@ -95,7 +102,7 @@ fn parse(args: &[String]) -> Result<Options> {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|keyring|update-keyring> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--small] [--limit BYTES]")?;
+    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|keyring|update-keyring> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--small|--super-small] [--limit BYTES]")?;
     let opts = parse(rest)?;
     match cmd.as_str() {
         "build" => {
