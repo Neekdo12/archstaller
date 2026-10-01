@@ -201,6 +201,8 @@ pub struct Controller {
     dcbaa: Dma,
     _scratch: Option<(Dma, alloc::vec::Vec<Dma>)>,
     pub(crate) slots: alloc::vec::Vec<Option<Slot>>,
+    /// Transfer events that arrived while waiting for something else.
+    stash: alloc::vec::Vec<Event>,
 }
 
 impl Controller {
@@ -290,6 +292,7 @@ impl Controller {
             dcbaa,
             _scratch: scratch,
             slots: (0..max_slots).map(|_| None).collect(),
+            stash: alloc::vec::Vec::new(),
         })
     }
 
@@ -358,7 +361,7 @@ impl Controller {
                 if ev.is_command && ev.param == trb {
                     return Ok((ev.slot, ev.code));
                 }
-                // Port status change or stray event: consumed and ignored.
+                self.keep(ev); // a transfer completing meanwhile; port events are dropped
             } else if platform::now_ns() > deadline {
                 return Err(Error::Timeout);
             } else {
@@ -369,14 +372,35 @@ impl Controller {
 
     /// Waits for a transfer event for (`slot`, `dci`) up to `timeout_ms`.
     /// Returns `(completion_code, residual_bytes)`.
+    fn keep(&mut self, ev: Event) {
+        if ev.is_transfer && self.stash.len() < 64 {
+            self.stash.push(ev);
+        }
+    }
+
+    /// Non-blocking: the completion of the oldest transfer on (`slot`, `dci`), if it arrived.
+    /// Returns `(completion_code, residual_bytes)`.
+    pub(crate) fn poll_transfer(&mut self, slot: u8, dci: u8) -> Option<(u8, u32)> {
+        if let Some(i) = self.stash.iter().position(|e| e.slot == slot && e.dci == dci) {
+            let ev = self.stash.remove(i);
+            return Some((ev.code, ev.residual));
+        }
+        while let Some(ev) = self.evt.next(&self.rt0) {
+            if ev.is_transfer && ev.slot == slot && ev.dci == dci {
+                return Some((ev.code, ev.residual));
+            }
+            self.keep(ev);
+        }
+        None
+    }
+
     pub(crate) fn wait_transfer(&mut self, slot: u8, dci: u8, timeout_ms: u64) -> Result<(u8, u32)> {
         let deadline = platform::now_ns() + timeout_ms * 1_000_000;
         loop {
-            if let Some(ev) = self.evt.next(&self.rt0) {
-                if ev.is_transfer && ev.slot == slot && ev.dci == dci {
-                    return Ok((ev.code, ev.residual));
-                }
-            } else if platform::now_ns() > deadline {
+            if let Some(r) = self.poll_transfer(slot, dci) {
+                return Ok(r);
+            }
+            if platform::now_ns() > deadline {
                 return Err(Error::Timeout);
             } else {
                 core::hint::spin_loop();
@@ -417,7 +441,10 @@ impl Controller {
         }
         for &(dci, _, _) in eps {
             add |= 1 << dci;
-            entries = entries.max(dci);
+        }
+        // Context Entries must cover every endpoint already configured, not just the new ones.
+        if !eps.is_empty() {
+            entries = s.rings.len() as u8;
         }
         in_ctx.write32(4, add); // add flags (drop flags stay 0)
         if !eps.is_empty() {
@@ -541,9 +568,21 @@ impl Controller {
         }
     }
 
+    /// Queues a transfer (zero length = a zero-length packet) and rings the endpoint doorbell.
+    /// Completion is collected with `poll_transfer` / `wait_transfer`.
+    pub(crate) fn queue_transfer(&mut self, slot: u8, dci: u8, buf_phys: u64, len: usize) -> Result<()> {
+        self.submit_normal(slot, dci, buf_phys, len)?;
+        self.db.write32(slot as usize * 4, dci as u32);
+        Ok(())
+    }
+
     fn submit_normal(&mut self, slot: u8, dci: u8, buf_phys: u64, len: usize) -> Result<()> {
         let Some(s) = &mut self.slots[(slot - 1) as usize] else { return Err(Error::InvalidArgument) };
         let ring = &mut s.rings[(dci - 1) as usize];
+        if len == 0 {
+            ring.push(buf_phys, 0, (TRB_NORMAL << 10) | TRB_IOC);
+            return Ok(());
+        }
         let mut done = 0usize;
         while done < len {
             let chunk = (len - done).min(MAX_TRB_LEN);
@@ -587,7 +626,7 @@ impl Controller {
     }
 
     /// Stops the endpoint and rewinds its ring after a timeout.
-    fn reset_endpoint(&mut self, slot: u8, dci: u8) -> Result<()> {
+    pub(crate) fn reset_endpoint(&mut self, slot: u8, dci: u8) -> Result<()> {
         let sel = (slot as u32) << 24 | (dci as u32) << 16;
         let _ = self.command(0, (TRB_STOP_EP << 10) | sel);
         let Some(s) = &mut self.slots[(slot - 1) as usize] else { return Err(Error::InvalidArgument) };

@@ -1,6 +1,12 @@
 # Implementation spec: iPhone USB tethering as a network source
 
-> **Status: implemented** in `crates/usb` and `crates/imobiledevice` (kernel feature `usb-tethering`, `cargo xtask build --tethering`); see `OVERVIEW.md`. Parts that need a real iPhone are marked UNVERIFIED in the code. Deviations from this spec: the plist codec also reads XML plists, and pairing is not persisted.
+> **Status: implemented, with deviations** in `crates/usb` and `crates/imobiledevice` (kernel feature `usb-tethering`,
+> `cargo xtask build --tethering`); see `OVERVIEW.md` for the current design. Where this spec and the code differ, the
+> code is right: the spec assumed the phone's mux interface speaks the plist protocol of a host usbmuxd daemon (it
+> speaks usbmuxd's device-side binary protocol, `mux.rs`), and that tethering is a lockdown service reached through a
+> TLS session and `StartService` (it is the phone's standard `ipheth` USB interface, `netdev.rs`; lockdown is only
+> used to pair so the phone enables it). Steps 3, 5 and 6 below are therefore obsolete. Also: the plist codec reads
+> XML as well as binary, and pairing is not persisted. Not verified against a real iPhone.
 
 Goal: let the installer get network access from an iPhone/iPad's Personal Hotspot over a USB cable,
 in addition to the existing PCI NICs in `crates/drivers`. No Wi-Fi, no firmware blobs. This is a from-scratch

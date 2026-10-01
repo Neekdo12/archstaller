@@ -16,11 +16,6 @@ pub struct PairRecord {
     pub system_buid: String,
     /// Filled from the Pair response, if the device sends one.
     pub escrow_bag: Option<Vec<u8>>,
-    // Never serialized into the plist sent to the device:
-    pub host_key_pkcs8: Vec<u8>,
-    /// DER of the host + root certs, for the TLS client certificate chain.
-    pub host_cert_der: Vec<u8>,
-    pub root_cert_der: Vec<u8>,
 }
 
 /// RDRAND-backed RNG implementing rand_core 0.6's traits for the `rsa` crate.
@@ -79,7 +74,7 @@ pub fn generate_pair_record(
     unix_time: u64,
 ) -> Result<PairRecord> {
     let (root_key, root_pub) = rsa_keypair()?;
-    let (host_key, host_pub) = rsa_keypair()?;
+    let (_host_key, host_pub) = rsa_keypair()?;
 
     let now = cert::civil_from_unix(unix_time);
     let later = (now.0 + 10, now.1, now.2, now.3, now.4, now.5);
@@ -127,9 +122,6 @@ pub fn generate_pair_record(
     )
     .map_err(|_| Error::Io)?;
 
-    use rsa::pkcs8::EncodePrivateKey;
-    let host_key_pkcs8 = host_key.to_pkcs8_der().map_err(|_| Error::Io)?.as_bytes().to_vec();
-
     Ok(PairRecord {
         device_certificate: cert::pem("CERTIFICATE", &device_der),
         host_certificate: cert::pem("CERTIFICATE", &host_der),
@@ -137,9 +129,6 @@ pub fn generate_pair_record(
         host_id: uuid4(),
         system_buid: String::from(system_buid),
         escrow_bag: None,
-        host_key_pkcs8,
-        host_cert_der: host_der,
-        root_cert_der: root_der,
     })
 }
 

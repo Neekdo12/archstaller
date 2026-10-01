@@ -629,12 +629,9 @@ dependencies = [
  "getrandom",
  "hal",
  "imobiledevice",
- "net",
  "pgp-lite",
  "rand_core",
  "rsa",
- "rustls",
- "rustls-rustcrypto",
  "sha2 0.10.9",
  "usb",
 ]

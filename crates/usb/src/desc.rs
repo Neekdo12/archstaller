@@ -38,14 +38,16 @@ impl EndpointDesc {
 #[derive(Debug, Clone)]
 pub struct InterfaceDesc {
     pub num: u8,
+    /// bAlternateSetting; every alternate setting is its own entry (alt 0 first).
+    pub alt: u8,
     pub class: u8,
     pub subclass: u8,
     pub protocol: u8,
     pub endpoints: Vec<EndpointDesc>,
 }
 
-/// Parses a full configuration descriptor blob into its interfaces and endpoints
-/// (alternate settings are ignored; the first setting of each interface wins).
+/// Parses a full configuration descriptor blob into its interface settings and endpoints.
+/// Each alternate setting of an interface is returned as a separate entry.
 pub fn parse_config(blob: &[u8]) -> Vec<InterfaceDesc> {
     let mut out: Vec<InterfaceDesc> = Vec::new();
     let mut pos = 0usize;
@@ -59,19 +61,15 @@ pub fn parse_config(blob: &[u8]) -> Vec<InterfaceDesc> {
         match (ty, len) {
             (DT_INTERFACE, 9..) => {
                 let d = &blob[pos..pos + len];
-                let num = d[2];
-                if !out.iter().any(|i| i.num == num) {
-                    out.push(InterfaceDesc {
-                        num,
-                        class: d[5],
-                        subclass: d[6],
-                        protocol: d[7],
-                        endpoints: Vec::new(),
-                    });
-                    cur = Some(out.len() - 1);
-                } else {
-                    cur = None;
-                }
+                out.push(InterfaceDesc {
+                    num: d[2],
+                    alt: d[3],
+                    class: d[5],
+                    subclass: d[6],
+                    protocol: d[7],
+                    endpoints: Vec::new(),
+                });
+                cur = Some(out.len() - 1);
             }
             (DT_ENDPOINT, 7..) => {
                 if let Some(i) = cur {

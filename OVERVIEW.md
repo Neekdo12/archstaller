@@ -42,7 +42,7 @@ that need a running Linux.
 | `crates/hal` | traits: `BlockDevice`, `NetDevice`, `Clock`, `Rng` |
 | `crates/drivers` | PCI enumeration (`pci.rs`), virtio blk/net, AHCI, NVMe, Intel e1000/e1000e/igb(+igc), Realtek r8169/r8125/rtl8139 — all polled, no IRQs |
 | `crates/usb` | xHCI host controller driver (polled, takes ownership from the firmware via the legacy-support capability, logs each enumeration step through `hal::log!`): command/event/transfer rings, enumeration of enabled ports and USB configurations, descriptors, control + bulk transfers. One controller, no hubs |
-| `crates/imobiledevice` | iPhone USB tethering: plist (binary + XML) codec, usbmuxd framing over bulk endpoints (`mux.rs`), pairing with a generated RSA-2048 host identity (`cert.rs`, `pair.rs`), TLS-wrapped lockdownd session + `StartService` (`lockdown.rs`), `hal::NetDevice` adapter (`netdev.rs`). Unit-tested on the host only; needs a real phone end-to-end |
+| `crates/imobiledevice` | iPhone USB tethering: plist codec (binary + XML), the device-side usbmux protocol over the phone's mux interface (`mux.rs`: version handshake, small TCP-like connections), lockdownd QueryType/GetValue/Pair (`lockdown.rs`, `pair.rs`, `cert.rs`: generated RSA-2048 host identity and certs), and the phone's `ipheth` tethering interface as a `hal::NetDevice` (`netdev.rs`). Unit-tested on the host only; needs a real phone end-to-end |
 | `crates/net` | `smoltcp` stack glue (`stack.rs`), HTTP/1.1 client (`http.rs`, `client.rs`), TLS via `rustls` + `rustls-rustcrypto` + `webpki-roots` (`tls.rs`) |
 | `crates/pgp-lite` | OpenPGP v4 signature verification (RSA, EdDSA) against an embedded keyring blob |
 | `crates/pkg` | sync DB parser (`desc.rs`, `db.rs`), `vercmp` port, dependency resolver (`resolve.rs`), tar/zstd/gzip readers (`tar.rs`, `compress.rs`, `io.rs`) |
@@ -99,15 +99,22 @@ Current total ~2.3 MiB; see `sizes.md` for the full byte-by-byte breakdown and r
 ## iPhone USB tethering (optional)
 
 Off by default; build with `--features usb-tethering` on the kernel (`cargo xtask build --tethering`).
-`kernel/src/main.rs` calls `imobiledevice::tether()` after `probe_all()`: xHCI init, find an Apple device,
-usbmux `Connect` to lockdownd (port 62078), `Pair` (the user taps "Trust"; retried for 120 s; the pairing
-record is not persisted), TLS `StartSession`, `StartService` for the hotspot relay, then a second mux
-channel that becomes `IphoneNet`. `crates/net` is untouched: the relay carries raw IP, so `IphoneNet`
-adds/strips a 14-byte Ethernet header (`RELAY_RAW_IP` in `crates/imobiledevice/src/lib.rs`). `install::run`
-uses the first NIC with link, so a wired NIC wins if present. The relay service name, mux device id and
-raw-IP-vs-Ethernet choice are marked UNVERIFIED in the code: they were never run against a real iPhone.
-The xHCI driver itself is smoke-tested in QEMU with `cargo xtask run --usb` (`qemu-xhci` + `usb-storage`,
-bulk-only INQUIRY). Adds about 120 KiB to the kernel.
+`kernel/src/main.rs` calls `imobiledevice::tether()` after `probe_all()`:
+1. `usb::find_device` picks the phone's USB configuration that has both the mux interface (ff/fe/02) and the
+   tethering interface (ff/fd/01), after waiting for the xHCI ports to report a connection.
+2. `mux.rs` does the usbmux version handshake (v1 then v2 header) and opens a TCP-like connection to
+   lockdownd (port 62078).
+3. `lockdown.rs`: QueryType, GetValue `DevicePublicKey`, then `Pair` with a freshly generated pair record. The
+   user taps "Trust" (and enters the passcode); the request is repeated while the phone answers
+   "dialog pending"/"password protected", for up to 120 s. The record is not persisted.
+4. `netdev.rs`: `SET_INTERFACE` to the tethering interface's data alternate setting, vendor request 0x00 for the
+   MAC, vendor request 0x45 until the carrier is up (hotspot on), then bulk IN/OUT carry plain Ethernet
+   frames (received frames have 2 padding bytes). `crates/net` is untouched.
+`install::run` uses the first NIC with link, so a wired NIC wins if present. Nothing here has run against a
+real iPhone: the xHCI driver is smoke-tested in QEMU (`cargo xtask run --usb`: `qemu-xhci` + `usb-storage`,
+bulk-only INQUIRY), and the mux framing has byte-level unit tests, but the pairing and tethering exchanges
+are written from the public protocol descriptions. Every step logs a `usb:` line, so a failed attempt on real
+hardware shows how far it got.
 
 ## Out of scope
 

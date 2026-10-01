@@ -1,3 +1,14 @@
 /target
 *.zip
 *.iso
+*.tar.gz
+*.rar
+*.7z
+*.tar
+*.gz
+*.bz2
+*.xz
+*.tar.bz2
+*.tar.xz
+*.tar.Z
+*.Z

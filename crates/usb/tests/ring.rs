@@ -90,6 +90,22 @@ mod desc {
         assert_eq!(i.endpoints[0].max_packet, 512);
     }
 
+    /// An ipheth-shaped interface: alt 0 has no endpoints, alt 1 has bulk IN + OUT.
+    #[test]
+    fn keeps_alternate_settings() {
+        let blob: &[u8] = &[
+            9, 2, 41, 0, 1, 1, 0, 0x80, 250, // config
+            9, 4, 2, 0, 0, 0xff, 0xfd, 0x01, 0, // interface 2 alt 0, no endpoints
+            9, 4, 2, 1, 2, 0xff, 0xfd, 0x01, 0, // interface 2 alt 1
+            7, 5, 0x81, 0x02, 0x00, 0x02, 0, // IN
+            7, 5, 0x02, 0x02, 0x00, 0x02, 0, // OUT
+        ];
+        let ifs = desc::parse_config(blob);
+        assert_eq!(ifs.len(), 2);
+        assert_eq!((ifs[0].num, ifs[0].alt, ifs[0].endpoints.len()), (2, 0, 0));
+        assert_eq!((ifs[1].num, ifs[1].alt, ifs[1].endpoints.len()), (2, 1, 2));
+    }
+
     #[test]
     fn parses_utf16_string() {
         // "Ab" as a USB string descriptor.

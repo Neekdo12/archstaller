@@ -140,8 +140,8 @@ Rozdíly oproti plánu výše:
   kombinace), kontrola čistého `pacman -Qk`, trvalý log instalace, velikostní optimalizace HTTP-only / pinned CA
   a komprese kernelu, `cargo bloat` v `xtask size`. ISO má ~2,4 MB (2,26 MB s `--small`), cíl 1,5–2 MB nesplněn.
 - **Tethering iPhonu přes USB (volitelný, feature `usb-tethering`, ve výchozím stavu vypnutý):** `crates/usb` (xHCI,
-  ověřeno v QEMU s `usb-storage`) a `crates/imobiledevice` (plist, usbmuxd, párování, lockdownd přes TLS,
-  `NetDevice`). Přidává ~120 KiB. Na skutečném iPhonu nikdy neběžel; název služby hotspotu, id zařízení a to, zda
-  relay nese IP nebo Ethernet, jsou označeny UNVERIFIED v kódu. Párování se neukládá.
+  ověřeno v QEMU s `usb-storage`) a `crates/imobiledevice` (plist, usbmux protokol zařízení, párování přes
+  lockdownd, tethering rozhraní `ipheth` jako `NetDevice`). Na skutečném iPhonu nikdy plně neproběhl; párování
+  se neukládá.
 - **Přidáno navíc:** presety (`presets/`), `user_files` a `user_archives` (stažení souborů/zip do domovů uživatelů),
   `ly` jako display manager, `xtask e2e`, `xtask check-presets`, `xtask linux-test`, testy se Ventoy (1.1.17).

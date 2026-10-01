@@ -97,14 +97,13 @@ cargo xtask run --uefi --disk nvme --nic e1000e
   igc's, were written from memory and are unchecked. Newer Intel chips that share an ID (for example the
   PCH-integrated I217/I219) may need setup the e1000e driver does not do. Not supported: Broadcom `tg3`,
   Marvell/Aquantia `atlantic`, VMware `vmxnet3`, USB Ethernet and 10 Gbit NICs.
-- iPhone USB tethering (optional, off by default, **never run against a real iPhone**): build with
-  `cargo xtask build --tethering`, plug in an unlocked iPhone with Personal Hotspot available, and tap
-  "Trust" when it asks (the installer waits 120 s). It uses an xHCI controller (`crates/usb`) and Apple's
-  usbmuxd/lockdownd protocols (`crates/imobiledevice`) and appears as one more NIC; a wired NIC with link
-  is preferred. Pairing is redone on every run. The hotspot service name, the mux device id and whether
-  the relay carries raw IP or Ethernet frames are best guesses (marked UNVERIFIED in the code) and may need
-  adjusting after a capture from a real phone. Only the xHCI driver was tested, in QEMU with `xtask run
-  --usb`. It adds about 120 KiB to the kernel.
+- iPhone USB tethering (optional, off by default, **never run successfully against a real iPhone**): build with
+  `cargo xtask build --tethering`, plug in an unlocked iPhone with Personal Hotspot on, and tap "Trust" (and
+  enter the passcode) when it asks; the installer waits up to 120 s. It uses an xHCI controller
+  (`crates/usb`), pairs through lockdownd over the phone's usbmux interface and then uses the phone's
+  standard tethering interface (the one Linux's `ipheth` driver uses) as one more NIC; a wired NIC with
+  link is preferred. Pairing is redone on every run. Every step prints a `usb:` log line, so a failure
+  shows how far it got. Only the xHCI driver was tested, in QEMU with `xtask run --usb`.
 
 ### Ventoy
 

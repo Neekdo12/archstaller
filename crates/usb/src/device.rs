@@ -51,12 +51,37 @@ impl Controller {
         index: u16,
         buf: &mut [u8],
     ) -> Result<usize> {
+        self.control_in_type(dev, REQ_IN, req, value, index, buf)
+    }
+
+    /// Vendor-specific device-to-host request (bmRequestType 0xC0).
+    pub fn vendor_in(
+        &mut self,
+        dev: &Device,
+        req: u8,
+        value: u16,
+        index: u16,
+        buf: &mut [u8],
+    ) -> Result<usize> {
+        self.control_in_type(dev, REQ_IN | 0x40, req, value, index, buf)
+    }
+
+    fn control_in_type(
+        &mut self,
+        dev: &Device,
+        req_type: u8,
+        req: u8,
+        value: u16,
+        index: u16,
+        buf: &mut [u8],
+    ) -> Result<usize> {
         if buf.is_empty() {
-            return self.control(dev.slot, setup(REQ_IN, req, value, index, 0), 0, 0, true);
+            return self.control(dev.slot, setup(req_type, req, value, index, 0), 0, 0, true);
         }
         let dma = Dma::new(buf.len(), 64);
-        let n = self.control(dev.slot, setup(REQ_IN, req, value, index, buf.len() as u16), dma.phys(), buf.len(), true)?;
-        buf.copy_from_slice(&dma.as_slice()[..n.min(buf.len())]);
+        let n = self.control(dev.slot, setup(req_type, req, value, index, buf.len() as u16), dma.phys(), buf.len(), true)?;
+        let n = n.min(buf.len());
+        buf[..n].copy_from_slice(&dma.as_slice()[..n]);
         Ok(n)
     }
 
@@ -213,6 +238,47 @@ impl Controller {
         Ok(())
     }
 
+    /// Selects an alternate setting of an interface (standard SET_INTERFACE).
+    pub fn set_interface(&mut self, dev: &Device, iface: u8, alt: u8) -> Result<()> {
+        self.control(dev.slot, setup(0x01, 11, alt as u16, iface as u16, 0), 0, 0, false)?;
+        Ok(())
+    }
+
+    /// Configures the bulk endpoints in `eps` (e.g. those of a second interface, or of an
+    /// alternate setting selected after `set_configuration`).
+    pub fn configure_endpoints(&mut self, dev: &Device, eps: &[desc::EndpointDesc]) -> Result<()> {
+        self.open_bulk_endpoints(dev.slot, dev.configuration, eps)
+    }
+
+    /// Sends a zero-length packet on a bulk OUT endpoint (terminates a transfer whose
+    /// length is a multiple of the endpoint's max packet size).
+    pub fn bulk_write_zlp(&mut self, dev: &Device, ep_addr: u8) -> Result<()> {
+        let dci = (ep_addr & 0x0f) * 2;
+        self.transfer(dev.slot, dci, 0, 0, 5000)?;
+        Ok(())
+    }
+
+    /// Queues a read on a bulk IN endpoint without waiting; collect it with `bulk_in_poll`.
+    /// `buf` must stay alive and untouched until the read completes.
+    pub fn bulk_in_submit(&mut self, dev: &Device, ep_addr: u8, buf: &Dma, len: usize) -> Result<()> {
+        let dci = (ep_addr & 0x0f) * 2 + 1;
+        self.queue_transfer(dev.slot, dci, buf.phys(), len)
+    }
+
+    /// Non-blocking: `Some(Ok(bytes))` when the queued read finished, `Some(Err)` when it
+    /// failed (the endpoint is reset), `None` while it is still pending. `len` is the length
+    /// that was passed to `bulk_in_submit`.
+    pub fn bulk_in_poll(&mut self, dev: &Device, ep_addr: u8, len: usize) -> Option<Result<usize>> {
+        let dci = (ep_addr & 0x0f) * 2 + 1;
+        let (code, residual) = self.poll_transfer(dev.slot, dci)?;
+        if code == 1 || code == 13 {
+            Some(Ok(len.saturating_sub(residual as usize)))
+        } else {
+            let _ = self.reset_endpoint(dev.slot, dci);
+            Some(Err(Error::Io))
+        }
+    }
+
     /// Writes `data` to a bulk OUT endpoint. Blocks until the device takes it.
     pub fn bulk_write(&mut self, dev: &Device, ep_addr: u8, data: &[u8]) -> Result<()> {
         if data.is_empty() {
@@ -242,8 +308,8 @@ impl Controller {
         }
         let dma = Dma::new(buf.len(), 64);
         let dci = (ep_addr & 0x0f) * 2 + 1;
-        let n = self.transfer(dev.slot, dci, dma.phys(), buf.len(), timeout_ms)?;
-        buf.copy_from_slice(&dma.as_slice()[..n]);
+        let n = self.transfer(dev.slot, dci, dma.phys(), buf.len(), timeout_ms)?.min(buf.len());
+        buf[..n].copy_from_slice(&dma.as_slice()[..n]);
         Ok(n)
     }
 }
