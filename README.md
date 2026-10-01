@@ -26,7 +26,7 @@ Prerequisites on the build host: a nightly Rust toolchain with `rust-src`, the `
 OVMF (`/usr/share/edk2/x64`). `rust-toolchain.toml` selects the toolchain.
 
 ```sh
-cargo xtask presets          # one ISO per preset -> target/isos/archstaler-<preset>.iso
+cargo xtask presets          # one ISO per preset -> target/isos/archstaler-<preset>.iso (with USB tethering; --no-tethering leaves it out)
 cargo xtask build            # a single ISO from examples/config.lua -> target/archstaler.iso
 cargo xtask build --config path/to/my.lua --out my.iso
 ```
@@ -73,7 +73,7 @@ cargo xtask run --uefi --disk nvme --nic e1000e
 ```
 
 `xtask run` builds the ISO from `examples/config.lua` and attaches `target/test-disk.img`. Options:
-`--disk virtio|ahci|nvme`, `--nic virtio|e1000|e1000e|igb|rtl8139`, `--config FILE`, `--headless`.
+`--disk virtio|ahci|nvme`, `--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none`, `--config FILE`, `--headless`.
 
 ### Virtual machines and USB sticks
 
@@ -81,12 +81,12 @@ cargo xtask run --uefi --disk nvme --nic e1000e
   supports it). Only x86_64 is supported; there is no ARM or Raspberry Pi support.
 - The installer has **no USB storage drivers**. It sees NVMe, AHCI/SATA and virtio disks only, so an installer USB
   stick is never a candidate for `auto_largest`. It also means it cannot install onto a USB disk. The only
-  USB code is the optional iPhone tethering described under Networking.
+  USB code is the optional phone tethering described under Networking.
 - Everything the installer needs is loaded into RAM by the boot loader before the kernel starts, and
   packages come from the network, so the stick can be pulled once the installer's first log lines have
   appeared. **Pull it before the final reboot**: if the firmware still prefers the stick, the machine boots
   the installer again and, with `auto_largest`, erases the system that was just installed.
-- Networking: wired PCI NICs, plus an optional iPhone Personal Hotspot over USB (below). No Wi-Fi. The installer recognizes 71 PCI device IDs in these driver families:
+- Networking: wired PCI NICs, plus optional iPhone and Android USB tethering and USB Ethernet dongles (below). No Wi-Fi. The installer recognizes 71 PCI device IDs in these driver families:
   virtio-net (2 IDs), Intel e1000 (14) and e1000e (10), Intel igb (28, the 82576/82580/I350/I210/I211
   generations) and igc (10, I225/I226), Realtek RTL8168/8169 (4) and RTL8125/8126 (2), and the old Realtek
   RTL8139 (1). Tested, in QEMU's emulated NICs only: virtio, e1000, e1000e, igb and rtl8139, each with an
@@ -97,13 +97,22 @@ cargo xtask run --uefi --disk nvme --nic e1000e
   igc's, were written from memory and are unchecked. Newer Intel chips that share an ID (for example the
   PCH-integrated I217/I219) may need setup the e1000e driver does not do. Not supported: Broadcom `tg3`,
   Marvell/Aquantia `atlantic`, VMware `vmxnet3`, USB Ethernet and 10 Gbit NICs.
-- iPhone USB tethering (optional, off by default, **never run successfully against a real iPhone**): build with
-  `cargo xtask build --tethering`, plug in an unlocked iPhone with Personal Hotspot on, and tap "Trust" (and
-  enter the passcode) when it asks; the installer waits up to 120 s. It uses an xHCI controller
-  (`crates/usb`), pairs through lockdownd over the phone's usbmux interface and then uses the phone's
-  standard tethering interface (the one Linux's `ipheth` driver uses) as one more NIC; a wired NIC with
-  link is preferred. Pairing is redone on every run. Every step prints a `usb:` log line, so a failure
-  shows how far it got. Only the xHCI driver was tested, in QEMU with `xtask run --usb`.
+- USB tethering (optional, off by default): build with `cargo xtask build --tethering`. It only runs when no
+  wired NIC has link, and the phone then appears as one more NIC. It uses an xHCI controller (`crates/usb`).
+  - **iPhone** (worked on one real iPhone): plug in an unlocked iPhone with Personal Hotspot on and tap "Trust"
+    (and enter the passcode) when it asks; the installer waits up to 120 s. It pairs through lockdownd over
+    the phone's usbmux interface (`crates/imobiledevice`) and then uses the phone's standard tethering
+    interface, the one Linux's `ipheth` driver uses. Pairing is redone on every run.
+  - **Android** (worked on one real phone, RNDIS or ECM not recorded; also tested against QEMU's emulated
+    adapters): switch "USB tethering" on in the phone's settings (the phone must be unlocked), then plug it in. The
+    installer scans again for about 20 s, so enabling tethering after plugging in also works. No pairing is needed.
+  - **USB Ethernet dongles** (`crates/usbnet`): class-compliant adapters that offer CDC-ECM or CDC-NCM, and
+    ASIX AX88179 gigabit adapters (for example the Axagon ADE-SG; vendor-specific protocol, matched by USB id).
+    Plug a cable into a router first: the AX88179 driver waits up to 15 s for link. **Untested on real
+    hardware**: only RNDIS and ECM have run, against QEMU's emulated adapter, and the NCM and AX88179 framing
+    has host unit tests only. Other vendor-specific chips (ASIX AX88772, Realtek RTL8152/8153) are not
+    supported unless the dongle also offers an ECM or NCM configuration.
+  Every step prints a `usb:` log line, so a failure shows how far it got.
 
 ### Ventoy
 
@@ -179,7 +188,7 @@ validates them strictly at build time and rejects anything with unexpected chara
   the ISOs. Nothing else in the ISO goes stale: package databases and packages are fetched at install
   time, so each install gets whatever the mirror has that day.
 - Arch's sync databases are not signed; their integrity relies on HTTPS.
-- Out of scope: Wi-Fi, other USB devices, SMP, Secure Boot, an interactive UI, filesystems other than ext4, architectures
+- Out of scope: Wi-Fi, USB devices other than tethering phones, SMP, Secure Boot, an interactive UI, filesystems other than ext4, architectures
   other than x86_64.
 
 ## Repository layout
@@ -191,8 +200,9 @@ validates them strictly at build time and rejects anything with unexpected chara
 | `config/` | config types shared by `xtask` and the kernel, plus validation |
 | `crates/hal` | `BlockDevice`, `NetDevice`, `Clock`, `Rng` traits |
 | `crates/drivers` | PCI, virtio-blk/net, AHCI, NVMe, Intel e1000/e1000e/igb/igc, Realtek r8169/r8125/rtl8139 (all polled) |
-| `crates/usb` | xHCI driver with control and bulk transfers (used only for iPhone tethering) |
+| `crates/usb` | xHCI driver with control and bulk transfers (used only for phone tethering) |
 | `crates/imobiledevice` | iPhone USB tethering: plist, usbmuxd, pairing, lockdownd, `NetDevice` adapter |
+| `crates/usbnet` | Android tethering and USB Ethernet dongles: RNDIS, CDC-ECM, CDC-NCM and ASIX AX88179 `NetDevice` |
 | `crates/net` | smoltcp stack, HTTP/1.1 client, TLS |
 | `crates/pgp-lite` | OpenPGP v4 signature verification (RSA, EdDSA) |
 | `crates/pkg` | sync database parser, `vercmp`, resolver, tar/zstd/gzip readers |
@@ -211,6 +221,7 @@ cargo xtask linux-test                       # boots the host kernel with our in
 cargo xtask e2e [--uefi] [--disk ahci --nic e1000]   # install onto a blank disk, then boot twice
 cargo xtask e2e --config presets/i3.lua      # the same for a preset
 cargo xtask run --usb --headless            # xHCI smoke test: qemu-xhci + usb-storage, SCSI INQUIRY
+cargo xtask run --selftest --headless --nic usb-rndis   # DHCP + HTTPS + 1 MB over an emulated Android RNDIS adapter
 cargo xtask size [--small] [--limit BYTES]   # ISO contents and size limit check
 cargo xtask check-presets                    # resolve every preset against the local pacman databases
 cargo xtask update-keyring                   # move the keyring pin to the newest release
@@ -238,8 +249,8 @@ credentials, starting the Hyprland session with the downloaded config, and the U
 `efibootmgr` (booting works through the fallback path `EFI/BOOT/BOOTX64.EFI`). The first-boot log is only in
 the journal and is not persisted.
 
-iPhone tethering is unverified on real hardware; its crates pass host unit tests and the xHCI driver passes the QEMU smoke test, but `xtask e2e` cannot exercise it (QEMU cannot emulate an iPhone).
+USB tethering: the iPhone path worked on real hardware once (an ASUS ExpertBook with an unlocked iPhone); the Android path (RNDIS, CDC-ECM) worked on one real phone and in QEMU's emulated adapters. `xtask e2e` does not exercise tethering.
 
-Not supported: Wi-Fi, other USB devices, ARM and Raspberry Pi, and installing onto anything but NVMe, SATA/AHCI and virtio
+Not supported: Wi-Fi, USB devices other than tethering phones, ARM and Raspberry Pi, and installing onto anything but NVMe, SATA/AHCI and virtio
 disks. The ISO is about 2.4 MB (2.26 MB with `--small`); the design notes in `PLAN.md` describe what was
 aimed at and what remains.

@@ -67,6 +67,38 @@ pub fn halt() -> ! {
     }
 }
 
+/// Resets the machine. The keyboard-controller pulse alone does nothing on machines
+/// without a legacy 8042 (most UEFI-only boards), so fall through to the chipset reset
+/// register and finally a triple fault, which every x86 CPU turns into a reset.
+pub fn reboot() -> ! {
+    unsafe {
+        asm!("cli", options(nomem, nostack));
+        // 8042: wait (bounded) for the input buffer to drain, then pulse the reset line.
+        for _ in 0..100_000 {
+            if port::inb(0x64) & 2 == 0 {
+                break;
+            }
+        }
+        port::outb(0x64, 0xfe);
+        settle();
+        // Chipset reset control register: system reset, then hard reset.
+        port::outb(0xcf9, 0x02);
+        port::outb(0xcf9, 0x06);
+        settle();
+        // Triple fault: an empty IDT makes the next exception escalate to a reset.
+        let empty: [u8; 10] = [0; 10];
+        asm!("lidt [{}]", "int3", in(reg) empty.as_ptr(), options(nostack));
+    }
+    halt()
+}
+
+/// About a millisecond-scale pause: port 0x80 writes take ~1 us each.
+fn settle() {
+    for _ in 0..50_000 {
+        unsafe { port::outb(0x80, 0) };
+    }
+}
+
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     unsafe { console::force_unlock() };
@@ -192,30 +224,12 @@ extern "C" fn _start() -> ! {
         }
     }
 
+    // USB tethering (iPhone Personal Hotspot, Android USB tethering). Not PCI, so this is an
+    // explicit probe next to probe_all. A wired NIC that already has link makes it pointless
+    // (and install::run would pick the wired one anyway), so it is skipped then.
     #[cfg(feature = "usb-tethering")]
-    {
-        // iPhone USB tethering: xHCI -> usbmuxd -> lockdownd pair/session -> hotspot
-        // relay. Not a PCI device, so this is an explicit probe next to probe_all,
-        // per docs/iphone-tethering.md. A PCI NIC with link stays preferred by
-        // install::run, which picks the first device whose link is up.
-        struct Log;
-        impl imobiledevice::Progress for Log {
-            fn note(&mut self, msg: &str) {
-                println!("{msg}");
-            }
-        }
-        match imobiledevice::tether(time::unix_time, 120_000, &mut Log) {
-            Ok(dev) => {
-                use hal::NetDevice as _;
-                let m = dev.mac();
-                println!(
-                    "usb: iPhone tethering up, mac {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-                    m[0], m[1], m[2], m[3], m[4], m[5]
-                );
-                devs.net.push(Box::new(dev));
-            }
-            Err(e) => println!("usb: iPhone tethering unavailable: {e:?}"),
-        }
+    if !devs.net.iter_mut().any(|d| d.link_up()) {
+        usb_tether(&mut devs);
     }
 
     #[cfg(feature = "usb-selftest")]
@@ -253,10 +267,7 @@ extern "C" fn _start() -> ! {
             (Some(cfg), Some(keyring), Some(tiny_init), Some(bios_sys), Some(hdd), Some(efi)) => {
                 let boot = install::BootFiles { tiny_init, limine_bios_sys: bios_sys, limine_bios_hdd: hdd, bootx64_efi: efi };
                 match install::run(&cfg, devs, &keyring, &boot) {
-                    Ok(()) => unsafe {
-                        // Reset through the keyboard controller.
-                        port::outb(0x64, 0xfe);
-                    },
+                    Ok(()) => reboot(),
                     Err(e) => println!("INSTALLATION FAILED: {e}"),
                 }
             }
@@ -409,6 +420,58 @@ fn pgp_selftest(k: &pgp_lite::Keyring) {
         });
         println!("pgp {name}: {}", if r.is_ok() { "OK" } else { "FAILED" });
     }
+}
+
+/// Brings up an iPhone or an Android phone as a network device. A phone that is attached but not
+/// tethering yet (Android in file-transfer mode) re-enumerates once the user switches USB tethering
+/// on, so the scan is repeated for a while.
+#[cfg(feature = "usb-tethering")]
+fn usb_tether(devs: &mut drivers::Devices) {
+    struct Log;
+    impl imobiledevice::Progress for Log {
+        fn note(&mut self, msg: &str) {
+            println!("{msg}");
+        }
+    }
+    fn add(devs: &mut drivers::Devices, what: &str, dev: Box<dyn hal::NetDevice>) {
+        let m = dev.mac();
+        println!("usb: {what} tethering up, mac {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", m[0], m[1], m[2], m[3], m[4], m[5]);
+        devs.net.push(dev);
+    }
+    const ATTEMPTS: u32 = 6;
+    for attempt in 1..=ATTEMPTS {
+        let mut scan = usb::Scan::new();
+        // Worth waiting for only if something that could be a phone (not just storage, a hub, an
+        // input device, audio, video or Bluetooth) is attached, such as an Android in file-transfer mode.
+        let phone_like = scan
+            .devices()
+            .any(|d| d.interfaces.iter().any(|i| !matches!(i.class, 0x01 | 0x03 | 0x08 | 0x09 | 0x0e | 0xe0)));
+        if imobiledevice::present(&scan) {
+            match imobiledevice::tether(&mut scan, time::unix_time, 120_000, &mut Log) {
+                Ok(dev) => add(devs, "iPhone", Box::new(dev)),
+                Err(e) => println!("usb: iPhone tethering unavailable: {e:?}"),
+            }
+            return;
+        }
+        match usbnet::probe(&mut scan) {
+            Ok(dev) => return add(devs, "USB Ethernet", Box::new(dev)),
+            Err(e) => {
+                if !phone_like {
+                    println!("usb: no phone or USB Ethernet adapter attached, no tethering");
+                    return;
+                }
+                if !matches!(e, hal::Error::Unsupported) {
+                    println!("usb: USB tethering device failed to start: {e:?}");
+                    return;
+                }
+            }
+        }
+        if attempt < ATTEMPTS {
+            println!("usb: devices attached but none offers tethering; switch on USB tethering (Android) or Personal Hotspot (iPhone), retry {attempt}/{ATTEMPTS}");
+            drivers::platform::delay_us(3_000_000);
+        }
+    }
+    println!("usb: no tethering device found");
 }
 
 /// Enumerates xHCI controllers and their devices; on a USB mass-storage device, runs a

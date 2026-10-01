@@ -26,17 +26,25 @@ pub trait Progress {
     fn note(&mut self, msg: &str);
 }
 
-/// Finds a tethered iPhone, pairs with it and brings up its hotspot interface as a
+/// Whether `scan` holds an Apple device with the usbmux interface.
+pub fn present(scan: &usb::Scan) -> bool {
+    scan.devices().any(|d| {
+        d.vendor == mux::APPLE_VENDOR && d.interfaces.iter().any(|i| (i.class, i.subclass, i.protocol) == mux::MUX_CLASS)
+    })
+}
+
+/// Takes a tethered iPhone from `scan`, pairs with it and brings up its hotspot interface as a
 /// `hal::NetDevice`.
 ///
 /// Blocks through pairing; while the phone's Trust dialog is pending this keeps waiting
 /// for up to `pair_timeout_ms`. The pairing record is not persisted.
 pub fn tether(
+    scan: &mut usb::Scan,
     unix_time: fn() -> u64,
     pair_timeout_ms: u64,
     progress: &mut impl Progress,
 ) -> Result<netdev::IphoneNet> {
-    let mut mux = mux::Muxer::find()?;
+    let mut mux = mux::Muxer::find(scan)?;
     progress.note("usb: found Apple device, starting mux");
     mux.handshake()?;
     progress.note("usb: mux handshake done, connecting to lockdownd");

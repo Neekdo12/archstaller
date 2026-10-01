@@ -5,6 +5,7 @@
 use crate::mux::Channel;
 use crate::pair::{self, PairRecord};
 use crate::plist::{self, Value};
+use alloc::string::String;
 use alloc::vec::Vec;
 use hal::{Error, Result};
 
@@ -27,6 +28,22 @@ pub enum PairReply {
 
 pub struct Lockdown {
     io: Channel,
+}
+
+/// One-line description of a plist for the log (data blobs are shown as sizes).
+fn summary(v: &Value) -> String {
+    match v {
+        Value::Dict(kv) => {
+            let parts: Vec<String> = kv.iter().map(|(k, v)| alloc::format!("{k}={}", summary(v))).collect();
+            alloc::format!("{{{}}}", parts.join(", "))
+        }
+        Value::Array(a) => alloc::format!("[{} items]", a.len()),
+        Value::Data(d) => alloc::format!("<{} bytes>", d.len()),
+        Value::String(s) => alloc::format!("{s:?}"),
+        Value::Int(i) => alloc::format!("{i}"),
+        Value::Bool(b) => alloc::format!("{b}"),
+        Value::Real(r) => alloc::format!("{r}"),
+    }
 }
 
 fn frame_send(io: &mut Channel, v: &Value) -> Result<()> {
@@ -121,7 +138,13 @@ impl Lockdown {
     /// `Err(Timeout)` means no answer yet (the request is still outstanding).
     pub fn pair_reply(&mut self, timeout_ms: u64) -> Result<PairReply> {
         let reply = frame_recv(&mut self.io, timeout_ms)?;
-        if reply.dict_get_str("Request") == Some("Pair") && reply.dict_get_str("Result") == Some("Success") {
+        hal::log!("usb: Pair reply: {}", summary(&reply));
+        // Success is `Result = "Success"`, but newer iOS answers a successful Pair with just
+        // `{EscrowBag, Request = "Pair"}` and no Result key (seen on real hardware).
+        let has_error = reply.get("Error").is_some();
+        if reply.dict_get_str("Result") == Some("Success")
+            || (!has_error && reply.dict_get_str("Result").is_none() && reply.dict_get_data("EscrowBag").is_some())
+        {
             return Ok(PairReply::Paired);
         }
         Ok(match reply.dict_get_str("Error") {

@@ -155,10 +155,23 @@ pub struct Muxer {
 }
 
 impl Muxer {
-    /// Finds the first attached Apple device exposing the mux interface and takes
-    /// ownership of its controller. Call `handshake` before `connect`.
-    pub fn find() -> Result<Muxer> {
-        let (ctrl, dev) = usb::find_device(APPLE_VENDOR, 0, MUX_CLASS.0, MUX_CLASS.1, MUX_CLASS.2, Some(crate::netdev::IPHETH_CLASS))?;
+    /// Takes the first attached Apple device exposing the mux interface (preferring a
+    /// configuration that also has the tethering interface) and its controller. Call
+    /// `handshake` before `connect`.
+    pub fn find(scan: &mut usb::Scan) -> Result<Muxer> {
+        let (ctrl, dev) = scan.take(
+            |d| {
+                if d.vendor != APPLE_VENDOR {
+                    return None;
+                }
+                d.interfaces.iter().find(|i| (i.class, i.subclass, i.protocol) == MUX_CLASS).cloned()
+            },
+            |d| {
+                d.interfaces.iter().any(|i| {
+                    (i.class, i.subclass, i.protocol) == crate::netdev::IPHETH_CLASS && d.bulk_in(i).is_some() && d.bulk_out(i).is_some()
+                })
+            },
+        )?;
         Self::from_device(ctrl, dev)
     }
 

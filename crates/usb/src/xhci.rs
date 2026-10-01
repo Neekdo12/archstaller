@@ -52,6 +52,7 @@ const TRB_ENABLE_SLOT: u32 = 9;
 const TRB_ADDRESS_DEVICE: u32 = 11;
 const TRB_CONFIGURE_EP: u32 = 12;
 const TRB_EVALUATE_CTX: u32 = 13;
+const TRB_RESET_EP: u32 = 14;
 const TRB_STOP_EP: u32 = 15;
 const TRB_SET_TR_DEQUEUE: u32 = 16;
 const TRB_TRANSFER_EVENT: u32 = 32;
@@ -203,6 +204,15 @@ pub struct Controller {
     pub(crate) slots: alloc::vec::Vec<Option<Slot>>,
     /// Transfer events that arrived while waiting for something else.
     stash: alloc::vec::Vec<Event>,
+}
+
+impl Drop for Controller {
+    /// Stops the controller: its rings and contexts are freed with it, and a running
+    /// controller would keep DMA-ing into that memory.
+    fn drop(&mut self) {
+        self.op.write32(USBCMD, self.op.read32(USBCMD) & !CMD_RS);
+        let _ = platform::wait_until(500, || self.op.read32(USBSTS) & STS_HCH != 0);
+    }
 }
 
 impl Controller {
@@ -557,6 +567,7 @@ impl Controller {
         match self.wait_transfer(slot, dci, timeout_ms) {
             Ok((code, residual)) => {
                 if code != CC_SUCCESS && code != CC_SHORT_PACKET {
+                    let _ = self.reset_endpoint(slot, dci);
                     return Err(Error::Io);
                 }
                 Ok(len - residual as usize)
@@ -619,6 +630,9 @@ impl Controller {
         self.db.write32(slot as usize * 4, 1);
         let (code, residual) = self.wait_transfer(slot, 1, 5000)?;
         if code != CC_SUCCESS && code != CC_SHORT_PACKET {
+            // A stalled control request halts EP0; recover it so later requests work.
+            hal::log!("usb: control request {:02x?} failed, completion code {code}", &setup[..2]);
+            let _ = self.reset_endpoint(slot, 1);
             return Err(Error::Io);
         }
         // The status stage event reports the residual of the data stage.
@@ -628,7 +642,10 @@ impl Controller {
     /// Stops the endpoint and rewinds its ring after a timeout.
     pub(crate) fn reset_endpoint(&mut self, slot: u8, dci: u8) -> Result<()> {
         let sel = (slot as u32) << 24 | (dci as u32) << 16;
+        // Stop a running endpoint; reset a halted one (stall, babble, transaction error). Each
+        // command is a harmless no-op, answered with a context-state error, in the other state.
         let _ = self.command(0, (TRB_STOP_EP << 10) | sel);
+        let _ = self.command(0, (TRB_RESET_EP << 10) | sel);
         let Some(s) = &mut self.slots[(slot - 1) as usize] else { return Err(Error::InvalidArgument) };
         let ring = &mut s.rings[(dci - 1) as usize];
         ring.reset();

@@ -66,6 +66,28 @@ impl Controller {
         self.control_in_type(dev, REQ_IN | 0x40, req, value, index, buf)
     }
 
+    /// Vendor-specific host-to-device request (bmRequestType 0x40).
+    pub fn vendor_out(&mut self, dev: &Device, req: u8, value: u16, index: u16, data: &[u8]) -> Result<()> {
+        self.control_out_type(dev, 0x40, req, value, index, data)
+    }
+
+    /// Class-specific interface request, device to host (bmRequestType 0xA1).
+    pub fn class_in(&mut self, dev: &Device, req: u8, value: u16, index: u16, buf: &mut [u8]) -> Result<usize> {
+        self.control_in_type(dev, 0xa1, req, value, index, buf)
+    }
+
+    /// Class-specific interface request, host to device (bmRequestType 0x21).
+    pub fn class_out(&mut self, dev: &Device, req: u8, value: u16, index: u16, data: &[u8]) -> Result<()> {
+        self.control_out_type(dev, 0x21, req, value, index, data)
+    }
+
+    /// Reads string descriptor `index` (US English).
+    pub fn string_descriptor(&mut self, dev: &Device, index: u8) -> Option<String> {
+        let mut sbuf = [0u8; 255];
+        let n = self.control_in(dev, desc::GET_DESCRIPTOR, (desc::DT_STRING as u16) << 8 | index as u16, 0x0409, &mut sbuf).ok()?;
+        desc::parse_string(&sbuf[..n])
+    }
+
     fn control_in_type(
         &mut self,
         dev: &Device,
@@ -94,13 +116,25 @@ impl Controller {
         index: u16,
         data: &[u8],
     ) -> Result<()> {
+        self.control_out_type(dev, REQ_OUT, req, value, index, data)
+    }
+
+    fn control_out_type(
+        &mut self,
+        dev: &Device,
+        req_type: u8,
+        req: u8,
+        value: u16,
+        index: u16,
+        data: &[u8],
+    ) -> Result<()> {
         if data.is_empty() {
-            self.control(dev.slot, setup(REQ_OUT, req, value, index, 0), 0, 0, false)?;
+            self.control(dev.slot, setup(req_type, req, value, index, 0), 0, 0, false)?;
             return Ok(());
         }
         let mut dma = Dma::new(data.len(), 64);
         dma.as_mut_slice().copy_from_slice(data);
-        self.control(dev.slot, setup(REQ_OUT, req, value, index, data.len() as u16), dma.phys(), data.len(), false)?;
+        self.control(dev.slot, setup(req_type, req, value, index, data.len() as u16), dma.phys(), data.len(), false)?;
         Ok(())
     }
 

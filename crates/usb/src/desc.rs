@@ -44,6 +44,27 @@ pub struct InterfaceDesc {
     pub subclass: u8,
     pub protocol: u8,
     pub endpoints: Vec<EndpointDesc>,
+    /// Raw class-specific descriptors (type 0x24, e.g. CDC functional descriptors) that
+    /// follow this interface descriptor, concatenated.
+    pub cs: Vec<u8>,
+}
+
+impl InterfaceDesc {
+    /// The CDC functional descriptor with the given subtype, if present (whole descriptor).
+    pub fn cdc_functional(&self, subtype: u8) -> Option<&[u8]> {
+        let mut pos = 0;
+        while pos + 3 <= self.cs.len() {
+            let len = self.cs[pos] as usize;
+            if len < 3 || pos + len > self.cs.len() {
+                return None;
+            }
+            if self.cs[pos + 2] == subtype {
+                return Some(&self.cs[pos..pos + len]);
+            }
+            pos += len;
+        }
+        None
+    }
 }
 
 /// Parses a full configuration descriptor blob into its interface settings and endpoints.
@@ -68,8 +89,14 @@ pub fn parse_config(blob: &[u8]) -> Vec<InterfaceDesc> {
                     subclass: d[6],
                     protocol: d[7],
                     endpoints: Vec::new(),
+                    cs: Vec::new(),
                 });
                 cur = Some(out.len() - 1);
+            }
+            (0x24, 3..) => {
+                if let Some(i) = cur {
+                    out[i].cs.extend_from_slice(&blob[pos..pos + len]);
+                }
             }
             (DT_ENDPOINT, 7..) => {
                 if let Some(i) = cur {
