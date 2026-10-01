@@ -300,6 +300,20 @@ impl Controller {
     /// Ports with an enabled device: `(port, speed)`; speed 1=low 2=full 3=high 4+=super.
     pub fn enabled_ports(&mut self) -> alloc::vec::Vec<(u8, u8)> {
         let mut out = alloc::vec::Vec::new();
+        // Controller reset drops every link; real ports need time to power up, debounce and
+        // train before CCS shows (QEMU is instant). Power ports that came up unpowered, then
+        // give any attached device up to 2.5 s to appear, plus a debounce margin.
+        for port in 1..=self.max_ports {
+            if self.portsc(port) & PSC_PP == 0 {
+                self.op.write32(PORTSC + 0x10 * (port as usize - 1), PSC_PP);
+            }
+        }
+        let max = self.max_ports;
+        let _ = platform::wait_until(2500, || (1..=max).any(|p| self.portsc(p) & PSC_CCS != 0));
+        platform::delay_us(150_000);
+        let states: alloc::vec::Vec<u32> = (1..=max).map(|p| self.portsc(p)).collect();
+        hal::log!("usb: {max} ports, connected: {}", states.iter().filter(|p| *p & PSC_CCS != 0).count());
+        hal::log!("usb: portsc {:x?}", states);
         for port in 1..=self.max_ports {
             let p = self.portsc(port);
             if p & PSC_CCS == 0 {
