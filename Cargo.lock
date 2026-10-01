@@ -629,12 +629,9 @@ dependencies = [
  "getrandom",
  "hal",
  "imobiledevice",
- "net",
  "pgp-lite",
  "rand_core",
  "rsa",
- "rustls",
- "rustls-rustcrypto",
  "sha2 0.10.9",
  "usb",
 ]
@@ -676,6 +673,7 @@ dependencies = [
  "spinning_top",
  "talc",
  "usb",
+ "usbnet",
 ]
 
 [[package]]
@@ -1497,6 +1495,15 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "usb"
+version = "0.1.0"
+dependencies = [
+ "drivers",
+ "hal",
+ "usb",
+]
+
+[[package]]
+name = "usbnet"
 version = "0.1.0"
 dependencies = [
  "drivers",

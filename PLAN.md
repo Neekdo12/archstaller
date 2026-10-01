@@ -12,7 +12,7 @@ Ten nainstaluje Arch z mirroru na ext4 podle předem připraveného Lua configu.
 - Root FS: ext4
 - Hooky/scriptlety: při prvním bootu (`pacman -U` z cache)
 - Secure Boot: nepodporován (ISO ani cíl) – musí být vypnutý
-- Mimo rozsah: Wi-Fi, USB kromě tetheringu iPhonu (viz níže), SMP, Secure Boot, interaktivní TUI, jiné FS než ext4, jiné architektury
+- Mimo rozsah: Wi-Fi, USB kromě tetheringu telefonů (viz níže), SMP, Secure Boot, interaktivní TUI, jiné FS než ext4, jiné architektury
 
 ## Struktura workspace
 
@@ -140,8 +140,8 @@ Rozdíly oproti plánu výše:
   kombinace), kontrola čistého `pacman -Qk`, trvalý log instalace, velikostní optimalizace HTTP-only / pinned CA
   a komprese kernelu, `cargo bloat` v `xtask size`. ISO má ~2,4 MB (2,26 MB s `--small`), cíl 1,5–2 MB nesplněn.
 - **Tethering iPhonu přes USB (volitelný, feature `usb-tethering`, ve výchozím stavu vypnutý):** `crates/usb` (xHCI,
-  ověřeno v QEMU s `usb-storage`) a `crates/imobiledevice` (plist, usbmuxd, párování, lockdownd přes TLS,
-  `NetDevice`). Přidává ~120 KiB. Na skutečném iPhonu nikdy neběžel; název služby hotspotu, id zařízení a to, zda
-  relay nese IP nebo Ethernet, jsou označeny UNVERIFIED v kódu. Párování se neukládá.
+  ověřeno v QEMU s `usb-storage`) a `crates/imobiledevice` (plist, usbmux protokol zařízení, párování přes
+  lockdownd, tethering rozhraní `ipheth` jako `NetDevice`; na skutečném iPhonu jednou fungoval, párování se
+  neukládá) a `crates/usbnet` (Android a USB Ethernet adaptéry: RNDIS, CDC-ECM, CDC-NCM a ASIX AX88179; ověřeno v QEMU s `usb-net` a na jednom skutečném telefonu, CDC-NCM chybí).
 - **Přidáno navíc:** presety (`presets/`), `user_files` a `user_archives` (stažení souborů/zip do domovů uživatelů),
   `ly` jako display manager, `xtask e2e`, `xtask check-presets`, `xtask linux-test`, testy se Ventoy (1.1.17).

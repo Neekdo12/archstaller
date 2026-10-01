@@ -117,6 +117,7 @@ extern "C" fn _start() -> ! {
     }
 
     idt::init();
+    hal::set_log_hook(|a| println!("{a}"));
 
     if let Some(resp) = FRAMEBUFFER.response() {
         if let Some(fb) = resp.framebuffers().first() {
@@ -225,30 +226,12 @@ extern "C" fn _start() -> ! {
         }
     }
 
+    // USB tethering (iPhone Personal Hotspot, Android USB tethering). Not PCI, so this is an
+    // explicit probe next to probe_all. A wired NIC that already has link makes it pointless
+    // (and install::run would pick the wired one anyway), so it is skipped then.
     #[cfg(feature = "usb-tethering")]
-    {
-        // iPhone USB tethering: xHCI -> usbmuxd -> lockdownd pair/session -> hotspot
-        // relay. Not a PCI device, so this is an explicit probe next to probe_all,
-        // per docs/iphone-tethering.md. A PCI NIC with link stays preferred by
-        // install::run, which picks the first device whose link is up.
-        struct Log;
-        impl imobiledevice::Progress for Log {
-            fn note(&mut self, msg: &str) {
-                println!("{msg}");
-            }
-        }
-        match imobiledevice::tether(time::unix_time, 120_000, &mut Log) {
-            Ok(dev) => {
-                use hal::NetDevice as _;
-                let m = dev.mac();
-                println!(
-                    "usb: iPhone tethering up, mac {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-                    m[0], m[1], m[2], m[3], m[4], m[5]
-                );
-                devs.net.push(Box::new(dev));
-            }
-            Err(e) => println!("usb: iPhone tethering unavailable: {e:?}"),
-        }
+    if !devs.net.iter_mut().any(|d| d.link_up()) {
+        usb_tether(&mut devs);
     }
 
     #[cfg(feature = "usb-selftest")]
@@ -439,6 +422,58 @@ fn pgp_selftest(k: &pgp_lite::Keyring) {
         });
         println!("pgp {name}: {}", if r.is_ok() { "OK" } else { "FAILED" });
     }
+}
+
+/// Brings up an iPhone or an Android phone as a network device. A phone that is attached but not
+/// tethering yet (Android in file-transfer mode) re-enumerates once the user switches USB tethering
+/// on, so the scan is repeated for a while.
+#[cfg(feature = "usb-tethering")]
+fn usb_tether(devs: &mut drivers::Devices) {
+    struct Log;
+    impl imobiledevice::Progress for Log {
+        fn note(&mut self, msg: &str) {
+            println!("{msg}");
+        }
+    }
+    fn add(devs: &mut drivers::Devices, what: &str, dev: Box<dyn hal::NetDevice>) {
+        let m = dev.mac();
+        println!("usb: {what} tethering up, mac {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", m[0], m[1], m[2], m[3], m[4], m[5]);
+        devs.net.push(dev);
+    }
+    const ATTEMPTS: u32 = 6;
+    for attempt in 1..=ATTEMPTS {
+        let mut scan = usb::Scan::new();
+        // Worth waiting for only if something that could be a phone (not just storage, a hub, an
+        // input device, audio, video or Bluetooth) is attached, such as an Android in file-transfer mode.
+        let phone_like = scan
+            .devices()
+            .any(|d| d.interfaces.iter().any(|i| !matches!(i.class, 0x01 | 0x03 | 0x08 | 0x09 | 0x0e | 0xe0)));
+        if imobiledevice::present(&scan) {
+            match imobiledevice::tether(&mut scan, time::unix_time, 120_000, &mut Log) {
+                Ok(dev) => add(devs, "iPhone", Box::new(dev)),
+                Err(e) => println!("usb: iPhone tethering unavailable: {e:?}"),
+            }
+            return;
+        }
+        match usbnet::probe(&mut scan) {
+            Ok(dev) => return add(devs, "USB Ethernet", Box::new(dev)),
+            Err(e) => {
+                if !phone_like {
+                    println!("usb: no phone or USB Ethernet adapter attached, no tethering");
+                    return;
+                }
+                if !matches!(e, hal::Error::Unsupported) {
+                    println!("usb: USB tethering device failed to start: {e:?}");
+                    return;
+                }
+            }
+        }
+        if attempt < ATTEMPTS {
+            println!("usb: devices attached but none offers tethering; switch on USB tethering (Android) or Personal Hotspot (iPhone), retry {attempt}/{ATTEMPTS}");
+            drivers::platform::delay_us(3_000_000);
+        }
+    }
+    println!("usb: no tethering device found");
 }
 
 /// Enumerates xHCI controllers and their devices; on a USB mass-storage device, runs a

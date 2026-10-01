@@ -43,6 +43,7 @@ function M.build(spec)
     kernel_params = spec.kernel_params or {},
     user_files = spec.user_files or {},
     user_archives = spec.user_archives or {},
+    dry_run = spec.dry_run or false,
   }
 end
 

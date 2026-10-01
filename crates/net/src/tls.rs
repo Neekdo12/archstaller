@@ -10,6 +10,19 @@ use rustls::time_provider::TimeProvider;
 use rustls::unbuffered::{ConnectionState, EncodeError, EncryptError, UnbufferedStatus};
 use rustls::{ClientConfig, RootCertStore};
 
+/// TSC cycles spent decrypting/processing TLS records, and waiting for bytes from the transport.
+/// Diagnostics for the hardware test's speed report.
+pub static CRYPTO_TSC: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+pub static IO_TSC: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+
+fn tsc() -> u64 {
+    unsafe { core::arch::x86_64::_rdtsc() }
+}
+
+fn add(counter: &core::sync::atomic::AtomicU64, since: u64) {
+    counter.fetch_add(tsc().wrapping_sub(since), core::sync::atomic::Ordering::Relaxed);
+}
+
 #[derive(Debug)]
 struct WallClock(fn() -> u64);
 
@@ -79,8 +92,11 @@ impl<S: Stream> TlsStream<S> {
     }
 
     fn fill(&mut self) -> Result<()> {
-        let mut tmp = [0u8; 4096];
-        let n = self.inner.read(&mut tmp)?;
+        let mut tmp = [0u8; 16384];
+        let t0 = tsc();
+        let n = self.inner.read(&mut tmp);
+        add(&IO_TSC, t0);
+        let n = n?;
         if n == 0 {
             self.eof = true;
         }
@@ -90,6 +106,7 @@ impl<S: Stream> TlsStream<S> {
 
     /// Runs the state machine once.
     fn step(&mut self, handshaking: bool) -> Result<Step> {
+        let t0 = tsc();
         let UnbufferedStatus { discard, state } = self.conn.process_tls_records(&mut self.incoming);
         let state = state.map_err(|_| Error::Http("tls error"))?;
         let mut to_send = 0usize;
@@ -134,6 +151,7 @@ impl<S: Stream> TlsStream<S> {
             ConnectionState::PeerClosed | ConnectionState::Closed => Step::Eof,
             _ => Step::Continue,
         };
+        add(&CRYPTO_TSC, t0);
         let total_discard = discard + extra_discard;
         self.incoming.drain(..total_discard.min(self.incoming.len()));
         if to_send > 0 {

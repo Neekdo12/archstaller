@@ -52,6 +52,7 @@ const TRB_ENABLE_SLOT: u32 = 9;
 const TRB_ADDRESS_DEVICE: u32 = 11;
 const TRB_CONFIGURE_EP: u32 = 12;
 const TRB_EVALUATE_CTX: u32 = 13;
+const TRB_RESET_EP: u32 = 14;
 const TRB_STOP_EP: u32 = 15;
 const TRB_SET_TR_DEQUEUE: u32 = 16;
 const TRB_TRANSFER_EVENT: u32 = 32;
@@ -65,7 +66,10 @@ const CC_SUCCESS: u8 = 1;
 const CC_SHORT_PACKET: u8 = 13;
 
 const RING_TRBS: usize = 64; // last one is the link TRB
-const MAX_TRB_LEN: usize = 16 * 1024;
+/// Longest single TRB. A transfer that ends short must be one TRB: a short-packet event reports only
+/// that TRB's residual, so a multi-TRB transfer would be mis-measured (buffers up to this size are
+/// aligned by `Dma::for_transfer`, so one TRB never crosses a 64 KiB boundary).
+const MAX_TRB_LEN: usize = 64 * 1024;
 
 /// One transfer ring: producer side only, cycle bit managed per xHCI 4.9.
 #[doc(hidden)] // public for host-side unit tests
@@ -201,6 +205,17 @@ pub struct Controller {
     dcbaa: Dma,
     _scratch: Option<(Dma, alloc::vec::Vec<Dma>)>,
     pub(crate) slots: alloc::vec::Vec<Option<Slot>>,
+    /// Transfer events that arrived while waiting for something else.
+    stash: alloc::vec::Vec<Event>,
+}
+
+impl Drop for Controller {
+    /// Stops the controller: its rings and contexts are freed with it, and a running
+    /// controller would keep DMA-ing into that memory.
+    fn drop(&mut self) {
+        self.op.write32(USBCMD, self.op.read32(USBCMD) & !CMD_RS);
+        let _ = platform::wait_until(500, || self.op.read32(USBSTS) & STS_HCH != 0);
+    }
 }
 
 impl Controller {
@@ -216,6 +231,30 @@ impl Controller {
         let op = mmio.offset(caplen);
         let rt0 = mmio.offset((mmio.read32(RTSOFF) & !0x1f) as usize + 0x20);
         let db = mmio.offset((mmio.read32(DBOFF) & !3) as usize);
+
+        // Take the controller from the firmware (xHCI legacy support capability, id 1), or its
+        // SMI handler keeps touching a controller we are reprogramming.
+        let mut xecp = ((mmio.read32(HCCPARAMS1) >> 16) & 0xffff) as usize * 4;
+        let mut guard = 0;
+        while xecp != 0 && guard < 64 {
+            let cap = mmio.read32(xecp);
+            if cap & 0xff == 1 {
+                if cap & (1 << 16) != 0 {
+                    mmio.write32(xecp, cap | (1 << 24));
+                    let _ = platform::wait_until(1000, || mmio.read32(xecp) & (1 << 16) == 0);
+                }
+                // Disable SMI generation, acknowledge pending SMI status bits.
+                let cs = mmio.read32(xecp + 4);
+                mmio.write32(xecp + 4, (cs & ((0x3 << 1) | (0xff << 5) | (0x7 << 17))) | (0x7 << 29));
+                break;
+            }
+            let next = ((cap >> 8) & 0xff) as usize * 4;
+            if next == 0 {
+                break;
+            }
+            xecp += next;
+            guard += 1;
+        }
 
         // Halt, then reset.
         op.write32(USBCMD, op.read32(USBCMD) & !CMD_RS);
@@ -266,6 +305,7 @@ impl Controller {
             dcbaa,
             _scratch: scratch,
             slots: (0..max_slots).map(|_| None).collect(),
+            stash: alloc::vec::Vec::new(),
         })
     }
 
@@ -276,11 +316,26 @@ impl Controller {
     /// Ports with an enabled device: `(port, speed)`; speed 1=low 2=full 3=high 4+=super.
     pub fn enabled_ports(&mut self) -> alloc::vec::Vec<(u8, u8)> {
         let mut out = alloc::vec::Vec::new();
+        // Controller reset drops every link; real ports need time to power up, debounce and
+        // train before CCS shows (QEMU is instant). Power ports that came up unpowered, then
+        // give any attached device up to 2.5 s to appear, plus a debounce margin.
+        for port in 1..=self.max_ports {
+            if self.portsc(port) & PSC_PP == 0 {
+                self.op.write32(PORTSC + 0x10 * (port as usize - 1), PSC_PP);
+            }
+        }
+        let max = self.max_ports;
+        let _ = platform::wait_until(2500, || (1..=max).any(|p| self.portsc(p) & PSC_CCS != 0));
+        platform::delay_us(150_000);
+        let states: alloc::vec::Vec<u32> = (1..=max).map(|p| self.portsc(p)).collect();
+        hal::log!("usb: {max} ports, connected: {}", states.iter().filter(|p| *p & PSC_CCS != 0).count());
+        hal::log!("usb: portsc {:x?}", states);
         for port in 1..=self.max_ports {
             let p = self.portsc(port);
             if p & PSC_CCS == 0 {
                 continue;
             }
+            hal::log!("usb: port {port} connected, portsc {p:#010x}");
             if p & PSC_PP == 0 {
                 self.op.write32(PORTSC + 0x10 * (port as usize - 1), PSC_PP);
                 let _ = platform::wait_until(500, || self.portsc(port) & PSC_PP != 0);
@@ -300,6 +355,7 @@ impl Controller {
                 let _ = platform::wait_until(500, || self.portsc(port) & PSC_PED != 0);
                 p = self.portsc(port);
             }
+            hal::log!("usb: port {port} after reset: portsc {p:#010x}");
             if p & PSC_PED != 0 {
                 out.push((port, ((p >> 10) & 0xf) as u8));
             }
@@ -318,7 +374,7 @@ impl Controller {
                 if ev.is_command && ev.param == trb {
                     return Ok((ev.slot, ev.code));
                 }
-                // Port status change or stray event: consumed and ignored.
+                self.keep(ev); // a transfer completing meanwhile; port events are dropped
             } else if platform::now_ns() > deadline {
                 return Err(Error::Timeout);
             } else {
@@ -329,14 +385,35 @@ impl Controller {
 
     /// Waits for a transfer event for (`slot`, `dci`) up to `timeout_ms`.
     /// Returns `(completion_code, residual_bytes)`.
+    fn keep(&mut self, ev: Event) {
+        if ev.is_transfer && self.stash.len() < 64 {
+            self.stash.push(ev);
+        }
+    }
+
+    /// Non-blocking: the completion of the oldest transfer on (`slot`, `dci`), if it arrived.
+    /// Returns `(completion_code, residual_bytes)`.
+    pub(crate) fn poll_transfer(&mut self, slot: u8, dci: u8) -> Option<(u8, u32)> {
+        if let Some(i) = self.stash.iter().position(|e| e.slot == slot && e.dci == dci) {
+            let ev = self.stash.remove(i);
+            return Some((ev.code, ev.residual));
+        }
+        while let Some(ev) = self.evt.next(&self.rt0) {
+            if ev.is_transfer && ev.slot == slot && ev.dci == dci {
+                return Some((ev.code, ev.residual));
+            }
+            self.keep(ev);
+        }
+        None
+    }
+
     pub(crate) fn wait_transfer(&mut self, slot: u8, dci: u8, timeout_ms: u64) -> Result<(u8, u32)> {
         let deadline = platform::now_ns() + timeout_ms * 1_000_000;
         loop {
-            if let Some(ev) = self.evt.next(&self.rt0) {
-                if ev.is_transfer && ev.slot == slot && ev.dci == dci {
-                    return Ok((ev.code, ev.residual));
-                }
-            } else if platform::now_ns() > deadline {
+            if let Some(r) = self.poll_transfer(slot, dci) {
+                return Ok(r);
+            }
+            if platform::now_ns() > deadline {
                 return Err(Error::Timeout);
             } else {
                 core::hint::spin_loop();
@@ -377,7 +454,10 @@ impl Controller {
         }
         for &(dci, _, _) in eps {
             add |= 1 << dci;
-            entries = entries.max(dci);
+        }
+        // Context Entries must cover every endpoint already configured, not just the new ones.
+        if !eps.is_empty() {
+            entries = s.rings.len() as u8;
         }
         in_ctx.write32(4, add); // add flags (drop flags stay 0)
         if !eps.is_empty() {
@@ -490,6 +570,7 @@ impl Controller {
         match self.wait_transfer(slot, dci, timeout_ms) {
             Ok((code, residual)) => {
                 if code != CC_SUCCESS && code != CC_SHORT_PACKET {
+                    let _ = self.reset_endpoint(slot, dci);
                     return Err(Error::Io);
                 }
                 Ok(len - residual as usize)
@@ -501,9 +582,21 @@ impl Controller {
         }
     }
 
+    /// Queues a transfer (zero length = a zero-length packet) and rings the endpoint doorbell.
+    /// Completion is collected with `poll_transfer` / `wait_transfer`.
+    pub(crate) fn queue_transfer(&mut self, slot: u8, dci: u8, buf_phys: u64, len: usize) -> Result<()> {
+        self.submit_normal(slot, dci, buf_phys, len)?;
+        self.db.write32(slot as usize * 4, dci as u32);
+        Ok(())
+    }
+
     fn submit_normal(&mut self, slot: u8, dci: u8, buf_phys: u64, len: usize) -> Result<()> {
         let Some(s) = &mut self.slots[(slot - 1) as usize] else { return Err(Error::InvalidArgument) };
         let ring = &mut s.rings[(dci - 1) as usize];
+        if len == 0 {
+            ring.push(buf_phys, 0, (TRB_NORMAL << 10) | TRB_IOC);
+            return Ok(());
+        }
         let mut done = 0usize;
         while done < len {
             let chunk = (len - done).min(MAX_TRB_LEN);
@@ -540,6 +633,9 @@ impl Controller {
         self.db.write32(slot as usize * 4, 1);
         let (code, residual) = self.wait_transfer(slot, 1, 5000)?;
         if code != CC_SUCCESS && code != CC_SHORT_PACKET {
+            // A stalled control request halts EP0; recover it so later requests work.
+            hal::log!("usb: control request {:02x?} failed, completion code {code}", &setup[..2]);
+            let _ = self.reset_endpoint(slot, 1);
             return Err(Error::Io);
         }
         // The status stage event reports the residual of the data stage.
@@ -547,9 +643,12 @@ impl Controller {
     }
 
     /// Stops the endpoint and rewinds its ring after a timeout.
-    fn reset_endpoint(&mut self, slot: u8, dci: u8) -> Result<()> {
+    pub(crate) fn reset_endpoint(&mut self, slot: u8, dci: u8) -> Result<()> {
         let sel = (slot as u32) << 24 | (dci as u32) << 16;
+        // Stop a running endpoint; reset a halted one (stall, babble, transaction error). Each
+        // command is a harmless no-op, answered with a context-state error, in the other state.
         let _ = self.command(0, (TRB_STOP_EP << 10) | sel);
+        let _ = self.command(0, (TRB_RESET_EP << 10) | sel);
         let Some(s) = &mut self.slots[(slot - 1) as usize] else { return Err(Error::InvalidArgument) };
         let ring = &mut s.rings[(dci - 1) as usize];
         ring.reset();

@@ -10,7 +10,7 @@ use smoltcp::time::Instant;
 use smoltcp::wire::{DnsQueryType, EthernetAddress, HardwareAddress, IpAddress, IpCidr, IpEndpoint, Ipv4Address};
 
 const MTU: usize = 1514;
-const TCP_RX: usize = 64 * 1024;
+const TCP_RX: usize = 1024 * 1024;
 const TCP_TX: usize = 16 * 1024;
 
 struct Adapter {

@@ -41,7 +41,7 @@ pub struct Options {
     pub headless: bool,
     /// virtio | ahci | nvme
     pub disk: String,
-    /// virtio | e1000 | e1000e | igb | rtl8139
+    /// virtio | e1000 | e1000e | igb | rtl8139 | usb-rndis | none
     pub nic: String,
     /// Build with the usb-selftest kernel feature and attach qemu-xhci + usb-storage.
     pub usb: bool,
@@ -81,6 +81,7 @@ fn parse(args: &[String]) -> Result<Options> {
             "--nic" => o.nic = it.next().ok_or("--nic needs a value")?.clone(),
             "--usb" => o.usb = true,
             "--tethering" => o.tethering = true,
+            "--no-tethering" => {} // handled by the presets command
             other => return Err(format!("unknown option {other}").into()),
         }
     }
@@ -89,7 +90,7 @@ fn parse(args: &[String]) -> Result<Options> {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|keyring|update-keyring> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme] [--nic virtio|e1000|e1000e|igb|rtl8139] [--headless] [--selftest] [--usb] [--tethering] [--small] [--limit BYTES]")?;
+    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|keyring|update-keyring> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--small] [--limit BYTES]")?;
     let opts = parse(rest)?;
     match cmd.as_str() {
         "build" => {
@@ -99,7 +100,12 @@ fn main() -> Result<()> {
             let iso = iso::build(&opts)?;
             qemu::run_iso(&iso, &opts)?;
         }
-        "presets" => presets::build_all(&opts)?,
+        // Preset ISOs are for real hardware, so they include USB tethering unless --no-tethering is given.
+        "presets" => {
+            let mut o = opts;
+            o.tethering = !rest.iter().any(|a| a == "--no-tethering");
+            presets::build_all(&o)?
+        }
         "check-presets" => presets::check()?,
         "e2e" => e2e::run_e2e(&opts)?,
         "linux-test" => linux_test::run_test()?,

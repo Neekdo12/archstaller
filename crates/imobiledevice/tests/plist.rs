@@ -82,14 +82,37 @@ fn parses_python_plistlib_xml() {
 }
 
 #[test]
-fn mux_frame_header_little_endian() {
-    let f = imobiledevice::mux::encode_frame(8, 0xdead, b"xy");
-    assert_eq!(f.len(), 18);
-    let (len, msg, tag) = imobiledevice::mux::parse_header(&f[..16].try_into().unwrap()).unwrap();
-    assert_eq!(len, 18);
-    assert_eq!(msg, 8);
-    assert_eq!(tag, 0xdead);
-    assert_eq!(&f[16..], b"xy");
+fn mux_version_packet_uses_the_short_header() {
+    use imobiledevice::mux::encode_packet;
+    let mut vh = [0u8; 12];
+    vh[3] = 2; // major 2, minor 0, padding 0
+    let p = encode_packet(0, 0, 0, 0xffff, &vh);
+    assert_eq!(p, [0, 0, 0, 0, 0, 0, 0, 20, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0]);
+}
+
+#[test]
+fn mux_setup_packet_uses_the_long_header() {
+    use imobiledevice::mux::{encode_packet, parse_packet};
+    let p = encode_packet(2, 2, 0, 0xffff, &[7]);
+    assert_eq!(p, [0, 0, 0, 2, 0, 0, 0, 17, 0xfe, 0xed, 0xfa, 0xce, 0, 0, 0xff, 0xff, 7]);
+    let (proto, rx_seq, payload) = parse_packet(2, &p).unwrap();
+    assert_eq!((proto, rx_seq, payload), (2, 0xffff, &[7u8][..]));
+    // Length must match the transfer exactly.
+    assert!(parse_packet(2, &p[..16]).is_err());
+}
+
+#[test]
+fn mux_tcp_header_round_trip() {
+    use imobiledevice::mux::{encode_tcp, parse_tcp, Tcp};
+    let t = Tcp { sport: 1, dport: 62078, seq: 1, ack: 1, flags: 0x10, win: 512 };
+    let p = encode_tcp(&t, b"hello");
+    assert_eq!(p.len(), 25);
+    assert_eq!(p[12], 0x50, "data offset is 5 words");
+    assert_eq!(&p[0..4], &[0, 1, 0xf2, 0x7e]);
+    let (back, data) = parse_tcp(&p).unwrap();
+    assert_eq!(back, t);
+    assert_eq!(data, b"hello");
+    assert!(parse_tcp(&p[..19]).is_err());
 }
 
 #[test]

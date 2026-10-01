@@ -15,7 +15,8 @@ that need a running Linux.
    BIOS/UEFI files (see `xtask/src/iso.rs`'s `LIMINE_CONF`).
 2. **kernel** (`kernel/src/main.rs`, `install.rs`) runs, single core, polling only:
    - enumerates disks/NICs via `crates/drivers::probe_all()` (PCI scan). With the `usb-tethering` kernel
-     feature it also tries `imobiledevice::tether()` and, on success, adds the iPhone as one more NIC.
+     feature it also brings up a tethered phone (iPhone via `imobiledevice::tether()`, Android via
+     `usbnet::probe()`) and adds it as one more NIC when no wired NIC has link.
    - selects the target disk per `Config.disk` (serial match, or `auto_largest`); writes nothing until
      this succeeds.
    - DHCP, then downloads `core.db`/`extra.db` over HTTPS (`crates/net`).
@@ -36,14 +37,17 @@ that need a running Linux.
 
 | Path | Contents |
 |---|---|
+| `kernel/` | the installer kernel: console (`fb.rs`, `serial.rs`, `console.rs`), heap (`heap.rs`), exceptions (`idt.rs`), paging (`paging.rs`), TSC clock (`time.rs`), install flow (`install.rs`), entry point (`main.rs`) |
+| `xtask/` | host tooling: `iso.rs` (build kernel + assemble ISO), `lua.rs` (config.lua -> config.bin, including shared preset modules on Windows), `keyring.rs` (keyring blob + pin), `limine.rs` (fetch pinned Limine), `qemu.rs` (run in QEMU), `e2e.rs` (install + boot test), `presets.rs`, `linux_test.rs`, `main.rs` (CLI) |
 | `kernel/` | the installer kernel: console (`fb.rs`, `serial.rs`, `console.rs`), heap (`heap.rs`), exceptions (`idt.rs`), idle tick (`idle.rs`: 1 kHz PIT via the legacy PIC, LAPIC LINT0 unmasked as ExtINT, so polling loops can `hlt` through `hal::idle()`; falls back to spinning if no tick arrives), paging (`paging.rs`), TSC clock (`time.rs`), install flow (`install.rs`), entry point and `reboot()` (`main.rs`: 8042 pulse, then port 0xCF9, then triple fault) |
 | `xtask/` | host tooling: `iso.rs` (build kernel + assemble ISO), `lua.rs` (config.lua -> config.bin), `keyring.rs` (keyring blob + pin), `limine.rs` (fetch pinned Limine), `qemu.rs` (run in QEMU), `e2e.rs` (install + boot test), `presets.rs`, `linux_test.rs`, `main.rs` (CLI) |
 | `config/` | `Config`/`Disk`/`User`/`UserFile`/`UserArchive` types shared by `xtask` and `kernel`, plus validation |
 | `crates/hal` | traits: `BlockDevice`, `NetDevice`, `Clock`, `Rng` |
 | `crates/drivers` | PCI enumeration (`pci.rs`), virtio blk/net, AHCI, NVMe, Intel e1000/e1000e/igb(+igc), Realtek r8169/r8125/rtl8139 — all polled, no IRQs |
-| `crates/usb` | xHCI host controller driver (polled): command/event/transfer rings, enumeration of enabled ports, descriptors, control + bulk transfers. One controller, no hubs |
-| `crates/imobiledevice` | iPhone USB tethering: plist (binary + XML) codec, usbmuxd framing over bulk endpoints (`mux.rs`), pairing with a generated RSA-2048 host identity (`cert.rs`, `pair.rs`), TLS-wrapped lockdownd session + `StartService` (`lockdown.rs`), `hal::NetDevice` adapter (`netdev.rs`). Unit-tested on the host only; needs a real phone end-to-end |
-| `crates/net` | `smoltcp` stack glue (`stack.rs`), HTTP/1.1 client (`http.rs`, `client.rs`), TLS via `rustls` + `rustls-rustcrypto` + `webpki-roots` (`tls.rs`) |
+| `crates/usb` | xHCI host controller driver (polled, takes ownership from the firmware via the legacy-support capability, logs each enumeration step through `hal::log!`): command/event/transfer rings, enumeration of enabled ports and USB configurations, descriptors, control + bulk transfers. One controller, no hubs |
+| `crates/imobiledevice` | iPhone USB tethering: plist codec (binary + XML), the device-side usbmux protocol over the phone's mux interface (`mux.rs`: version handshake, small TCP-like connections), lockdownd QueryType/GetValue/Pair (`lockdown.rs`, `pair.rs`, `cert.rs`: generated RSA-2048 host identity and certs), and the phone's `ipheth` tethering interface as a `hal::NetDevice` (`netdev.rs`). Unit-tested on the host only; needs a real phone end-to-end |
+| `crates/usbnet` | Android phones and USB Ethernet dongles as a `hal::NetDevice`: RNDIS (`rndis.rs`), CDC-ECM, CDC-NCM (`ncm.rs`) and the vendor-specific ASIX AX88179 (`ax88179.rs`) |
+| `crates/net` | `smoltcp` stack glue (`stack.rs`; 1 MiB TCP receive window with window scaling, because a 64 KiB window caps a download at 64 KiB / round-trip time, about 3 MiB/s at 20 ms), HTTP/1.1 client (`http.rs`, `client.rs`), TLS via `rustls` + `rustls-rustcrypto` + `webpki-roots` (`tls.rs`). The TCP receive buffer is 1 MiB (window scaling on, so a 20 ms path is not capped at 3 MiB/s) and TLS reads the socket in 16 KiB chunks (4 KiB chunks made downloads about 10x slower) |
 | `crates/pgp-lite` | OpenPGP v4 signature verification (RSA, EdDSA) against an embedded keyring blob |
 | `crates/pkg` | sync DB parser (`desc.rs`, `db.rs`), `vercmp` port, dependency resolver (`resolve.rs`), tar/zstd/gzip readers (`tar.rs`, `compress.rs`, `io.rs`) |
 | `crates/ext4w` | write-once ext4 writer (`writer.rs`): extents, xattrs, symlinks, hardlinks; no journal/metadata_csum/dir_index at install time |
@@ -51,10 +55,11 @@ that need a running Linux.
 | `crates/initrd` | cpio newc writer (`cpio.rs`), kernel module dependency resolution from ELF `.modinfo` (`modules.rs`) |
 | `tiny-init/` | the initramfs `/init`: raw syscalls only, no libc, `no_std`; loads modules, mounts root, `switch_root` |
 | `firstboot/` | systemd unit files + `firstboot.sh`, embedded into the image at install time, run on first boot |
-| `presets/`, `examples/` | Lua configs; `presets/common.lua` holds shared defaults, `examples/config.lua` is the documented example, `examples/e2e.lua` is used by `xtask e2e` |
+| `presets/`, `examples/` | Lua configs; `presets/common.lua` holds shared defaults and supports opt-in `dry_run` mode, `presets/tester.lua` is read-only hardware testing (probes, DHCP, mirror and package resolution, and, if all of that passed, a throughput test that downloads up to 24 MiB of the largest resolved package and prints MiB/s and Mbit/s; then it reboots after 60 s via `reboot()`: 8042, port 0xCF9, triple fault), `examples/config.lua` is the documented example, `examples/e2e.lua` is used by `xtask e2e` |
 | `docs/` | `wifi.md` (spec for a not-implemented feature), `iphone-tethering.md` (spec the tethering crates were written from) |
 | `sizes.md` | measured ISO size breakdown and size-reduction options |
 | `PLAN.md` | original design plan/decision log |
+| `HANDOFF.md` | temporary status notes for the USB tethering work; delete when no longer useful |
 
 ## Config (`config.lua` -> `config.bin`)
 
@@ -69,7 +74,8 @@ loader config).
 
 - Keyring blob (`boot/keyring.bin`) is derived at build time from a pinned `archlinux-keyring` package
   (`xtask/keyring.pin`, sha256-checked), reduced to fingerprint + pubkey + expiry per packager key that
-  has web-of-trust certification from the main Arch signing keys (`xtask/src/keyring.rs`).
+  has web-of-trust certification from the main Arch signing keys (`xtask/src/keyring.rs`). The host-side
+  GnuPG home is mode `0700` on Unix; on Windows it uses the inherited filesystem ACL.
 - Package signatures come from the sync DB's `%PGPSIG%` field, verified against that blob
   (`crates/pgp-lite`) before extraction; SHA-256 from `%SHA256SUM%` is checked too.
 - Sync databases themselves are not signed; their integrity relies on HTTPS.
@@ -95,20 +101,65 @@ Current total ~2.3 MiB; see `sizes.md` for the full byte-by-byte breakdown and r
 - `cargo xtask size [--small] [--limit BYTES]`: ISO content breakdown + size budget check.
 - `cargo xtask check-presets`: resolves every preset against local pacman sync DBs.
 
-## iPhone USB tethering (optional)
+## USB tethering (optional)
 
 Off by default; build with `--features usb-tethering` on the kernel (`cargo xtask build --tethering`).
-`kernel/src/main.rs` calls `imobiledevice::tether()` after `probe_all()`: xHCI init, find an Apple device,
-usbmux `Connect` to lockdownd (port 62078), `Pair` (the user taps "Trust"; retried for 120 s; the pairing
-record is not persisted), TLS `StartSession`, `StartService` for the hotspot relay, then a second mux
-channel that becomes `IphoneNet`. `crates/net` is untouched: the relay carries raw IP, so `IphoneNet`
-adds/strips a 14-byte Ethernet header (`RELAY_RAW_IP` in `crates/imobiledevice/src/lib.rs`). `install::run`
-uses the first NIC with link, so a wired NIC wins if present. The relay service name, mux device id and
-raw-IP-vs-Ethernet choice are marked UNVERIFIED in the code: they were never run against a real iPhone.
-The xHCI driver itself is smoke-tested in QEMU with `cargo xtask run --usb` (`qemu-xhci` + `usb-storage`,
-bulk-only INQUIRY). Adds about 120 KiB to the kernel.
+`kernel/src/main.rs` (`usb_tether`) runs after `probe_all()`, but only when no wired NIC has link. It scans
+all xHCI controllers once (`usb::Scan`: waits up to 2.5 s for ports to report a connection, enumerates every
+configuration of every device), then:
+- If an Apple device with the mux interface is present, it runs the iPhone flow below and stops.
+- Otherwise `usbnet::probe()` looks for an Android tethering function or a USB Ethernet dongle.
+- If a phone-like device is attached but none tethers (an Android in file-transfer mode; devices that only
+  expose storage, HID, hub, audio, video or Bluetooth interfaces do not count), it prints a hint and re-scans
+  every 3 s, six times, because the phone re-enumerates once the user switches tethering on.
+`install::run` uses the first NIC with link, so a wired NIC wins if present. Every step logs a `usb:` line.
+
+### iPhone (verified on one real iPhone)
+
+1. `Muxer::find` takes the phone's USB configuration that has both the mux interface (ff/fe/02) and the
+   tethering interface (ff/fd/01).
+2. `mux.rs` does the usbmux version handshake (v1 then v2 header) and opens a TCP-like connection to
+   lockdownd (port 62078).
+3. `lockdown.rs`: QueryType, GetValue `DevicePublicKey`, then `Pair` with a freshly generated pair record. The
+   user taps "Trust" (and enters the passcode); the request is repeated while the phone answers
+   "dialog pending"/"password protected", for up to 120 s. A successful reply may carry only an `EscrowBag`
+   and no `Result` key. The record is not persisted.
+4. `netdev.rs`: `SET_INTERFACE` to the tethering interface's data alternate setting, vendor request 0x00 for the
+   MAC, vendor request 0x45 until the carrier is up (hotspot on), then bulk IN/OUT carry plain Ethernet
+   frames (received frames have 2 padding bytes). `crates/net` is untouched.
+
+### Android phones and USB Ethernet dongles (`crates/usbnet`)
+
+`usbnet::probe` takes the first non-Apple device with one of four network functions and brings it up as a NIC
+(a known vendor chip is preferred over class functions the same device also offers):
+- **RNDIS** (control interface class e0/01/03, 02/02/ff or ef/04/01 plus a CDC data interface; what nearly all
+  Android phones use): INITIALIZE, QUERY the permanent MAC (with a 48-byte information buffer, like Linux's
+  `rndis_host`; devices reject an empty one), SET the packet filter, then bulk transfers wrap each Ethernet frame
+  in a 44-byte RNDIS packet header (several may share one transfer).
+- **CDC-ECM** (02/06/00): MAC from the Ethernet functional descriptor's string, packet filter request (a stall is
+  tolerated), plain frames.
+- **CDC-NCM** (02/0d/00, `ncm.rs`): GET_NTB_PARAMETERS, MAC as for ECM, frames in 16-bit NCM Transfer Blocks
+  (one datagram per block on transmit, any number on receive). NTB32 and NCM1 (datagram CRC) are not handled.
+- **ASIX AX88179** (`ax88179.rs`, vendor-specific interface ff/ff/00; the Axagon ADE-SG and other
+  AX88179-compatible gigabit dongles, matched by USB id): PHY power-cycle and clock select, MAC read, RX/TX
+  control, auto-negotiation restart, wait for link (up to 15 s, so a cable must be plugged in), then the RX queue
+  and medium mode follow the negotiated speed. Transmit frames carry an 8-byte header; received transfers hold
+  several packets plus a trailing packet table. Other vendor-specific chips (ASIX AX88772, Realtek RTL8152/8153,
+  ...) are not supported unless they also offer a CDC configuration, which the scan finds because it looks at
+  every configuration of every device.
+There is no pairing for any of them: for a phone the user switches "USB tethering" on in the settings and the
+phone runs DHCP on the link; a dongle just needs a cable to a router.
+
+### Testing
+
+The xHCI driver and the whole Android path run in QEMU: `cargo xtask run --usb` (`qemu-xhci` + `usb-storage`,
+bulk-only INQUIRY) and `cargo xtask run --selftest --headless --nic usb-rndis` (QEMU's `usb-net` offers RNDIS in
+configuration 2 and ECM in configuration 1; the selftest then does DHCP, an HTTPS download and 1 MB HTTP
+transfers over the USB NIC). `--nic none` removes all NICs. The iPhone parts need a real phone: the usbmux and
+lockdown framing has byte-level unit tests, the rest was verified by hand on hardware. `QEMU_EXTRA` adds raw
+QEMU arguments to `xtask run` (e.g. `-trace usb_*`).
 
 ## Out of scope
 
-Wi-Fi, other USB devices, SMP, Secure Boot, an interactive UI, filesystems other than ext4, architectures
+Wi-Fi, USB devices other than tethering phones, SMP, Secure Boot, an interactive UI, filesystems other than ext4, architectures
 other than x86_64. A spec exists for Wi-Fi in `docs/wifi.md`; it is not implemented.

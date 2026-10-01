@@ -18,6 +18,12 @@ pub fn load_config(path: &Path) -> Result<config::Config> {
     let lua = Lua::new();
     // Presets share code through `dofile(CONFIG_DIR .. "/common.lua")`.
     let dir = path.parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| ".".into());
+    #[cfg(windows)]
+    let dir = if let Some(unc_path) = dir.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{unc_path}")
+    } else {
+        dir.strip_prefix(r"\\?\").unwrap_or(&dir).to_owned()
+    };
     lua.globals().set("CONFIG_DIR", dir)?;
     let value: mlua::Value = lua.load(&src).set_name(path.to_string_lossy()).eval()?;
     let cfg: config::Config = lua.from_value(value)?;

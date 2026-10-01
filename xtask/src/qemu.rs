@@ -78,6 +78,10 @@ pub fn run_iso(iso: &Path, opts: &Options) -> Result<()> {
         "e1000e" => cmd.args(["-device", "e1000e,netdev=n0"]),
         "igb" => cmd.args(["-device", "igb,netdev=n0"]),
         "rtl8139" => cmd.args(["-device", "rtl8139,netdev=n0"]),
+        // RNDIS (QEMU's usb-net default); needs the usb-tethering kernel feature, which iso.rs enables.
+        // No NIC at all (exercises the installer paths that run when no wired link exists).
+        "none" => &mut cmd,
+        "usb-rndis" => cmd.args(["-device", "qemu-xhci,id=xhcin", "-device", "usb-net,bus=xhcin.0,netdev=n0"]),
         other => return Err(format!("unknown nic type {other}").into()),
     };
     if opts.usb {
@@ -91,6 +95,10 @@ pub fn run_iso(iso: &Path, opts: &Options) -> Result<()> {
         cmd.args(["-device", "qemu-xhci,id=xhci"]);
         cmd.arg("-drive").arg(format!("if=none,id=u0,format=raw,file={}", img.display()));
         cmd.args(["-device", "usb-storage,bus=xhci.0,drive=u0"]);
+    }
+    // Debugging aid: extra QEMU arguments, e.g. QEMU_EXTRA='-trace usb_packet_state_change'.
+    if let Ok(extra) = std::env::var("QEMU_EXTRA") {
+        cmd.args(extra.split_whitespace());
     }
     let status = cmd.status()?;
     // isa-debug-exit turns the kernel's `out 0xf4, 0` into exit code 1.

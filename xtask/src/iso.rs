@@ -25,7 +25,7 @@ fn build_kernel(opts: &Options) -> Result<PathBuf> {
     if opts.usb {
         features.push("usb-selftest");
     }
-    if opts.tethering {
+    if opts.tethering || opts.nic.starts_with("usb-") {
         features.push("usb-tethering");
     }
     cmd.args(["--features", &features.join(",")]);

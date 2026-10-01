@@ -1,7 +1,7 @@
 //! Hardware test mode (`dry_run = true` in the config). Probes and reads, prints a PASS/FAIL report,
 //! waits a minute and reboots. It never writes to a disk: every block device is wrapped so that
 //! `write` and `flush` are refused, and nothing in this module calls the installer's write paths.
-use crate::install::{bring_up_network, fetch_optional, fetch_to_vec, now_ms, REPOS, USER_ARCHIVE_MAX, USER_FILE_MAX};
+use crate::install::{bring_up_network, expand, fetch_optional, fetch_to_vec, now_ms, REPOS, USER_ARCHIVE_MAX, USER_FILE_MAX};
 use crate::{println, time};
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
@@ -90,7 +90,7 @@ pub fn run(cfg: &Config, devs: Devices, keyring: Option<&Keyring>) {
             println!("rebooting in {left}s...");
         }
         shown = left;
-        hal::idle();
+        core::hint::spin_loop();
     }
     crate::reboot()
 }
@@ -184,12 +184,17 @@ fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Repo
             Err(e) => r.bad(&format!("{repo}.db download: {e}")),
         }
     }
+    // The largest resolved package is what the speed test downloads, if everything else passes.
+    let mut speed_target: Option<String> = None;
     if dbs.len() == REPOS.len() {
         let providers: BTreeMap<String, String> = cfg.providers.iter().cloned().collect();
         match pkg::resolve::Resolver::new(&dbs, &providers).resolve(&cfg.packages) {
             Ok(res) => {
                 let total: u64 = res.packages.iter().map(|s| s.pkg.csize).sum();
                 r.ok(&format!("resolved {} packages, {} MiB", res.packages.len(), total >> 20));
+                if let (Some(big), Some(m)) = (res.packages.iter().max_by_key(|s| s.pkg.csize), cfg.mirrors.first()) {
+                    speed_target = Some(format!("{}/{}", expand(m, &big.pkg.repo), big.pkg.filename));
+                }
             }
             Err(e) => r.bad(&format!("dependency resolution: {e:?}")),
         }
@@ -207,4 +212,54 @@ fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Repo
             Err(e) => r.warn(&format!("user archive {}: {e}", a.url)),
         }
     }
+    // Only when everything above passed: measure real download throughput.
+    if r.fail == 0 {
+        if let Some(url) = speed_target {
+            speedtest(&client, &mut stack, &url, r);
+        }
+    }
+}
+
+/// Downloads up to `CAP` bytes of `url` (without storing them) and reports the throughput.
+fn speedtest(client: &Client, stack: &mut net::Stack, url: &str, r: &mut Report) {
+    const CAP: u64 = 24 << 20;
+    println!("--- speed test (up to {} MiB from the mirror) ---", CAP >> 20);
+    let got = core::cell::Cell::new(0u64);
+    use core::sync::atomic::Ordering::Relaxed;
+    let (crypto0, io0) = (net::tls::CRYPTO_TSC.load(Relaxed), net::tls::IO_TSC.load(Relaxed));
+    let start = now_ms();
+    let res = client.get(stack, url, &mut |d| {
+        got.set(got.get() + d.len() as u64);
+        if got.get() >= CAP {
+            return Err(net::Error::Http("speed test done"));
+        }
+        Ok(())
+    });
+    let ms = (now_ms() - start).max(1);
+    let bytes = got.get();
+    let finished = bytes >= CAP || matches!(&res, Ok(resp) if resp.status == 200);
+    if !finished || bytes == 0 {
+        match res {
+            Ok(resp) => r.warn(&format!("speed test: HTTP {}", resp.status)),
+            Err(e) => r.warn(&format!("speed test: no data ({e:?})")),
+        }
+        return;
+    }
+    let to_ms = |tsc: u64| tsc / (time::tsc_hz() / 1000).max(1);
+    let crypto_ms = to_ms(net::tls::CRYPTO_TSC.load(Relaxed) - crypto0);
+    let io_ms = to_ms(net::tls::IO_TSC.load(Relaxed) - io0);
+    println!("  of {ms} ms: {crypto_ms} ms TLS record processing (decryption), {io_ms} ms waiting for / reading bytes");
+    let kbit_per_s = bytes * 8 / ms; // bits per millisecond = kbit/s
+    let mib_per_s_x10 = bytes * 10_000 / ms / (1 << 20); // MiB/s * 10
+    r.ok(&format!(
+        "speed test: {}.{} MiB in {}.{:02} s = {}.{} MiB/s ({}.{} Mbit/s)",
+        bytes >> 20,
+        (bytes % (1 << 20)) * 10 >> 20,
+        ms / 1000,
+        ms % 1000 / 10,
+        mib_per_s_x10 / 10,
+        mib_per_s_x10 % 10,
+        kbit_per_s / 1000,
+        kbit_per_s % 1000 / 100
+    ));
 }

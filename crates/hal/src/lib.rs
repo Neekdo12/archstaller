@@ -15,20 +15,24 @@ pub enum Error {
 
 pub type Result<T> = core::result::Result<T, Error>;
 
-static IDLE_HOOK: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+static LOG_HOOK: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
 
-/// Installs the function `idle()` calls. The kernel points it at a halt-until-next-tick.
-pub fn set_idle_hook(f: fn()) {
-    IDLE_HOOK.store(f as usize, core::sync::atomic::Ordering::Relaxed);
+/// Installs the sink for `hal::log!` (the kernel points it at its console).
+pub fn set_log_hook(f: fn(core::fmt::Arguments)) {
+    LOG_HOOK.store(f as usize, core::sync::atomic::Ordering::Relaxed);
 }
 
-/// Called by polling loops that found nothing to do. Returns after at most a short
-/// pause (the kernel halts the CPU until its timer tick); a plain spin hint by default.
-pub fn idle() {
-    match IDLE_HOOK.load(core::sync::atomic::Ordering::Relaxed) {
-        0 => core::hint::spin_loop(),
-        f => unsafe { core::mem::transmute::<usize, fn()>(f)() },
+/// Diagnostic line from a driver crate that has no console of its own; dropped until a hook is set.
+pub fn log(args: core::fmt::Arguments) {
+    match LOG_HOOK.load(core::sync::atomic::Ordering::Relaxed) {
+        0 => {}
+        f => unsafe { core::mem::transmute::<usize, fn(core::fmt::Arguments)>(f)(args) },
     }
+}
+
+#[macro_export]
+macro_rules! log {
+    ($($t:tt)*) => { $crate::log(format_args!($($t)*)) };
 }
 
 pub trait BlockDevice {
