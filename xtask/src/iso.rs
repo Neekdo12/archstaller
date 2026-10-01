@@ -6,6 +6,14 @@ const TARGET: &str = "x86_64-unknown-none";
 
 const LIMINE_CONF: &str = "timeout: 0\n\n/archstaler\n    protocol: limine\n    path: boot():/boot/kernel\n    module_path: boot():/boot/config.bin\n    module_path: boot():/boot/keyring.bin\n    module_path: boot():/boot/tiny-init\n    module_path: boot():/boot/limine-bios-hdd.bin\n    module_path: boot():/boot/limine/limine-bios.sys\n    module_path: boot():/EFI/BOOT/BOOTX64.EFI\n";
 
+/// Verbose tracing is on with `--debug`, and always for a dry-run (hardware test) config, whose whole
+/// purpose is to show what the hardware does.
+fn wants_debug(opts: &Options) -> bool {
+    opts.debug
+        || std::fs::read_to_string(&opts.config)
+            .is_ok_and(|t| t.lines().any(|l| l.trim_start().starts_with("dry_run") && l.contains("true")))
+}
+
 fn build_kernel(opts: &Options) -> Result<PathBuf> {
     let mut cmd = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
     cmd.current_dir(root()).args(["build", "-p", "kernel", "--target", TARGET]);
@@ -27,6 +35,9 @@ fn build_kernel(opts: &Options) -> Result<PathBuf> {
     }
     if opts.tethering || opts.nic.starts_with("usb-") {
         features.push("usb-tethering");
+    }
+    if wants_debug(opts) {
+        features.push("debug");
     }
     cmd.args(["--features", &features.join(",")]);
     run(&mut cmd)?;

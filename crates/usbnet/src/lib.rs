@@ -164,19 +164,19 @@ impl UsbEth {
             }
             let eps: Vec<usb::desc::EndpointDesc> = cand.data.endpoints.iter().filter(|e| e.is_bulk()).cloned().collect();
             ctrl.configure_endpoints(&dev, &eps).map_err(|e| {
-                hal::log!("usb: configuring the data endpoints failed: {e:?}");
+                hal::info!("usb: configuring the data endpoints failed: {e:?}");
                 e
             })?;
             match cand.kind {
                 Kind::Rndis => {
                     let init = command(&mut ctrl, &dev, comm, &rndis::init_msg(1, RX_BUF_RNDIS as u32), 1)?;
                     if init.status != rndis::STATUS_SUCCESS {
-                        hal::log!("usb: RNDIS initialize failed, status {:#x}", init.status);
+                        hal::info!("usb: RNDIS initialize failed, status {:#x}", init.status);
                         return Err(Error::Io);
                     }
                     let q = command(&mut ctrl, &dev, comm, &rndis::query_msg(2, rndis::OID_802_3_PERMANENT_ADDRESS, 48), 2)?;
                     if q.status != rndis::STATUS_SUCCESS || q.info.len() < 6 {
-                        hal::log!("usb: RNDIS MAC query failed, status {:#x}, {} bytes", q.status, q.info.len());
+                        hal::info!("usb: RNDIS MAC query failed, status {:#x}, {} bytes", q.status, q.info.len());
                         return Err(Error::Io);
                     }
                     let mut mac = [0u8; 6];
@@ -184,7 +184,7 @@ impl UsbEth {
                     let set = rndis::set_msg(3, rndis::OID_GEN_CURRENT_PACKET_FILTER, &rndis::PACKET_FILTER.to_le_bytes());
                     let s = command(&mut ctrl, &dev, comm, &set, 3)?;
                     if s.status != rndis::STATUS_SUCCESS {
-                        hal::log!("usb: RNDIS set packet filter failed, status {:#x}", s.status);
+                        hal::info!("usb: RNDIS set packet filter failed, status {:#x}", s.status);
                         return Err(Error::Io);
                     }
                     (mac, RX_BUF_RNDIS)
@@ -200,7 +200,7 @@ impl UsbEth {
                     let mut raw = [0u8; 28];
                     let n = ctrl.class_in(&dev, 0x80, 0, comm, &mut raw)?; // GET_NTB_PARAMETERS
                     let p = ncm::parse_params(&raw[..n]).map_err(|e| {
-                        hal::log!("usb: NCM parameters unusable ({n} bytes): {e:?}");
+                        hal::info!("usb: NCM parameters unusable ({n} bytes): {e:?}");
                         e
                     })?;
                     hal::log!("usb: NCM {:?}", p);
@@ -242,14 +242,14 @@ impl UsbEth {
 fn command(ctrl: &mut usb::Controller, dev: &Device, comm: u16, msg: &[u8], id: u32) -> Result<rndis::Reply> {
     let want = u32::from_le_bytes(msg[0..4].try_into().unwrap()) | rndis::CMPLT;
     ctrl.class_out(dev, 0x00, 0, comm, msg).map_err(|e| {
-        hal::log!("usb: SEND_ENCAPSULATED_COMMAND failed: {e:?}");
+        hal::info!("usb: SEND_ENCAPSULATED_COMMAND failed: {e:?}");
         e
     })?; // SEND_ENCAPSULATED_COMMAND
     for _ in 0..100 {
         drivers::platform::delay_us(20_000);
         let mut buf = [0u8; 1025];
         let n = ctrl.class_in(dev, 0x01, 0, comm, &mut buf).map_err(|e| {
-            hal::log!("usb: GET_ENCAPSULATED_RESPONSE failed: {e:?}");
+            hal::info!("usb: GET_ENCAPSULATED_RESPONSE failed: {e:?}");
             e
         })?; // GET_ENCAPSULATED_RESPONSE
         if n < 12 {
@@ -264,7 +264,7 @@ fn command(ctrl: &mut usb::Controller, dev: &Device, comm: u16, msg: &[u8], id: 
             return Ok(r);
         }
     }
-    hal::log!("usb: RNDIS message {:#x} got no answer", want & !rndis::CMPLT);
+    hal::info!("usb: RNDIS message {:#x} got no answer", want & !rndis::CMPLT);
     Err(Error::Timeout)
 }
 
@@ -293,7 +293,7 @@ fn ax_phy_read(ctrl: &mut usb::Controller, dev: &Device, reg: u16) -> Result<u16
 fn ax_bring_up(ctrl: &mut usb::Controller, dev: &Device) -> Result<([u8; 6], usize)> {
     use ax88179::*;
     let step = |what: &'static str| move |e: Error| {
-        hal::log!("usb: AX88179 {what} failed: {e:?}");
+        hal::info!("usb: AX88179 {what} failed: {e:?}");
         e
     };
     // Power-cycle the PHY, then select the clock.
@@ -324,13 +324,13 @@ fn ax_bring_up(ctrl: &mut usb::Controller, dev: &Device) -> Result<([u8; 6], usi
             break;
         }
         if !told {
-            hal::log!("usb: AX88179 waiting for the Ethernet link (is a cable plugged in?)");
+            hal::info!("usb: AX88179 waiting for the Ethernet link (is a cable plugged in?)");
             told = true;
         }
         drivers::platform::delay_us(100_000);
     }
     if physr & PHYSR_LINK == 0 {
-        hal::log!("usb: AX88179 has no Ethernet link");
+        hal::info!("usb: AX88179 has no Ethernet link");
         return Err(Error::Timeout);
     }
     let mut link_sts = [0u8; 1];

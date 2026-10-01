@@ -31,7 +31,7 @@ that need a running Linux.
 3. **First boot** (`firstboot/`): `archstaler-firstboot.target`/`.service` runs `pacman-key --init/
    --populate`, `pacman -U --overwrite '*'` on the cached packages (runs real scriptlets/hooks, writes
    the local pacman DB), creates users, enables services, adds the ext4 journal, builds the real
-   initramfs, rewrites the Limine entry, reboots into the installed system.
+   initramfs (without the `kms` hook, so a failing GPU driver cannot block the boot), rewrites the Limine entry, reboots into the installed system.
 
 ## Repository layout
 
@@ -100,6 +100,15 @@ Current total ~2.3 MiB; see `sizes.md` for the full byte-by-byte breakdown and r
 - `cargo xtask run --usb`: adds `qemu-xhci` + `usb-storage` and builds the `usb-selftest` kernel, which enumerates the USB device and runs a SCSI INQUIRY over bulk endpoints.
 - `cargo xtask size [--small] [--limit BYTES]`: ISO content breakdown + size budget check.
 - `cargo xtask check-presets`: resolves every preset against local pacman sync DBs.
+
+## Debug output
+
+Driver and network tracing (`usb:`, `net:`, `r8169:` trace lines, ARP traces, idle-tick info, per-frame logs) is behind the
+kernel feature `debug` (`hal::DEBUG`, `hal::log!`), set by `cargo xtask build --debug` (also `run`, `presets`, `e2e`) and
+always on for a dry-run config such as `presets/tester.lua`. In a normal build `hal::log!` compiles to nothing. Always on:
+`hal::info!` messages (failures such as a failed DNS lookup or USB step, an address conflict, the DHCP lease) and the
+install progress the user sees (memory and heap size, disks, resolved package count and size, `[i/n] name version (KiB) P%`
+per package, a download summary).
 
 ## USB tethering (optional)
 

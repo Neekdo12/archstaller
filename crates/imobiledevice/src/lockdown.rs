@@ -74,7 +74,7 @@ impl Lockdown {
         match reply.dict_get_str("Type") {
             Some("com.apple.mobile.lockdown") => Ok(ld),
             other => {
-                hal::log!("usb: lockdownd QueryType gave {other:?}");
+                hal::info!("usb: lockdownd QueryType gave {other:?}");
                 Err(Error::Unsupported)
             }
         }
@@ -109,7 +109,7 @@ impl Lockdown {
         }
         let reply = self.request(&Value::dict(req))?;
         if let Some(e) = reply.dict_get_str("Error") {
-            hal::log!("usb: lockdownd GetValue {key} failed: {e}");
+            hal::info!("usb: lockdownd GetValue {key} failed: {e}");
             return Err(Error::Io);
         }
         reply.get("Value").cloned().ok_or(Error::Io)
@@ -152,7 +152,7 @@ impl Lockdown {
             Some("PasswordProtected") => PairReply::Locked,
             Some("UserDeniedPairing") => PairReply::Denied,
             other => {
-                hal::log!("usb: unexpected Pair reply, Error {other:?}");
+                hal::info!("usb: unexpected Pair reply, Error {other:?}");
                 PairReply::Failed
             }
         })

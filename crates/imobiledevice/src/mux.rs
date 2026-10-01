@@ -314,7 +314,7 @@ impl Muxer {
                 continue;
             }
             if t.flags & TH_RST != 0 {
-                hal::log!("usb: mux connection to port {port} refused");
+                hal::info!("usb: mux connection to port {port} refused");
                 return Err(Error::Io);
             }
             if t.flags != (TH_SYN | TH_ACK) {

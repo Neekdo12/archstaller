@@ -26,6 +26,7 @@ Prerequisites on the build host: a nightly Rust toolchain with `rust-src`, the `
 OVMF (`/usr/share/edk2/x64`). `rust-toolchain.toml` selects the toolchain.
 
 ```sh
+cargo xtask build --debug    # verbose driver/network tracing (always on for the tester preset)
 cargo xtask presets          # one ISO per preset -> target/isos/archstaler-<preset>.iso (with USB tethering; --no-tethering leaves it out)
 cargo xtask build            # a single ISO from examples/config.lua -> target/archstaler.iso
 cargo xtask build --config path/to/my.lua --out my.iso
@@ -48,7 +49,10 @@ console-only presets (minimal, server) `ly` lists both `shell` and `xinitrc` ses
 because `xinitrc` needs X and `xauth`. The shared defaults live in `presets/common.lua`; `cargo xtask
 check-presets` resolves every preset against your local pacman sync databases and reports package counts,
 download sizes and provider choices. All presets install the wired-NIC firmware
-(`linux-firmware-intel`, `linux-firmware-realtek`) or, on the desktop presets, the full `linux-firmware`.
+(`linux-firmware-intel`, `linux-firmware-realtek`) and the AMD GPU firmware (`linux-firmware-amdgpu`,
+`linux-firmware-radeon`, about 30 MiB) or, on the desktop presets, the full `linux-firmware`. The first boot
+builds the initramfs without the `kms` hook, so a GPU that cannot initialise (missing firmware, an unsupported
+chip) does not stop the boot before the root file system is mounted.
 
 The Hyprland preset also pulls a Hyprland config from a server during installation: `FRIEND_CONFIG` at the
 top of `presets/hyprland.lua` is the `https://` URL of a zip whose contents are laid out relative to the

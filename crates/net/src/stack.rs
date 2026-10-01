@@ -210,10 +210,10 @@ impl Stack {
                 // clients do. A static host inside the DHCP pool made every reply to us go to it
                 // (seen on a school network); the right response is to decline and ask for another.
                 if declined >= MAX_DECLINES {
-                    hal::log!("net: the DHCP server keeps offering addresses that are in use; using {}.{}.{}.{} anyway", ip[0], ip[1], ip[2], ip[3]);
+                    hal::info!("net: the DHCP server keeps offering addresses that are in use; using {}.{}.{}.{} anyway", ip[0], ip[1], ip[2], ip[3]);
                 } else {
                     if let Some(mac) = self.probe_address(ip) {
-                        hal::log!(
+                        hal::info!(
                             "net: {}.{}.{}.{} is already in use by {:02x?}: declining it and asking the DHCP server again",
                             ip[0], ip[1], ip[2], ip[3], mac
                         );
@@ -368,7 +368,7 @@ impl Stack {
             }
         }
         self.sockets.get_mut::<dns::Socket>(self.dns).cancel_query(h);
-        hal::log!("net: DNS query for {name} unanswered; {}", self.counters());
+        hal::info!("net: DNS query for {name} unanswered; {}", self.counters());
         Err(Error::Timeout)
     }
 

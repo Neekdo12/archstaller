@@ -187,7 +187,7 @@ pub(crate) fn bring_up_network(devs: &mut Devices) -> R<net::Stack> {
     println!("network: {} link {}", nic.name(), "up");
     let mut stack = net::Stack::new(nic, now_ms, unsafe { core::arch::x86_64::_rdtsc() });
     let lease = stack.dhcp(30_000).map_err(dbg_err("DHCP"))?;
-    hal::log!("network: {:?}/{} gateway {:?} dns {:?}", lease.address, lease.prefix, lease.router, lease.dns);
+    hal::info!("network: {:?}/{} gateway {:?} dns {:?}", lease.address, lease.prefix, lease.router, lease.dns);
     Ok(stack)
 }
 
@@ -422,11 +422,29 @@ pub fn run(cfg: &Config, mut devs: Devices, keyring: &Keyring, boot: &BootFiles)
     // 14. Download, verify, extract.
     let mut idx = KernelIndex::default();
     let n = resolution.packages.len();
+    let (mut done, started) = (0u64, now_ms());
     for (i, s) in resolution.packages.iter().enumerate() {
-        println!("[{}/{}] {} {} ({} KiB)", i + 1, n, s.pkg.name, s.pkg.version, s.pkg.csize >> 10);
+        println!(
+            "[{}/{}] {} {} ({} KiB)   {}%  {} of {} MiB",
+            i + 1,
+            n,
+            s.pkg.name,
+            s.pkg.version,
+            s.pkg.csize >> 10,
+            if total == 0 { 100 } else { done * 100 / total },
+            done >> 20,
+            total >> 20
+        );
         let ino = download_package(&client, &mut stack, cfg, &w, keyring, s.pkg)?;
         extract_package(&w, ino, s.pkg.csize, &mut idx)?;
+        done += s.pkg.csize;
     }
+    let secs = ((now_ms() - started) / 1000).max(1);
+    println!(
+        "{n} packages downloaded, verified and unpacked: {} MiB in {secs} s ({} MiB/s)",
+        done >> 20,
+        (done >> 20) / secs
+    );
     for (repo, bytes) in &db_bytes {
         put(&w, &format!("var/lib/pacman/sync/{repo}.db"), 0o644, bytes)?;
     }

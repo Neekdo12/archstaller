@@ -33,11 +33,11 @@ pub fn init(hhdm: u64, memmap: &[&limine::memmap::Entry]) {
     let size = len.min(MAX_HEAP);
     // Printed before the first write into the region, so a fault there still leaves the layout on screen.
     crate::println!(
-        "heap region {:#x} +{} MiB (largest usable region {:#x} +{} MiB)",
-        base,
+        "memory: heap {} MiB at {:#x} (largest usable region {} MiB at {:#x})",
         size >> 20,
-        largest.base,
-        largest.length >> 20
+        base,
+        largest.length >> 20,
+        largest.base
     );
     unsafe { TALC.lock().claim((hhdm + base) as *mut u8, size as usize) }.expect("heap claim failed");
     HEAP_BYTES.store(size, Ordering::Relaxed);

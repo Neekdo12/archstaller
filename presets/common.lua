@@ -28,8 +28,9 @@ function M.build(spec)
 
     packages = concat(
       { "base", "linux", "mkinitcpio", "efibootmgr", "sudo", "nano", "ly" },
-      -- Wired NIC firmware only by default; desktops pass the full linux-firmware for GPUs.
-      spec.firmware or { "linux-firmware-intel", "linux-firmware-realtek" },
+      -- Wired NIC firmware, plus the AMD GPU firmware (small: about 30 MiB; without it amdgpu/radeon fail to
+      -- initialise on AMD graphics). Desktops pass the full linux-firmware instead.
+      spec.firmware or { "linux-firmware-intel", "linux-firmware-realtek", "linux-firmware-amdgpu", "linux-firmware-radeon" },
       spec.packages
     ),
     providers = concat({ { "initramfs", "mkinitcpio" } }, spec.providers),

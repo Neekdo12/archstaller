@@ -69,6 +69,7 @@ pub fn build_all(opts: &Options) -> Result<()> {
             nic: "virtio".into(),
             usb: false,
             tethering: opts.tethering,
+            debug: opts.debug,
         };
         let iso = iso::build(&o)?;
         println!("{name}: {} ({} bytes)", iso.display(), std::fs::metadata(&iso)?.len());

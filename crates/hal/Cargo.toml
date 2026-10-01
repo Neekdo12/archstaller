@@ -2,3 +2,7 @@
 name = "hal"
 version = "0.1.0"
 edition = "2021"
+
+[features]
+# Verbose driver tracing (`hal::log!`); see `cargo xtask build --debug`.
+debug = []

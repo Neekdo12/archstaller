@@ -38,7 +38,7 @@ impl IphoneNet {
             .find(|i| (i.class, i.subclass, i.protocol) == IPHETH_CLASS && dev.bulk_in(i).is_some() && dev.bulk_out(i).is_some())
             .cloned()
         else {
-            hal::log!(
+            hal::info!(
                 "usb: no tethering (ff/fd/01) interface with bulk endpoints; interfaces: {:?}",
                 dev.interfaces.iter().map(|i| (i.num, i.alt, i.class, i.subclass, i.protocol, i.endpoints.len())).collect::<Vec<_>>()
             );
@@ -53,7 +53,7 @@ impl IphoneNet {
         let mut buf = [0u8; 0x40];
         let n = ctrl.vendor_in(&dev, CMD_GET_MAC, 0, 0, &mut buf)?;
         if n < 6 {
-            hal::log!("usb: tethering MAC request returned {n} bytes");
+            hal::info!("usb: tethering MAC request returned {n} bytes");
             return Err(Error::Io);
         }
         let mut mac = [0u8; 6];

@@ -54,7 +54,9 @@ pub fn init(hhdm: u64) {
             outb(0x21, 0xff); // no tick: mask everything, keep spinning
         }
     }
-    crate::println!("idle: timer tick {}", if TICK_OK.load(Ordering::Relaxed) { "ok, halting when idle" } else { "unavailable, spinning when idle" });
+    if hal::DEBUG {
+        crate::println!("idle: timer tick {}", if TICK_OK.load(Ordering::Relaxed) { "ok, halting when idle" } else { "unavailable, spinning when idle" });
+    }
 }
 
 /// The bootloader leaves the local APIC's LINT0 (where the legacy PIC is wired in virtual-wire

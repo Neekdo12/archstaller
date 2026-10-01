@@ -74,6 +74,13 @@ fi
 ROOT_DEV=$(findmnt -no SOURCE /)
 tune2fs -j "$ROOT_DEV" || say "warning: could not add a journal"
 
+# Leave out the "kms" hook (early graphics): it loads the GPU driver before the root file system is
+# mounted, and a GPU that fails to initialise (missing firmware, a chip the driver cannot handle) then
+# stops the boot with "Fatal error during GPU init" and no root. The GPU driver loads later instead.
+if grep -q '^HOOKS=.* kms' /etc/mkinitcpio.conf; then
+    sed -i '/^HOOKS=/ s/ kms\b//' /etc/mkinitcpio.conf && say "initramfs: early graphics (kms) disabled"
+fi
+
 say "building initramfs"
 mkinitcpio -P || fail "mkinitcpio"
 

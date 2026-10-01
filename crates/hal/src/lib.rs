@@ -46,8 +46,19 @@ pub fn log(args: core::fmt::Arguments) {
     }
 }
 
+/// True when built with the `debug` feature (`cargo xtask build --debug`): verbose driver tracing is on.
+pub const DEBUG: bool = cfg!(feature = "debug");
+
+/// Verbose diagnostics (driver traces, timings): compiled out unless the `debug` feature is on,
+/// and the arguments are not evaluated then.
 #[macro_export]
 macro_rules! log {
+    ($($t:tt)*) => { if $crate::DEBUG { $crate::log(format_args!($($t)*)) } };
+}
+
+/// Messages that matter in a normal build too (failures, things the user must act on).
+#[macro_export]
+macro_rules! info {
     ($($t:tt)*) => { $crate::log(format_args!($($t)*)) };
 }
 

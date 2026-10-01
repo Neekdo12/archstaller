@@ -24,6 +24,8 @@ spinning_top = "0.3"
 postcard = { version = "1", default-features = false, features = ["alloc"] }
 
 [features]
+# Verbose driver and network tracing (the tester preset always builds with it).
+debug = ["hal/debug"]
 fault-test = []
 disk-selftest = []
 net-selftest = []

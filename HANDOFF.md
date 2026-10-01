@@ -150,6 +150,12 @@ user can switch USB tethering on after plugging in.
    idle fixes were ported to this branch from `michal` (same code, so the later merge should be clean).
 5. Delete this file when it stops being useful.
 
+## Debug flag
+
+Verbose tracing (`hal::log!`) is compiled out unless the kernel feature `debug` is on (`cargo xtask build --debug`; the tester
+preset and any `dry_run = true` config get it automatically). Failures use `hal::info!` and always print. When adding a
+diagnostic, use `hal::log!` for traces and `hal::info!` only for things a normal user should see.
+
 ## How to build and test
 
 ```sh
@@ -203,3 +209,13 @@ fails, the last `usb:` line names the failing step; ask the user for all of them
 - `xtask run` in this sandbox cannot reach the Arch mirror, so the dry-run's `core.db`/`extra.db`
   downloads time out there; that is expected and unrelated to the USB work.
 - The user commits and pushes themselves (AGENTS.md); leave changes uncommitted.
+
+## Second boot hang on the old machine (reported, not yet explained)
+
+After a normal install on the GA-F2A88XM-D3H (AMD FM2+, integrated GPU or none) the first boot (our firstboot step) was fine,
+but the second boot reported "FAILED to mount /sysroot" and then hung at "Fatal error during GPU init" (an amdgpu message).
+The e2e test in QEMU (virtio/AHCI/NVMe) passes both boots, so this is hardware specific. Changes made on a hypothesis:
+the firstboot step now removes the `kms` hook from `/etc/mkinitcpio.conf` (a failing GPU driver cannot block the root mount)
+and the default firmware list now includes `linux-firmware-amdgpu` and `linux-firmware-radeon` (desktop presets already
+had the full `linux-firmware`). Unconfirmed: which preset was installed and the lines before the failure. Rescue on an
+installed system: at the Limine menu (3 s timeout) edit the entry and add `nomodeset` to the kernel command line.

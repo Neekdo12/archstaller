@@ -47,6 +47,9 @@ pub struct Options {
     pub usb: bool,
     /// Build with the usb-tethering kernel feature (iPhone Personal Hotspot over USB; needs a real iPhone).
     pub tethering: bool,
+    /// Build with the debug kernel feature: verbose driver and network tracing. Always on for a
+    /// dry-run (hardware test) config such as presets/tester.lua.
+    pub debug: bool,
 }
 
 fn parse(args: &[String]) -> Result<Options> {
@@ -64,6 +67,7 @@ fn parse(args: &[String]) -> Result<Options> {
         nic: "virtio".into(),
         usb: false,
         tethering: false,
+        debug: false,
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -82,6 +86,7 @@ fn parse(args: &[String]) -> Result<Options> {
             "--usb" => o.usb = true,
             "--tethering" => o.tethering = true,
             "--no-tethering" => {} // handled by the presets command
+            "--debug" => o.debug = true,
             other => return Err(format!("unknown option {other}").into()),
         }
     }
@@ -90,7 +95,7 @@ fn parse(args: &[String]) -> Result<Options> {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|keyring|update-keyring> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--small] [--limit BYTES]")?;
+    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|keyring|update-keyring> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--small] [--limit BYTES]")?;
     let opts = parse(rest)?;
     match cmd.as_str() {
         "build" => {

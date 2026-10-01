@@ -157,7 +157,7 @@ impl Controller {
     fn enumerate_port(&mut self, port: u8, speed: u8) -> Result<Vec<Device>> {
         hal::log!("usb: port {port} speed {speed}: enumerating");
         self.enumerate_port_inner(port, speed).map_err(|e| {
-            hal::log!("usb: port {port}: enumeration failed: {e:?}");
+            hal::info!("usb: port {port}: enumeration failed: {e:?}");
             e
         })
     }

@@ -28,7 +28,7 @@ pub fn controllers() -> Vec<Controller> {
             continue;
         }
         let Some(regs) = dev.map_bar(0) else {
-            hal::log!("usb: xHCI {:04x}:{:04x}: BAR0 not mappable", dev.vendor, dev.device);
+            hal::info!("usb: xHCI {:04x}:{:04x}: BAR0 not mappable", dev.vendor, dev.device);
             continue;
         };
         dev.enable();
@@ -37,7 +37,7 @@ pub fn controllers() -> Vec<Controller> {
                 hal::log!("usb: xHCI {:04x}:{:04x} initialised", dev.vendor, dev.device);
                 out.push(c);
             }
-            Err(e) => hal::log!("usb: xHCI {:04x}:{:04x} init failed: {e:?}", dev.vendor, dev.device),
+            Err(e) => hal::info!("usb: xHCI {:04x}:{:04x} init failed: {e:?}", dev.vendor, dev.device),
         }
     }
     out
@@ -71,7 +71,7 @@ impl Scan {
                         found.push((ci, dev));
                     }
                 }
-                Err(e) => hal::log!("usb: enumerating controller {ci} failed: {e:?}"),
+                Err(e) => hal::info!("usb: enumerating controller {ci} failed: {e:?}"),
             }
         }
         Scan { ctrls, found }
