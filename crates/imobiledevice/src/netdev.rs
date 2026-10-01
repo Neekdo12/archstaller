@@ -58,7 +58,7 @@ impl IphoneNet {
         }
         let mut mac = [0u8; 6];
         mac.copy_from_slice(&buf[..6]);
-        Ok(IphoneNet { ctrl, dev, ep_in, ep_out, mac, rx: Dma::new(RX_BUF, 64), rx_pending: false })
+        Ok(IphoneNet { ctrl, dev, ep_in, ep_out, mac, rx: Dma::for_transfer(RX_BUF), rx_pending: false })
     }
 
     /// Whether the phone reports the hotspot link as up.

@@ -18,6 +18,13 @@ impl Dma {
         Dma { ptr, layout }
     }
 
+    /// A buffer for one USB transfer. An xHCI transfer TRB must not cross a 64 KiB boundary, so the
+    /// buffer is aligned to its own size rounded up to a power of two (at most 64 KiB), which keeps
+    /// any transfer of up to 64 KiB inside one boundary-safe region.
+    pub fn for_transfer(len: usize) -> Dma {
+        Dma::new(len, len.max(1).next_power_of_two().clamp(64, 65536))
+    }
+
     pub fn as_ptr(&self) -> *mut u8 {
         self.ptr
     }

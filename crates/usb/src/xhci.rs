@@ -66,7 +66,10 @@ const CC_SUCCESS: u8 = 1;
 const CC_SHORT_PACKET: u8 = 13;
 
 const RING_TRBS: usize = 64; // last one is the link TRB
-const MAX_TRB_LEN: usize = 16 * 1024;
+/// Longest single TRB. A transfer that ends short must be one TRB: a short-packet event reports only
+/// that TRB's residual, so a multi-TRB transfer would be mis-measured (buffers up to this size are
+/// aligned by `Dma::for_transfer`, so one TRB never crosses a 64 KiB boundary).
+const MAX_TRB_LEN: usize = 64 * 1024;
 
 /// One transfer ring: producer side only, cycle bit managed per xHCI 4.9.
 #[doc(hidden)] // public for host-side unit tests

@@ -44,8 +44,27 @@ but QEMU cannot emulate them. The AX88179 register sequence and packet formats c
 `ax88179_178a` driver (fetched as documentation, summarised, then written clean-room), so a wrong register
 value or off-by-N frame length is plausible. If the dongle fails, the `usb:` log shows the step
 (`AX88179 PHY reset failed`, `waiting for the Ethernet link`, `link up, PHY status ...`).
+Throughput: the dongle path reported 2.7 MiB/s in the tester's speed test. The cause was not the dongle but the
+stack: TLS read the socket in 4 KiB chunks (about 10x slower than 16 KiB chunks in QEMU: 2.3 vs 25 MiB/s against
+the same mirror) and the TCP receive buffer was 64 KiB (caps a 24 ms path at 64 KiB/24 ms = 2.7 MiB/s). Now
+`TCP_RX` is 1 MiB (`crates/net/src/stack.rs`) and `fill` reads 16 KiB (`crates/net/src/tls.rs`). Not yet measured on
+the real dongle. The speed report also prints how long TLS record processing took versus waiting for bytes.
+
+First real-hardware result for the AX88179 (Axagon ADE-SG): bring-up and link worked, DHCP timed out. A likely
+cause was fixed: a transfer split into several TRBs (anything over 16 KiB, such as the AX88179's 20-26 KiB receive
+buffer) has its length mis-measured on a short packet, because the xHCI event reports only the residual of the TRB
+that ended early. `MAX_TRB_LEN` is now 64 KiB and `Dma::for_transfer` aligns transfer buffers so one TRB never
+crosses a 64 KiB boundary. The first 4 transmitted frames and 6 received transfers are logged
+(`usb: tx frame ...`, `usb: rx transfer N bytes -> M frames`) to show which direction fails if DHCP still does.
 Not implemented: other vendor-specific chips (ASIX AX88772, Realtek RTL8152/8153), RNDIS keepalives,
 interrupt-endpoint notifications.
+
+**Speed:** the user measured 2.7 MiB/s with the AX88179 dongle on eduroam. That equals the old 64 KiB TCP receive
+window divided by a ~24 ms round trip, and applies to every NIC, so the window is now 1 MiB (window scale 5 is
+negotiated; verified in a QEMU packet capture). The sandbox's own uplink (~20 Mbit/s) hides any gain in QEMU, so the
+real effect is unmeasured. `hwtest`'s speed test also prints how much of the time was TLS decryption versus waiting
+for bytes (`net::tls::CRYPTO_TSC` / `IO_TSC`; decryption was ~6% in QEMU). Not done: asynchronous USB transmit (each ACK
+is a blocking bulk write) and more than one outstanding USB receive transfer; both only matter near line rate.
 
 The kernel tries tethering only when no wired NIC has link (`usb_tether` in `kernel/src/main.rs`). With
 devices attached but none tethering (Android in file-transfer mode) it re-scans 6 times, 3 s apart, so the

@@ -143,6 +143,9 @@ pub struct UsbEth {
     /// CDC-NCM transmit parameters and block sequence number.
     ntb: Option<ncm::Params>,
     seq: u16,
+    /// Frames sent and transfers received so far (only the first few are logged).
+    tx_n: u32,
+    rx_n: u32,
 }
 
 impl UsbEth {
@@ -223,7 +226,9 @@ impl UsbEth {
             ep_out,
             mps_out,
             mac,
-            rx: Dma::new(rx_len, 64),
+            rx: Dma::for_transfer(rx_len),
+            tx_n: 0,
+            rx_n: 0,
             rx_len,
             rx_pending: false,
             queue: VecDeque::new(),
@@ -394,6 +399,10 @@ impl NetDevice for UsbEth {
                 &wrapped
             }
         };
+        if self.tx_n < 4 {
+            hal::log!("usb: tx frame {} bytes ({} in the transfer)", frame.len(), data.len());
+        }
+        self.tx_n += 1;
         self.ctrl.bulk_write(&self.dev, self.ep_out, data)?;
         // A transfer ending on a packet boundary needs a zero-length packet to end it (the
         // AX88179 header asks the chip to pad instead).
@@ -422,6 +431,8 @@ impl NetDevice for UsbEth {
         };
         self.rx_pending = false;
         let data = &self.rx.as_slice()[..n];
+        let first = self.rx_n < 6;
+        self.rx_n += 1;
         match self.kind {
             Kind::Ecm => {
                 let len = data.len().min(buf.len());
@@ -433,6 +444,13 @@ impl NetDevice for UsbEth {
                     Kind::Rndis => self.queue.extend(rndis::unwrap_frames(data)),
                     Kind::Ncm => self.queue.extend(ncm::parse_ntb(data)),
                     _ => self.queue.extend(ax88179::parse_rx(data)),
+                }
+                if first {
+                    hal::log!(
+                        "usb: rx transfer {n} bytes -> {} frames{}",
+                        self.queue.len(),
+                        if self.queue.is_empty() { alloc::format!(", last bytes {:02x?}", &data[n.saturating_sub(8)..]) } else { String::new() }
+                    );
                 }
                 let f = self.queue.pop_front()?;
                 let len = f.len().min(buf.len());

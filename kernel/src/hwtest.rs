@@ -225,6 +225,8 @@ fn speedtest(client: &Client, stack: &mut net::Stack, url: &str, r: &mut Report)
     const CAP: u64 = 24 << 20;
     println!("--- speed test (up to {} MiB from the mirror) ---", CAP >> 20);
     let got = core::cell::Cell::new(0u64);
+    use core::sync::atomic::Ordering::Relaxed;
+    let (crypto0, io0) = (net::tls::CRYPTO_TSC.load(Relaxed), net::tls::IO_TSC.load(Relaxed));
     let start = now_ms();
     let res = client.get(stack, url, &mut |d| {
         got.set(got.get() + d.len() as u64);
@@ -243,6 +245,10 @@ fn speedtest(client: &Client, stack: &mut net::Stack, url: &str, r: &mut Report)
         }
         return;
     }
+    let to_ms = |tsc: u64| tsc / (time::tsc_hz() / 1000).max(1);
+    let crypto_ms = to_ms(net::tls::CRYPTO_TSC.load(Relaxed) - crypto0);
+    let io_ms = to_ms(net::tls::IO_TSC.load(Relaxed) - io0);
+    println!("  of {ms} ms: {crypto_ms} ms TLS record processing (decryption), {io_ms} ms waiting for / reading bytes");
     let kbit_per_s = bytes * 8 / ms; // bits per millisecond = kbit/s
     let mib_per_s_x10 = bytes * 10_000 / ms / (1 << 20); // MiB/s * 10
     r.ok(&format!(

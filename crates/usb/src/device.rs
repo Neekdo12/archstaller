@@ -100,7 +100,7 @@ impl Controller {
         if buf.is_empty() {
             return self.control(dev.slot, setup(req_type, req, value, index, 0), 0, 0, true);
         }
-        let dma = Dma::new(buf.len(), 64);
+        let dma = Dma::for_transfer(buf.len());
         let n = self.control(dev.slot, setup(req_type, req, value, index, buf.len() as u16), dma.phys(), buf.len(), true)?;
         let n = n.min(buf.len());
         buf[..n].copy_from_slice(&dma.as_slice()[..n]);
@@ -132,7 +132,7 @@ impl Controller {
             self.control(dev.slot, setup(req_type, req, value, index, 0), 0, 0, false)?;
             return Ok(());
         }
-        let mut dma = Dma::new(data.len(), 64);
+        let mut dma = Dma::for_transfer(data.len());
         dma.as_mut_slice().copy_from_slice(data);
         self.control(dev.slot, setup(req_type, req, value, index, data.len() as u16), dma.phys(), data.len(), false)?;
         Ok(())
@@ -318,7 +318,7 @@ impl Controller {
         if data.is_empty() {
             return Ok(());
         }
-        let mut dma = Dma::new(data.len(), 64);
+        let mut dma = Dma::for_transfer(data.len());
         dma.as_mut_slice().copy_from_slice(data);
         let dci = (ep_addr & 0x0f) * 2;
         let n = self.transfer(dev.slot, dci, dma.phys(), data.len(), 5000)?;
@@ -340,7 +340,7 @@ impl Controller {
         if buf.is_empty() {
             return Ok(0);
         }
-        let dma = Dma::new(buf.len(), 64);
+        let dma = Dma::for_transfer(buf.len());
         let dci = (ep_addr & 0x0f) * 2 + 1;
         let n = self.transfer(dev.slot, dci, dma.phys(), buf.len(), timeout_ms)?.min(buf.len());
         buf[..n].copy_from_slice(&dma.as_slice()[..n]);
