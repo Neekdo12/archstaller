@@ -217,6 +217,30 @@ impl Controller {
         let rt0 = mmio.offset((mmio.read32(RTSOFF) & !0x1f) as usize + 0x20);
         let db = mmio.offset((mmio.read32(DBOFF) & !3) as usize);
 
+        // Take the controller from the firmware (xHCI legacy support capability, id 1), or its
+        // SMI handler keeps touching a controller we are reprogramming.
+        let mut xecp = ((mmio.read32(HCCPARAMS1) >> 16) & 0xffff) as usize * 4;
+        let mut guard = 0;
+        while xecp != 0 && guard < 64 {
+            let cap = mmio.read32(xecp);
+            if cap & 0xff == 1 {
+                if cap & (1 << 16) != 0 {
+                    mmio.write32(xecp, cap | (1 << 24));
+                    let _ = platform::wait_until(1000, || mmio.read32(xecp) & (1 << 16) == 0);
+                }
+                // Disable SMI generation, acknowledge pending SMI status bits.
+                let cs = mmio.read32(xecp + 4);
+                mmio.write32(xecp + 4, (cs & ((0x3 << 1) | (0xff << 5) | (0x7 << 17))) | (0x7 << 29));
+                break;
+            }
+            let next = ((cap >> 8) & 0xff) as usize * 4;
+            if next == 0 {
+                break;
+            }
+            xecp += next;
+            guard += 1;
+        }
+
         // Halt, then reset.
         op.write32(USBCMD, op.read32(USBCMD) & !CMD_RS);
         platform::wait_until(1000, || op.read32(USBSTS) & STS_HCH != 0)?;
@@ -281,6 +305,7 @@ impl Controller {
             if p & PSC_CCS == 0 {
                 continue;
             }
+            hal::log!("usb: port {port} connected, portsc {p:#010x}");
             if p & PSC_PP == 0 {
                 self.op.write32(PORTSC + 0x10 * (port as usize - 1), PSC_PP);
                 let _ = platform::wait_until(500, || self.portsc(port) & PSC_PP != 0);
@@ -300,6 +325,7 @@ impl Controller {
                 let _ = platform::wait_until(500, || self.portsc(port) & PSC_PED != 0);
                 p = self.portsc(port);
             }
+            hal::log!("usb: port {port} after reset: portsc {p:#010x}");
             if p & PSC_PED != 0 {
                 out.push((port, ((p >> 10) & 0xf) as u8));
             }

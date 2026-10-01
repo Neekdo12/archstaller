@@ -96,7 +96,24 @@ impl Controller {
     }
 
     fn enumerate_port(&mut self, port: u8, speed: u8) -> Result<Vec<Device>> {
-        let slot = self.add_device(port, speed)?;
+        hal::log!("usb: port {port} speed {speed}: enumerating");
+        self.enumerate_port_inner(port, speed).map_err(|e| {
+            hal::log!("usb: port {port}: enumeration failed: {e:?}");
+            e
+        })
+    }
+
+    fn enumerate_port_inner(&mut self, port: u8, speed: u8) -> Result<Vec<Device>> {
+        // Devices (phones especially) need time after port reset before they answer.
+        drivers::platform::delay_us(50_000);
+        let slot = match self.add_device(port, speed) {
+            Ok(s) => s,
+            Err(e) => {
+                hal::log!("usb: port {port}: address device failed ({e:?}), retrying");
+                drivers::platform::delay_us(100_000);
+                self.add_device(port, speed)?
+            }
+        };
         let probe = Device {
             slot,
             vendor: 0,
@@ -107,11 +124,22 @@ impl Controller {
         };
         // First 8 bytes are enough to fix up EP0's real max packet size.
         let mut head = [0u8; 8];
-        self.control_in(&probe, desc::GET_DESCRIPTOR, (desc::DT_DEVICE as u16) << 8, 0, &mut head)?;
-        if head[1] != desc::DT_DEVICE {
-            return Err(Error::Io);
+        let mut tries = 0;
+        loop {
+            match self.control_in(&probe, desc::GET_DESCRIPTOR, (desc::DT_DEVICE as u16) << 8, 0, &mut head) {
+                Ok(_) if head[1] == desc::DT_DEVICE => break,
+                r => {
+                    tries += 1;
+                    hal::log!("usb: port {port}: first descriptor read failed ({r:?}), try {tries}");
+                    if tries >= 4 {
+                        return Err(Error::Io);
+                    }
+                    drivers::platform::delay_us(50_000);
+                }
+            }
         }
-        let mps = head[7] as u16;
+        // SuperSpeed devices encode bMaxPacketSize0 as a power of two (9 -> 512).
+        let mps = if speed >= 4 { 1u16 << head[7].min(10) } else { head[7] as u16 };
         if mps != 0 {
             self.set_ep0_mps(slot, mps)?;
         }
@@ -132,6 +160,7 @@ impl Controller {
             }
         }
 
+        hal::log!("usb: port {port}: {vendor:04x}:{product:04x} with {num_configs} configuration(s)");
         if num_configs == 0 {
             return Err(Error::Unsupported);
         }

@@ -41,7 +41,7 @@ that need a running Linux.
 | `config/` | `Config`/`Disk`/`User`/`UserFile`/`UserArchive` types shared by `xtask` and `kernel`, plus validation |
 | `crates/hal` | traits: `BlockDevice`, `NetDevice`, `Clock`, `Rng` |
 | `crates/drivers` | PCI enumeration (`pci.rs`), virtio blk/net, AHCI, NVMe, Intel e1000/e1000e/igb(+igc), Realtek r8169/r8125/rtl8139 — all polled, no IRQs |
-| `crates/usb` | xHCI host controller driver (polled): command/event/transfer rings, enumeration of enabled ports and USB configurations, descriptors, control + bulk transfers. One controller, no hubs |
+| `crates/usb` | xHCI host controller driver (polled, takes ownership from the firmware via the legacy-support capability, logs each enumeration step through `hal::log!`): command/event/transfer rings, enumeration of enabled ports and USB configurations, descriptors, control + bulk transfers. One controller, no hubs |
 | `crates/imobiledevice` | iPhone USB tethering: plist (binary + XML) codec, usbmuxd framing over bulk endpoints (`mux.rs`), pairing with a generated RSA-2048 host identity (`cert.rs`, `pair.rs`), TLS-wrapped lockdownd session + `StartService` (`lockdown.rs`), `hal::NetDevice` adapter (`netdev.rs`). Unit-tested on the host only; needs a real phone end-to-end |
 | `crates/net` | `smoltcp` stack glue (`stack.rs`), HTTP/1.1 client (`http.rs`, `client.rs`), TLS via `rustls` + `rustls-rustcrypto` + `webpki-roots` (`tls.rs`) |
 | `crates/pgp-lite` | OpenPGP v4 signature verification (RSA, EdDSA) against an embedded keyring blob |

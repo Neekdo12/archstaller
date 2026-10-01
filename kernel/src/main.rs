@@ -84,6 +84,7 @@ extern "C" fn _start() -> ! {
     }
 
     idt::init();
+    hal::set_log_hook(|a| println!("{a}"));
 
     if let Some(resp) = FRAMEBUFFER.response() {
         if let Some(fb) = resp.framebuffers().first() {

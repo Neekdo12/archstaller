@@ -27,10 +27,17 @@ pub fn controllers() -> Vec<Controller> {
         if dev.class != 0x0c || dev.subclass != 0x03 || dev.prog_if != 0x30 {
             continue;
         }
-        let Some(regs) = dev.map_bar(0) else { continue };
+        let Some(regs) = dev.map_bar(0) else {
+            hal::log!("usb: xHCI {:04x}:{:04x}: BAR0 not mappable", dev.vendor, dev.device);
+            continue;
+        };
         dev.enable();
-        if let Ok(c) = Controller::new(regs) {
-            out.push(c);
+        match Controller::new(regs) {
+            Ok(c) => {
+                hal::log!("usb: xHCI {:04x}:{:04x} initialised", dev.vendor, dev.device);
+                out.push(c);
+            }
+            Err(e) => hal::log!("usb: xHCI {:04x}:{:04x} init failed: {e:?}", dev.vendor, dev.device),
         }
     }
     out
@@ -48,6 +55,13 @@ pub fn find_device(
 ) -> Result<(Controller, Device)> {
     for mut ctrl in controllers() {
         for mut dev in ctrl.enumerate()? {
+            hal::log!(
+                "usb: device {:04x}:{:04x} config {} interfaces {:?}",
+                dev.vendor,
+                dev.product,
+                dev.configuration,
+                dev.interfaces.iter().map(|i| (i.class, i.subclass, i.protocol)).collect::<Vec<_>>()
+            );
             if vendor != 0 && dev.vendor != vendor {
                 continue;
             }
@@ -71,5 +85,6 @@ pub fn find_device(
             return Ok((ctrl, dev));
         }
     }
+    hal::log!("usb: no device matched vendor {vendor:04x} class {class:02x}/{subclass:02x}/{protocol:02x}");
     Err(Error::Unsupported)
 }
