@@ -1,15 +1,15 @@
 # Velikost ISO
 
-Změřeno 2026-09-30 příkazem `cargo xtask size` (config `examples/config.lua`, profil `release`).
+Změřeno 2026-10-01 příkazem `cargo xtask size` (config `examples/config.lua`, profil `release`).
 Rozpad kernelu podle crate je z nestripnutého buildu (`CARGO_PROFILE_RELEASE_STRIP=false`) přes `llvm-nm --print-size`.
 
-**Celkem: 2 406 400 B (2,29 MiB).** S `--small`: 2 269 184 B (2,16 MiB).
+**Celkem: 2 449 408 B (2,34 MiB).** S `--small`: 2 306 048 B (2,20 MiB). Kernel bez `--tethering`; tethering přidává asi 105 KiB.
 
 ## Co je na ISO
 
 | Soubor | Velikost | % ISO | Kdo to čte | K čemu |
 |---|---:|---:|---|---|
-| `boot/kernel` | 1016 KiB | 43 % | Limine | celý installer (drivery, síť, TLS, pacman-lite, ext4, GPT/FAT) |
+| `boot/kernel` | 1058 KiB | 43 % | Limine | celý installer (drivery, síť, TLS, pacman-lite, ext4, GPT/FAT) |
 | `boot/limine/efi.img` | 416 KiB | 18 % | UEFI firmware | FAT12 image pro El Torito UEFI boot, obsahuje jen `BOOTX64.EFI` |
 | `EFI/BOOT/BOOTX64.EFI` | 368 KiB | 16 % | kernel (modul) | Limine pro UEFI boot **nainstalovaného** systému; kopíruje se na cílovou ESP |
 | `boot/limine/limine-bios.sys` | 324 KiB | 14 % | Limine BIOS + kernel (modul) | stage 2 Limine: bootování ISO v BIOSu i cílového systému v BIOSu |
@@ -83,7 +83,7 @@ a `limine-bios-hdd.bin` z ISO, které spolu musí verzí sedět.
   RSA PKCS#1): ~5–15 KiB. P-384 zůstat musí, ISRG Root X2 je P-384.
 
 ### 3. `--small` jako výchozí pro release ISO (presety): −133 KiB (změřeno)
-`build-std` + `panic = "immediate-abort"`: kernel 1016 → 883 KiB. Nevýhoda: panic skončí bez hlášky, takže ladění na
+`build-std` + `panic = "immediate-abort"`: kernel 1058 → 919 KiB. Nevýhoda: panic skončí bez hlášky, takže ladění na
 reálném HW je těžší. Doporučuji pro `cargo xtask presets`, pro vývoj a `run`/`e2e` nechat `release`.
 
 ### 4. Zmenšit rezervu v `efi.img`: ~−35 KiB
