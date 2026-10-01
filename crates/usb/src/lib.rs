@@ -82,11 +82,6 @@ impl Scan {
         self.found.iter().map(|(_, d)| d)
     }
 
-    /// Number of (device, configuration) entries not yet taken.
-    pub fn device_count(&self) -> usize {
-        self.found.len()
-    }
-
     /// Takes a device for which `target` returns the interface to claim (its bulk endpoints
     /// are opened); among matches `prefer` wins, otherwise the first. Selects the
     /// device's configuration. `Err(Unsupported)` when nothing matches.

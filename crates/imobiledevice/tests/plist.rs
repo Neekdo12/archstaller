@@ -22,15 +22,6 @@ fn sample() -> Value {
 }
 
 #[test]
-fn binary_round_trip() {
-    let v = sample();
-    let bytes = plist::to_binary(&v);
-    assert!(bytes.starts_with(b"bplist00"));
-    let back = plist::parse(&bytes).expect("parse own bplist");
-    assert_eq!(v, back);
-}
-
-#[test]
 fn xml_round_trip() {
     let v = sample();
     let text = plist::to_xml(&v);
@@ -55,7 +46,7 @@ fn parses_python_plistlib_bplist() {
     let v = plist::parse(&bytes).expect("parse plistlib bplist");
     assert_eq!(v.dict_get_str("MessageType"), Some("Result"));
     assert_eq!(v.dict_get_int("Number"), Some(0));
-    assert_eq!(v.dict_get_bool("B"), Some(true));
+    assert_eq!(v.get("B").and_then(|b| b.as_bool()), Some(true));
     assert_eq!(v.dict_get_data("blob"), Some(&[1u8, 2, 3][..]));
     let d = v.get("D").unwrap();
     assert_eq!(d.dict_get_str("k"), Some("v"));

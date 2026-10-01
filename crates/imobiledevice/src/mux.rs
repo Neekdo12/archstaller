@@ -199,10 +199,6 @@ impl Muxer {
         })
     }
 
-    pub fn device_serial(&self) -> &str {
-        &self.dev.serial
-    }
-
     /// Mux protocol version agreed with the device (0 before `handshake`).
     pub fn version(&self) -> u32 {
         self.version

@@ -1,6 +1,6 @@
-//! Property list values and the binary plist (bplist00) format: reader and writer.
-//! Subset per `docs/iphone-tethering.md`: dict, array, string, data, integer, bool, real.
-//! The XML format (used on the usbmuxd control channel) lives in `xml.rs`.
+//! Property list values (dict, array, string, data, integer, bool, real). The binary format
+//! (bplist00) is read only, because a phone may answer lockdownd in either format; everything we
+//! send is XML (`to_xml`, implemented in `xml.rs`, which also reads XML).
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -56,9 +56,6 @@ impl Value {
     pub fn dict_get_data(&self, key: &str) -> Option<&[u8]> {
         self.get(key)?.as_data()
     }
-    pub fn dict_get_bool(&self, key: &str) -> Option<bool> {
-        self.get(key)?.as_bool()
-    }
     /// Convenience: builds a dict from (key, value) pairs.
     pub fn dict(kv: Vec<(&str, Value)>) -> Value {
         Value::Dict(kv.into_iter().map(|(k, v)| (String::from(k), v)).collect())
@@ -88,12 +85,7 @@ pub fn parse(buf: &[u8]) -> Result<Value> {
     }
 }
 
-/// Serializes in binary format (the lockdownd channel format).
-pub fn to_binary(v: &Value) -> Vec<u8> {
-    write_binary(v)
-}
-
-/// Serializes in XML format (the usbmuxd channel format).
+/// Serializes in XML format (what every request to lockdownd uses).
 pub fn to_xml(v: &Value) -> Vec<u8> {
     crate::xml::write(v).into_bytes()
 }
@@ -235,159 +227,4 @@ fn parse_binary(buf: &[u8]) -> Result<Value> {
         offsets.push(v);
     }
     Reader { buf, offsets, ref_size }.obj(top, 0)
-}
-
-// ---------------------------------------------------------------------------
-// Binary plist writer
-// ---------------------------------------------------------------------------
-
-/// An object in the serialized object table: either a tree node or a dict key
-/// (keys are synthetic string objects; bplist dicts reference them by index).
-enum ObjRef<'a> {
-    Value(&'a Value),
-    Key(&'a str),
-}
-
-/// Preorder walk; dict keys are emitted right after their dict, before its values.
-fn object_list(root: &Value) -> Vec<ObjRef<'_>> {
-    let mut out = Vec::new();
-    fn visit<'a>(v: &'a Value, out: &mut Vec<ObjRef<'a>>) {
-        out.push(ObjRef::Value(v));
-        match v {
-            Value::Array(items) => {
-                for i in items {
-                    visit(i, out);
-                }
-            }
-            Value::Dict(kv) => {
-                for (k, _) in kv {
-                    out.push(ObjRef::Key(k));
-                }
-                for (_, v) in kv {
-                    visit(v, out);
-                }
-            }
-            _ => {}
-        }
-    }
-    visit(root, &mut out);
-    out
-}
-
-fn index_of(objs: &[ObjRef], want: &Value) -> usize {
-    objs.iter()
-        .position(|o| matches!(o, ObjRef::Value(v) if core::ptr::eq::<Value>(*v, want)))
-        .expect("object_list contains every node")
-}
-
-fn int_size(v: u64) -> u8 {
-    match v {
-        0..=0xff => 0x10,
-        0x100..=0xffff => 0x11,
-        0x1_0000..=0xffff_ffff => 0x12,
-        _ => 0x13,
-    }
-}
-
-fn write_binary(root: &Value) -> Vec<u8> {
-    let objs = object_list(root);
-    let ref_size = if objs.len() <= 0xff { 1 } else if objs.len() <= 0xffff { 2 } else { 4 };
-    let push_ref = |b: &mut Vec<u8>, idx: usize| b.extend_from_slice(&(idx as u64).to_be_bytes()[8 - ref_size..]);
-
-    let mut bodies: Vec<Vec<u8>> = Vec::with_capacity(objs.len());
-    for obj in &objs {
-        let body: Vec<u8> = match obj {
-            ObjRef::Key(s) => encode_string(s),
-            ObjRef::Value(v) => match v {
-                Value::Bool(b) => alloc::vec![if *b { 0x09 } else { 0x08 }],
-                Value::Int(i) => {
-                    let marker = int_size(*i);
-                    let n = 1usize << (marker & 0x0f);
-                    let mut b = alloc::vec![marker];
-                    b.extend_from_slice(&i.to_be_bytes()[8 - n..]);
-                    b
-                }
-                Value::Real(f) => {
-                    let mut b = alloc::vec![0x23];
-                    b.extend_from_slice(&f.to_be_bytes());
-                    b
-                }
-                Value::String(s) => encode_string(s),
-                Value::Data(d) => {
-                    let mut b = encode_len(0x40, d.len());
-                    b.extend_from_slice(d);
-                    b
-                }
-                Value::Array(items) => {
-                    let mut b = encode_len(0xa0, items.len());
-                    for i in items {
-                        push_ref(&mut b, index_of(&objs, i));
-                    }
-                    b
-                }
-                Value::Dict(kv) => {
-                    let mut b = encode_len(0xd0, kv.len());
-                    // A dict's key objects immediately follow it in the object list,
-                    // before any nested values (see object_list).
-                    let self_idx = index_of(&objs, v);
-                    for (i, _) in kv.iter().enumerate() {
-                        push_ref(&mut b, self_idx + 1 + i);
-                    }
-                    for (_, v) in kv {
-                        push_ref(&mut b, index_of(&objs, v));
-                    }
-                    b
-                }
-            },
-        };
-        bodies.push(body);
-    }
-
-    let mut out = Vec::from(&b"bplist00"[..]);
-    let mut offsets = Vec::with_capacity(bodies.len());
-    for b in &bodies {
-        offsets.push(out.len());
-        out.extend_from_slice(b);
-    }
-    let off_start = out.len();
-    let max_off = off_start + bodies.len();
-    let off_size = if max_off <= 0xff {
-        1
-    } else if max_off <= 0xffff {
-        2
-    } else if max_off <= 0xffff_ffff {
-        4
-    } else {
-        8
-    };
-    for o in &offsets {
-        out.extend_from_slice(&(*o as u64).to_be_bytes()[8 - off_size..]);
-    }
-    // Trailer.
-    out.extend_from_slice(&[0u8; 6]);
-    out.push(off_size as u8);
-    out.push(ref_size as u8);
-    out.extend_from_slice(&(objs.len() as u64).to_be_bytes());
-    out.extend_from_slice(&0u64.to_be_bytes()); // top object index 0
-    out.extend_from_slice(&(off_start as u64).to_be_bytes());
-    out
-}
-
-fn encode_string(s: &str) -> Vec<u8> {
-    let mut b = encode_len(0x50, s.len());
-    b.extend_from_slice(s.as_bytes());
-    b
-}
-
-/// Marker + inline length (short form or 0x0f + int object).
-fn encode_len(ty_nibble: u8, len: usize) -> Vec<u8> {
-    if len < 15 {
-        alloc::vec![ty_nibble | len as u8]
-    } else {
-        let marker = int_size(len as u64);
-        let n = 1usize << (marker & 0x0f);
-        let mut b = alloc::vec![ty_nibble | 0x0f, marker];
-        b.extend_from_slice(&(len as u64).to_be_bytes()[8 - n..]);
-        b
-    }
 }
