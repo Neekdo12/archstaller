@@ -85,22 +85,28 @@ fi
 say "building initramfs"
 mkinitcpio -P || fail "mkinitcpio"
 
-say "installing boot loader entries"
+say "installing GRUB"
+ESP_DEV=$(findmnt -no SOURCE /boot)
+DISK=$(lsblk -no PKNAME "$ESP_DEV")
+mkdir -p /boot/grub
 {
-    echo "timeout: 3"
+    echo "set timeout=3"
+    echo "set default=0"
     echo
-    echo "/Arch Linux"
-    echo "    protocol: linux"
-    echo "    path: boot():/vmlinuz-linux"
-    echo "    cmdline: $(cat "$D/cmdline")"
-    echo "    module_path: boot():/initramfs-linux.img"
-} > /boot/limine/limine.conf || fail "limine.conf"
+    echo "menuentry 'Arch Linux' {"
+    echo "    search --no-floppy --file --set=root /vmlinuz-linux"
+    echo "    linux /vmlinuz-linux $(cat "$D/cmdline")"
+    echo "    initrd /initramfs-linux.img"
+    echo "}"
+} > /boot/grub/grub.cfg || fail "grub.cfg"
 if [ -d /sys/firmware/efi ]; then
-    ESP_DEV=$(findmnt -no SOURCE /boot)
-    DISK=$(lsblk -no PKNAME "$ESP_DEV")
+    grub-install --target=x86_64-efi --efi-directory=/boot --boot-directory=/boot --bootloader-id=GRUB --removable || fail "grub-install (efi)"
     PART=$(cat "/sys/class/block/${ESP_DEV##*/}/partition")
     efibootmgr --create --disk "/dev/$DISK" --part "$PART" --label "Arch Linux" --loader '\EFI\BOOT\BOOTX64.EFI' || say "warning: efibootmgr failed"
+else
+    grub-install --target=i386-pc --boot-directory=/boot "/dev/$DISK" || fail "grub-install (bios)"
 fi
+rm -rf /boot/limine
 
 rm -f "$D/firstboot"
 say "done"

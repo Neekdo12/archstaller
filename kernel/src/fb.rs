@@ -27,8 +27,8 @@ fn le32(b: &[u8], off: usize) -> usize {
 
 impl FbConsole {
     /// Only 32 bpp RGB framebuffers are supported.
-    pub fn new(fb: &limine::framebuffer::Framebuffer) -> Option<Self> {
-        if fb.bpp != 32 || fb.memory_model != limine::framebuffer::FRAMEBUFFER_RGB {
+    pub fn new(hhdm: u64, fb: &bootinfo::Framebuffer) -> Option<Self> {
+        if fb.addr == 0 || fb.bpp != 32 {
             return None;
         }
         if FONT.len() < 32 || FONT[..4] != [0x72, 0xb5, 0x4a, 0x86] {
@@ -45,10 +45,10 @@ impl FbConsole {
             let r = (rgb >> 16) & 0xff;
             let g = (rgb >> 8) & 0xff;
             let b = rgb & 0xff;
-            (r << fb.red_mask_shift) | (g << fb.green_mask_shift) | (b << fb.blue_mask_shift)
+            (r << fb.red_shift) | (g << fb.green_shift) | (b << fb.blue_shift)
         };
         let mut c = FbConsole {
-            base: fb.address() as *mut u8,
+            base: (hhdm + fb.addr) as *mut u8,
             pitch: fb.pitch as usize,
             cols: fb.width as usize / 8,
             rows: fb.height as usize / glyph_h,

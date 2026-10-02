@@ -2,7 +2,7 @@
 
 An Arch Linux installer written in Rust that does **not** run on top of Linux.
 
-The ISO boots through [Limine](https://github.com/Limine-Bootloader/Limine) (BIOS and UEFI) into a small
+The ISO boots through a small boot loader of its own (`boot/`, BIOS and UEFI, a few tens of KiB) into a small
 `no_std` kernel of its own: one CPU core, polling drivers, no device interrupts (the only interrupt is a 1 kHz timer tick that lets idle loops halt the CPU instead of spinning). That
 kernel reads a configuration that was baked into the ISO, downloads packages from an Arch mirror over
 HTTPS, verifies them, lays down GPT + FAT32 + ext4 and writes the system to disk. Anything that needs a
@@ -29,7 +29,7 @@ OVMF (`/usr/share/edk2/x64`). `rust-toolchain.toml` selects the toolchain.
 cargo xtask build --debug    # verbose driver/network tracing (always on for the tester preset)
 cargo xtask presets          # one ISO per preset -> target/isos/archstaler-<preset>.iso (with USB tethering; --no-tethering leaves it out)
 cargo xtask build            # a single ISO from examples/config.lua -> target/archstaler.iso
-cargo xtask build --super-small   # smallest ISO (about 1.4 MiB instead of 2.4); also accepted by `presets`
+cargo xtask build --small    # size-optimized kernel (build-std, no panic messages); `--super-small` is an alias
 cargo xtask build --config path/to/my.lua --out my.iso
 ```
 
@@ -169,8 +169,8 @@ validates them strictly at build time and rejects anything with unexpected chara
 
 ## How it works
 
-1. **Boot.** Limine loads the kernel plus modules (`config.bin`, the signing keyring, `tiny-init`, Limine's
-   own files for the target).
+1. **Boot.** The boot loader unpacks the payload (the kernel plus modules: `config.bin`, the signing keyring,
+   `tiny-init`, the loader's own files for the target) and enters the kernel.
 2. **Disk.** The target disk is selected. Nothing is written before this succeeds.
 3. **Network.** DHCP, then `core.db` and `extra.db` over HTTPS (TLS 1.2/1.3 via `rustls` with a pure-Rust
    crypto provider and the bundled Mozilla roots).
@@ -183,11 +183,11 @@ validates them strictly at build time and rejects anything with unexpected chara
    PGP signature are checked (the signature comes from the database's `%PGPSIG%`, verified against a keyring
    blob derived from the pinned `archlinux-keyring`). Only after verification is it extracted.
 7. **Boot setup.** `/etc` files, a first-boot service and a small initramfs (`tiny-init` plus the kernel
-   modules it needs) are written; Limine goes onto the ESP and, for BIOS, into the BIOS boot partition.
+   modules it needs) are written; our boot loader (first boot only) goes onto the ESP and, for BIOS, into the MBR and BIOS boot partition.
 8. **First boot.** The system boots into `archstaler-firstboot.target`: it initializes the pacman keyring,
    runs `pacman -U` on the cached packages (which runs every scriptlet and hook), re-applies the
    configuration, creates users, enables services, builds the real initramfs, writes
-   the final Limine entry and reboots into the installed system.
+   GRUB (`grub-install`, from the `grub` package, replacing our loader) and reboots into the installed system.
 
 ### Trust model and limits
 
@@ -212,7 +212,7 @@ validates them strictly at build time and rejects anything with unexpected chara
 | Path | Contents |
 |---|---|
 | `kernel/` | the `no_std` installer kernel (`x86_64-unknown-none`): console, heap, exceptions, idle timer tick, random numbers, TSC clock, paging for MMIO, the install flow, the hardware test |
-| `xtask/` | host tooling: Lua evaluation, keyring blob and its pin (`keyring.pin`), Limine fetch (pinned + sha256), ISO assembly, QEMU runs, tests |
+| `xtask/` | host tooling: Lua evaluation, keyring blob and its pin (`keyring.pin`), payload and ISO assembly, BIOS stage patching, QEMU runs, tests |
 | `config/` | config types shared by `xtask` and the kernel, plus validation |
 | `crates/hal` | `BlockDevice`, `NetDevice`, `Clock`, `Rng` traits |
 | `crates/drivers` | PCI, virtio-blk/net, AHCI, NVMe, Intel e1000/e1000e/igb/igc, Realtek r8169/r8125/rtl8139 (all polled) |
@@ -223,9 +223,10 @@ validates them strictly at build time and rejects anything with unexpected chara
 | `crates/pgp-lite` | OpenPGP v4 signature verification (RSA, EdDSA) |
 | `crates/pkg` | sync database parser, `vercmp`, resolver, tar/zstd/gzip readers |
 | `crates/ext4w` | write-once ext4 writer |
-| `crates/disk` | GPT, FAT32 writer, Limine BIOS boot code installer |
+| `crates/disk` | GPT, FAT32 writer |
 | `crates/initrd` | cpio writer, kernel module dependency resolution |
-| `kstub/` | loader stub for `--super-small` ISOs: unpacks the compressed kernel |
+| `boot/` | the boot loader: `uefi/` (`BOOTX64.EFI`), `bios-s1/` (512-byte MBR/El Torito sector), `bios/` (stage 2) |
+| `crates/bootinfo`, `crates/loadcore` | loader/kernel contract and the firmware-independent loader core |
 | `tiny-init/` | the initramfs `init` (raw syscalls, no libc) |
 | `firstboot/` | systemd units and script for the first boot |
 | `presets/`, `examples/` | Lua configs |
@@ -246,16 +247,15 @@ cargo xtask update-keyring                   # move the keyring pin to the newes
 
 The host-side tests check the crates against real tools and data: `vercmp` against `/usr/bin/vercmp`,
 resolution against `pacman -Sp`, `ext4w` images with `e2fsck`/`debugfs`, GPT with `sfdisk`/`fdisk`, FAT32
-with `fsck.fat`, and the BIOS installer byte-for-byte against `limine bios-install`. `xtask e2e` downloads
+with `fsck.fat`. `xtask e2e` downloads
 several hundred MiB from the Arch mirror. `xtask run` recreates its scratch disk `target/test-disk.img` on
 every run (a partition table left by an earlier run would make the firmware try the disk before the ISO).
 `xtask e2e` overwrites nothing of yours, but `xtask run --selftest` builds are destructive to every disk
 they see and are meant for QEMU scratch disks only.
 
-`--small` builds the kernel with `build-std` and immediate-abort panics: smaller, but panic messages are
-lost. `--super-small` adds two things on top: the kernel is stored deflate-compressed and loaded by a 21 KiB
-stub (`kstub/`), and `BOOTX64.EFI` is stored once instead of twice. The ISO drops from 2.3 MiB (`--small`) to 1.4 MiB.
-It boots in QEMU in BIOS and UEFI mode; a failure to unpack prints a `kstub:` line on COM1 and halts.
+`--small` builds the kernel and the loaders with `build-std` and immediate-abort panics: smaller, but panic
+messages are lost. The payload is always stored deflate-compressed; the ISO is about 0.77 MiB. Both firmware
+paths boot in QEMU, and the BIOS path also when the ISO is written to a disk or USB stick (hybrid MBR).
 
 ## Status
 
@@ -267,7 +267,7 @@ first boot; the second boot failed there once with a missing journal, which is f
 journal (checked with `e2fsck`/`debugfs` and in QEMU, not yet re-run on that machine). Not verified: the igc and
 other Realtek drivers (other RTL8168/8169 revisions, RTL8125/8126), real hardware in general, logging in with the default
 credentials, starting the Hyprland session with the downloaded config, and the UEFI boot entry created by
-`efibootmgr` (booting works through the fallback path `EFI/BOOT/BOOTX64.EFI`). The first-boot log is only in
+`efibootmgr` (GRUB is installed to the fallback path, so booting works through `EFI/BOOT/BOOTX64.EFI`). The first-boot log is only in
 the journal and is not persisted.
 
 USB tethering: the iPhone path worked on real hardware (an ASUS ExpertBook with an unlocked iPhone); the Android path (RNDIS, CDC-ECM) worked on one real phone and in QEMU's emulated adapters; the AX88179 dongle worked on real hardware. `xtask e2e` does not exercise tethering.

@@ -287,6 +287,18 @@ impl<'r, 'd> Fat32Writer<'r, 'd> {
         Ok(())
     }
 
+    /// Where a written file's contents lie: byte offset from the start of the region and length.
+    /// Files are written as one contiguous run of clusters.
+    pub fn file_extent(&self, path: &str) -> Option<(u64, u64)> {
+        let (dir_path, name) = path.trim_matches('/').rsplit_once('/').unwrap_or(("", path.trim_matches('/')));
+        let mut cur = 0;
+        for c in dir_path.split('/').filter(|c| !c.is_empty()) {
+            cur = self.find_dir(cur, c)?.dir?;
+        }
+        let e = self.find_dir(cur, name)?;
+        (e.dir.is_none() && e.first_cluster != 0).then(|| (self.cluster_offset(e.first_cluster), e.size as u64))
+    }
+
     fn serialize_dir(&self, idx: usize) -> Vec<u8> {
         let d = &self.dirs[idx];
         let (date, time) = fat_time(self.opts.now);

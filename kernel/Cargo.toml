@@ -18,7 +18,7 @@ imobiledevice = { path = "../crates/imobiledevice", optional = true }
 usbnet = { path = "../crates/usbnet", optional = true }
 sha2 = { version = "0.10", default-features = false, features = ["force-soft"] }
 getrandom = { version = "0.2", features = ["custom"] }
-limine = "0.6"
+bootinfo = { path = "../crates/bootinfo" }
 talc = "5"
 spinning_top = "0.3"
 postcard = { version = "1", default-features = false, features = ["alloc"] }

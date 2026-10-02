@@ -1,9 +1,9 @@
+mod bios;
 mod e2e;
 mod iso;
 mod keyring;
 mod presets;
 mod linux_test;
-mod limine;
 mod lua;
 mod qemu;
 
@@ -31,7 +31,7 @@ pub struct Options {
     pub selftest: bool,
     /// Size-optimized kernel: build-std with panics that abort without messages.
     pub small: bool,
-    /// Smallest ISO: `small`, plus a compressed kernel behind a loader stub (`kstub`) and BOOTX64.EFI stored once.
+    /// Deprecated alias of `small` (the payload is always compressed now).
     pub super_small: bool,
     /// `xtask size` fails when the ISO exceeds this many bytes.
     pub limit: u64,

@@ -27,7 +27,7 @@ function M.build(spec)
     mirrors = { "https://geo.mirror.pkgbuild.com/$repo/os/$arch" },
 
     packages = concat(
-      { "base", "linux", "mkinitcpio", "efibootmgr", "sudo", "nano", "ly" },
+      { "base", "linux", "mkinitcpio", "grub", "efibootmgr", "sudo", "nano", "ly" },
       -- Wired NIC firmware, plus the AMD GPU firmware (small: about 30 MiB; without it amdgpu/radeon fail to
       -- initialise on AMD graphics). Desktops pass the full linux-firmware instead.
       spec.firmware or { "linux-firmware-intel", "linux-firmware-realtek", "linux-firmware-amdgpu", "linux-firmware-radeon" },

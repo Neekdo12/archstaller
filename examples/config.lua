@@ -15,7 +15,7 @@ return {
 
   mirrors = { "https://geo.mirror.pkgbuild.com/$repo/os/$arch" },
 
-  packages = { "base", "linux", "mkinitcpio", "limine", "efibootmgr", "openssh", "sudo", "ly" },
+  packages = { "base", "linux", "mkinitcpio", "grub", "efibootmgr", "openssh", "sudo", "ly" },
   providers = { initramfs = "mkinitcpio" },
 
   root_password_hash = nil,

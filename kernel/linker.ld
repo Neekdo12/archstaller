@@ -20,9 +20,6 @@ SECTIONS
     . = ALIGN(4K);
     .data : {
         *(.data .data.*)
-        KEEP(*(.limine_requests_start))
-        KEEP(*(.limine_requests))
-        KEEP(*(.limine_requests_end))
     } :data
 
     .bss : { *(.bss .bss.*) *(COMMON) } :data

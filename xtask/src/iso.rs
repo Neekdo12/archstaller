@@ -1,22 +1,9 @@
-use crate::{keyring, limine, lua, root, run, Options, Result};
+use crate::{keyring, lua, root, run, Options, Result};
 use std::path::PathBuf;
 use std::process::Command;
 
 const TARGET: &str = "x86_64-unknown-none";
-
-const LIMINE_CONF: &str = "timeout: 0\n\n/archstaler\n    protocol: limine\n    path: boot():/boot/kernel\n    module_path: boot():/boot/config.bin\n    module_path: boot():/boot/keyring.bin\n    module_path: boot():/boot/tiny-init\n    module_path: boot():/boot/limine-bios-hdd.bin\n    module_path: boot():/boot/limine/limine-bios.sys\n    module_path: boot():/EFI/BOOT/BOOTX64.EFI\n";
-
-/// `--super-small`: `boot/kernel` is the `kstub` loader, which unpacks the module `kernel.z`; the
-/// kernel finds BOOTX64.EFI inside the `efi.img` module (its cmdline is `offset:length`).
-fn super_small_conf(efi_range: (usize, usize)) -> String {
-    format!(
-        "timeout: 0\n\n/archstaler\n    protocol: limine\n    path: boot():/boot/kernel\n    module_path: boot():/boot/kernel.z\n    module_path: boot():/boot/config.bin\n    module_path: boot():/boot/keyring.bin\n    module_path: boot():/boot/tiny-init\n    module_path: boot():/boot/limine-bios-hdd.bin\n    module_path: boot():/boot/limine/limine-bios.sys\n    module_path: boot():/boot/limine/efi.img\n    module_cmdline: {}:{}\n",
-        efi_range.0, efi_range.1
-    )
-}
-
-/// Must equal PAYLOAD_SIZE in kstub/linker.ld and kstub/src/main.rs.
-const PAYLOAD_SIZE: u64 = 4 << 20;
+const UEFI_TARGET: &str = "x86_64-unknown-uefi";
 
 fn le16(b: &[u8], at: usize) -> usize {
     u16::from_le_bytes(b[at..at + 2].try_into().unwrap()) as usize
@@ -28,9 +15,15 @@ fn le64(b: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(b[at..at + 8].try_into().unwrap())
 }
 
-/// Flattens the kernel ELF into the memory image its segments would form, compresses it, and
-/// prepends what `kstub` needs: `[entry][image length][raw deflate]`.
-fn kernel_blob(elf: &[u8]) -> Result<Vec<u8>> {
+/// The kernel as the loader wants it: the memory image its segments form from `KERNEL_BASE`.
+struct KernelImage {
+    image: Vec<u8>,
+    entry: u64,
+    /// Bytes of memory the kernel needs, .bss included.
+    mem: u64,
+}
+
+fn flatten_kernel(elf: &[u8]) -> Result<KernelImage> {
     if elf.get(..4) != Some(b"\x7fELF") {
         return Err("kernel is not an ELF file".into());
     }
@@ -42,12 +35,12 @@ fn kernel_blob(elf: &[u8]) -> Result<Vec<u8>> {
         .map(|ph| (le64(elf, ph + 16), le64(elf, ph + 8) as usize, le64(elf, ph + 32) as usize, le64(elf, ph + 40)))
         .collect();
     let base = loads.iter().map(|l| l.0).min().ok_or("kernel has no loadable segments")?;
-    if base != 0xffff_ffff_8000_0000 {
-        return Err(format!("kernel is linked at {base:#x}, kstub expects 0xffffffff80000000").into());
+    if base != bootinfo::KERNEL_BASE {
+        return Err(format!("kernel is linked at {base:#x}, the loader expects {:#x}", bootinfo::KERNEL_BASE).into());
     }
-    let mem_end = loads.iter().map(|l| l.0 + l.3).max().unwrap() - base;
-    if mem_end > PAYLOAD_SIZE {
-        return Err(format!("kernel needs {mem_end} bytes of memory, kstub reserves {PAYLOAD_SIZE}").into());
+    let mem = loads.iter().map(|l| l.0 + l.3).max().unwrap() - base;
+    if mem > bootinfo::KERNEL_MAX {
+        return Err(format!("kernel needs {mem} bytes of memory, the loader maps {}", bootinfo::KERNEL_MAX).into());
     }
     let len = loads.iter().map(|l| (l.0 - base) as usize + l.2).max().unwrap();
     let mut image = vec![0u8; len];
@@ -55,25 +48,53 @@ fn kernel_blob(elf: &[u8]) -> Result<Vec<u8>> {
         let at = (vaddr - base) as usize;
         image[at..at + filesz].copy_from_slice(&elf[off..off + filesz]);
     }
-    let packed = miniz_oxide::deflate::compress_to_vec(&image, 10);
-    if miniz_oxide::inflate::decompress_to_vec(&packed).map_err(|e| format!("{e:?}"))? != image {
-        return Err("compressed kernel does not round-trip".into());
-    }
-    let mut blob = Vec::with_capacity(16 + packed.len());
-    blob.extend_from_slice(&entry.to_le_bytes());
-    blob.extend_from_slice(&(len as u64).to_le_bytes());
-    blob.extend_from_slice(&packed);
-    println!("kernel image {len} bytes -> kernel.z {} bytes", blob.len());
-    Ok(blob)
+    Ok(KernelImage { image, entry, mem })
 }
 
-/// Builds the loader stub that goes in place of the kernel in `--super-small` ISOs.
-fn build_stub() -> Result<PathBuf> {
+fn deflate(data: &[u8]) -> Result<Vec<u8>> {
+    let packed = miniz_oxide::deflate::compress_to_vec(data, 10);
+    if miniz_oxide::inflate::decompress_to_vec(&packed).map_err(|e| format!("{e:?}"))? != data {
+        return Err("compressed data does not round-trip".into());
+    }
+    Ok(packed)
+}
+
+/// The payload bundle (see `bootinfo`): the kernel image and the modules, each deflated when that helps.
+fn make_payload(kernel: &KernelImage, modules: &[(&str, &[u8])]) -> Result<Vec<u8>> {
+    let mut entries: Vec<(&str, &[u8])> = vec![("kernel", &kernel.image)];
+    entries.extend_from_slice(modules);
+    let head = bootinfo::PAYLOAD_HEADER + 16 + entries.len() * bootinfo::PAYLOAD_ENTRY;
+    let mut out = vec![0u8; head];
+    out[0..4].copy_from_slice(&bootinfo::PAYLOAD_MAGIC.to_le_bytes());
+    out[4..8].copy_from_slice(&(entries.len() as u32).to_le_bytes());
+    out[8..16].copy_from_slice(&kernel.entry.to_le_bytes());
+    out[16..20].copy_from_slice(&(kernel.mem as u32).to_le_bytes());
+    for (i, (name, data)) in entries.iter().enumerate() {
+        if name.len() > 16 {
+            return Err(format!("payload entry name {name} is too long").into());
+        }
+        let packed = deflate(data)?;
+        let (stored, flags): (&[u8], u32) = if packed.len() < data.len() { (&packed, bootinfo::FLAG_DEFLATE) } else { (data, 0) };
+        let at = bootinfo::PAYLOAD_HEADER + 16 + i * bootinfo::PAYLOAD_ENTRY;
+        out[at..at + name.len()].copy_from_slice(name.as_bytes());
+        let stored_at = out.len() as u32;
+        out[at + 16..at + 20].copy_from_slice(&stored_at.to_le_bytes());
+        out[at + 20..at + 24].copy_from_slice(&(stored.len() as u32).to_le_bytes());
+        out[at + 24..at + 28].copy_from_slice(&(data.len() as u32).to_le_bytes());
+        out[at + 28..at + 32].copy_from_slice(&flags.to_le_bytes());
+        out.extend_from_slice(stored);
+        println!("payload: {name:<12} {:>8} -> {:>8} bytes", data.len(), stored.len());
+    }
+    Ok(out)
+}
+
+/// Builds the UEFI loader (`BOOTX64.EFI`).
+fn build_uefi_loader() -> Result<Vec<u8>> {
     run(Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into())).current_dir(root()).args([
-        "build", "-p", "kstub", "--target", TARGET, "--profile", "small",
+        "build", "-p", "boot-uefi", "--target", UEFI_TARGET, "--profile", "small",
         "-Z", "build-std=core,compiler_builtins", "-Z", "build-std-features=compiler-builtins-mem",
     ]))?;
-    Ok(root().join("target").join(TARGET).join("small/kstub"))
+    Ok(std::fs::read(root().join("target").join(UEFI_TARGET).join("small/boot-uefi.efi"))?)
 }
 
 /// Where `needle` sits inside `hay` (sector aligned, the way `mcopy` lays out a file in a new image).
@@ -81,7 +102,7 @@ fn find_in_image(hay: &[u8], needle: &[u8]) -> Result<usize> {
     (0..hay.len().saturating_sub(needle.len() - 1))
         .step_by(512)
         .find(|&off| hay[off..off + needle.len()] == *needle)
-        .ok_or_else(|| "BOOTX64.EFI is not stored contiguously in efi.img".into())
+        .ok_or_else(|| "payload.bin is not stored contiguously in efi.img".into())
 }
 
 /// Verbose tracing is on with `--debug`, and always for a dry-run (hardware test) config, whose whole
@@ -126,13 +147,14 @@ fn kernel_path(opts: &Options) -> PathBuf {
     root().join("target").join(TARGET).join(if opts.small { "small/kernel" } else { "release/kernel" })
 }
 
-/// A FAT12 image holding only BOOTX64.EFI, sized to fit (Limine's stock image is 3 MiB).
-fn make_efi_image(efi: &std::path::Path, out: &std::path::Path, slack_sectors: u64) -> Result<()> {
-    let sectors = std::fs::metadata(efi)?.len().div_ceil(512) + slack_sectors;
+/// A FAT12 image (the ESP the firmware boots from the ISO) holding the UEFI loader and the payload.
+fn make_efi_image(efi: &std::path::Path, payload: &std::path::Path, out: &std::path::Path) -> Result<()> {
+    let sectors = (std::fs::metadata(efi)?.len() + std::fs::metadata(payload)?.len()).div_ceil(512) + 64;
     let _ = std::fs::remove_file(out);
     run(Command::new("mformat").args(["-C", "-T", &sectors.to_string(), "-v", "ESP", "-i"]).arg(out).arg("::"))?;
     run(Command::new("mmd").arg("-i").arg(out).args(["::/EFI", "::/EFI/BOOT"]))?;
     run(Command::new("mcopy").arg("-i").arg(out).arg(efi).arg("::/EFI/BOOT/BOOTX64.EFI"))?;
+    run(Command::new("mcopy").arg("-i").arg(out).arg(payload).arg("::/payload.bin"))?;
     Ok(())
 }
 
@@ -141,46 +163,36 @@ pub fn iso_path() -> PathBuf {
 }
 
 pub fn build(opts: &Options) -> Result<PathBuf> {
-    let kernel = build_kernel(opts)?;
+    let kernel = flatten_kernel(&std::fs::read(build_kernel(opts)?)?)?;
     let config_bin = lua::eval_config(&opts.config, &opts.extra_kernel_params)?;
     let keyring_blob = keyring::build()?;
     run(Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
         .current_dir(root())
         .args(["build", "-p", "tiny-init", "--bin", "tiny-init", "--release", "--target", TARGET]))?;
     let tiny_init = std::fs::read(root().join("target").join(TARGET).join("release/tiny-init"))?;
-    let lim = limine::fetch()?;
+    let efi = build_uefi_loader()?;
+    let bios = crate::bios::build()?;
+    let mut bios_boot = bios.stage1.to_vec();
+    bios_boot.extend_from_slice(&bios.stage2);
+
+    let payload = make_payload(
+        &kernel,
+        &[("config.bin", &config_bin), ("keyring.bin", &keyring_blob), ("tiny-init", &tiny_init), ("bootx64.efi", &efi), ("bios-boot", &bios_boot)],
+    )?;
 
     let tree = root().join("target/iso_root");
     let _ = std::fs::remove_dir_all(&tree);
-    std::fs::create_dir_all(tree.join("boot/limine"))?;
-    if opts.super_small {
-        std::fs::copy(build_stub()?, tree.join("boot/kernel"))?;
-        std::fs::write(tree.join("boot/kernel.z"), kernel_blob(&std::fs::read(&kernel)?)?)?;
-    } else {
-        std::fs::copy(&kernel, tree.join("boot/kernel"))?;
-    }
-    std::fs::write(tree.join("boot/config.bin"), config_bin)?;
-    std::fs::write(tree.join("boot/keyring.bin"), keyring_blob)?;
-    std::fs::write(tree.join("boot/tiny-init"), tiny_init)?;
-    let hdd = disk::limine::parse_hdd_header(&std::fs::read_to_string(lim.file("limine-bios-hdd.h"))?);
-    std::fs::write(tree.join("boot/limine-bios-hdd.bin"), hdd)?;
-    for f in ["limine-bios.sys", "limine-bios-cd.bin"] {
-        std::fs::copy(lim.file(f), tree.join("boot/limine").join(f))?;
-    }
-    // Normally BOOTX64.EFI is on the ISO twice: inside efi.img (for the firmware) and loose (a module
-    // the kernel copies to the target's ESP). --super-small keeps only the copy in efi.img.
-    let efi_img = tree.join("boot/limine/efi.img");
-    let conf = if opts.super_small {
-        make_efi_image(&lim.file("BOOTX64.EFI"), &efi_img, 40)?;
-        let efi = std::fs::read(lim.file("BOOTX64.EFI"))?;
-        super_small_conf((find_in_image(&std::fs::read(&efi_img)?, &efi)?, efi.len()))
-    } else {
-        std::fs::create_dir_all(tree.join("EFI/BOOT"))?;
-        std::fs::copy(lim.file("BOOTX64.EFI"), tree.join("EFI/BOOT/BOOTX64.EFI"))?;
-        make_efi_image(&lim.file("BOOTX64.EFI"), &efi_img, 96)?;
-        LIMINE_CONF.to_string()
-    };
-    std::fs::write(tree.join("boot/limine/limine.conf"), conf)?;
+    std::fs::create_dir_all(tree.join("boot"))?;
+    let (efi_file, payload_file) = (root().join("target/BOOTX64.EFI"), root().join("target/payload.bin"));
+    std::fs::write(&efi_file, &efi)?;
+    std::fs::write(&payload_file, &payload)?;
+    let efi_img = tree.join("boot/efi.img");
+    make_efi_image(&efi_file, &payload_file, &efi_img)?;
+    let payload_in_efi_img = find_in_image(&std::fs::read(&efi_img)?, &payload)?;
+    let mut bios_img = bios.stage1.to_vec();
+    bios_img.resize(bootinfo::bios::S2_ALIGN, 0);
+    bios_img.extend_from_slice(&bios.stage2);
+    std::fs::write(tree.join("boot/bios.img"), bios_img)?;
 
     let iso = opts.out.clone().unwrap_or_else(iso_path);
     if let Some(dir) = iso.parent() {
@@ -190,14 +202,19 @@ pub fn build(opts: &Options) -> Result<PathBuf> {
     let _ = std::fs::remove_file(&iso);
     run(Command::new("xorriso")
         .args(["-as", "mkisofs", "-R", "-r", "-no-pad"])
-        .args(["-b", "boot/limine/limine-bios-cd.bin"])
-        .args(["-no-emul-boot", "-boot-load-size", "4", "-boot-info-table"])
-        .args(["--efi-boot", "boot/limine/efi.img"])
+        .args(["-b", "boot/bios.img", "-no-emul-boot", "-boot-load-size", "4"])
+        .args(["--efi-boot", "boot/efi.img"])
         .args(["-efi-boot-part", "--efi-boot-image", "--protective-msdos-label"])
         .arg(&tree)
         .arg("-o")
         .arg(&iso))?;
-    run(Command::new(lim.tool()).arg("bios-install").arg(&iso))?;
+
+    // Tell the BIOS stages where things lie in the finished image.
+    let mut img = std::fs::read(&iso)?;
+    let extent = |path: &str| crate::bios::iso_extent(&img, path).ok_or_else(|| format!("{path} is not in the ISO"));
+    let (bios_img, efi_extent) = (extent("boot/bios.img")?, extent("boot/efi.img")?);
+    crate::bios::patch_iso(&mut img, &bios, bios_img.0, efi_extent.0 + payload_in_efi_img as u64, payload.len() as u64)?;
+    std::fs::write(&iso, &img)?;
     println!("built {}", iso.display());
     Ok(iso)
 }

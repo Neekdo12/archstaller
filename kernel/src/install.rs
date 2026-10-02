@@ -25,9 +25,10 @@ use sha2::{Digest, Sha256};
 /// Files the boot loader hands to the kernel as modules.
 pub struct BootFiles {
     pub tiny_init: &'static [u8],
-    pub limine_bios_sys: &'static [u8],
-    pub limine_bios_hdd: &'static [u8],
+    /// The UEFI loader (`BOOTX64.EFI`).
     pub bootx64_efi: &'static [u8],
+    /// BIOS stage 1 (512 bytes) followed by stage 2 (`bootinfo::bios`).
+    pub bios_boot: &'static [u8],
 }
 
 const ARCH: &str = "x86_64";
@@ -557,21 +558,42 @@ pub fn run(cfg: &Config, mut devs: Devices, keyring: &Keyring, boot: &BootFiles)
 
     // ESP and boot loader.
     let (esp_off, esp_len) = layout.byte_range(Layout::ESP);
+    let bios_extents: [(u64, u64); 2];
+    let first_boot_cmdline = format!("{cmdline} systemd.unit=archstaler-firstboot.target");
     {
         let mut region = Region::new(disk.as_mut(), esp_off, esp_len);
         let mut fat = Fat32Writer::format(&mut region, FatOptions { label: "ESP".into(), volume_id: esp_volume_id, hidden_sectors: layout.partitions[Layout::ESP].first_lba as u32, now }).map_err(dbg_err("formatting the ESP"))?;
-        let limine_conf = format!(
-            "timeout: 0\n\n/Arch Linux (first boot)\n    protocol: linux\n    path: boot():/vmlinuz-linux\n    cmdline: {cmdline} systemd.unit=archstaler-firstboot.target\n    module_path: boot():/initramfs-archstaler.img\n"
-        );
+        let loader_cfg = format!("kernel=\\vmlinuz-linux\ninitrd=\\initramfs-archstaler.img\ncmdline={first_boot_cmdline}\n");
         fat.write_file("EFI/BOOT/BOOTX64.EFI", boot.bootx64_efi).map_err(dbg_err("ESP"))?;
-        fat.write_file("limine/limine.conf", limine_conf.as_bytes()).map_err(dbg_err("ESP"))?;
-        fat.write_file("limine/limine-bios.sys", boot.limine_bios_sys).map_err(dbg_err("ESP"))?;
+        fat.write_file("archstaler.cfg", loader_cfg.as_bytes()).map_err(dbg_err("ESP"))?;
         fat.write_file("vmlinuz-linux", &vmlinuz).map_err(dbg_err("ESP"))?;
         fat.write_file("initramfs-archstaler.img", &initramfs).map_err(dbg_err("ESP"))?;
+        let abs = |p: &str| fat.file_extent(p).map(|(o, l)| (esp_off + o, l)).ok_or_else(|| format!("internal error: {p} has no extent"));
+        bios_extents = [abs("vmlinuz-linux")?, abs("initramfs-archstaler.img")?];
         fat.finish().map_err(dbg_err("ESP"))?;
     }
-    let (bios_off, bios_len) = layout.byte_range(Layout::BIOS);
-    disk::limine::bios_install(&mut Region::whole(disk.as_mut()), boot.limine_bios_hdd, bios_off, bios_len).map_err(dbg_err("BIOS boot code"))?;
+    // BIOS: stage 1 in the MBR, stage 2 (told where the kernel and initramfs lie on the disk) in the BIOS boot partition.
+    {
+        use bootinfo::bios;
+        let (bios_off, bios_len) = layout.byte_range(Layout::BIOS);
+        if boot.bios_boot.len() <= bios::SECTOR {
+            return Err("the BIOS boot module is too small".into());
+        }
+        let mut stage2 = boot.bios_boot[bios::SECTOR..].to_vec();
+        stage2.resize(stage2.len().next_multiple_of(bios::SECTOR), 0);
+        if stage2.len() as u64 > bios_len {
+            return Err("BIOS boot partition too small for stage 2".into());
+        }
+        bios::patch_stage2(&mut stage2, bios::MODE_LINUX, &bios_extents, &first_boot_cmdline)?;
+        let mut region = Region::whole(disk.as_mut());
+        region.write_at(bios_off, &stage2).map_err(dbg_err("BIOS boot code"))?;
+        let mut mbr = alloc::vec![0u8; bios::SECTOR];
+        region.read_at(0, &mut mbr).map_err(dbg_err("MBR"))?;
+        let mut stage1 = boot.bios_boot[..bios::SECTOR].to_vec();
+        bios::patch_stage1(&mut stage1, bios_off, stage2.len() as u32);
+        stage1[440..].copy_from_slice(&mbr[440..]); // disk signature, partition table, 0x55AA
+        region.write_at(0, &stage1).map_err(dbg_err("MBR"))?;
+    }
     disk.flush().map_err(dbg_err("flushing the disk"))?;
     println!("installation finished; rebooting into the first boot");
     Ok(())

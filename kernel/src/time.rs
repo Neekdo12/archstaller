@@ -94,3 +94,52 @@ pub fn uptime_ns() -> u64 {
 pub fn unix_time() -> u64 {
     BOOT_UNIX.load(Ordering::Relaxed) + uptime_ns() / 1_000_000_000
 }
+
+/// The real-time clock as Unix seconds (the CMOS clock is assumed to hold UTC and a year after 2000).
+pub fn rtc_unix_time() -> i64 {
+    fn read(reg: u8) -> u8 {
+        unsafe {
+            outb(0x70, reg);
+            inb(0x71)
+        }
+    }
+    // An update is under way when bit 7 of status A is set; read until two passes agree.
+    let snapshot = || {
+        for _ in 0..1_000_000 {
+            if read(0x0a) & 0x80 == 0 {
+                break;
+            }
+        }
+        [read(0), read(2), read(4), read(7), read(8), read(9)]
+    };
+    let mut t = snapshot();
+    for _ in 0..4 {
+        let again = snapshot();
+        if again == t {
+            break;
+        }
+        t = again;
+    }
+    let b = read(0x0b);
+    let bcd = |v: u8| if b & 4 == 0 { (v & 0x0f) + (v >> 4) * 10 } else { v };
+    let pm = t[2] & 0x80 != 0;
+    let mut hour = bcd(t[2] & 0x7f) as i64;
+    if b & 2 == 0 {
+        hour %= 12;
+        if pm {
+            hour += 12;
+        }
+    }
+    let (sec, min, day, month, year) = (bcd(t[0]) as i64, bcd(t[1]) as i64, bcd(t[3]) as i64, bcd(t[4]) as i64, 2000 + bcd(t[5]) as i64);
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return 0;
+    }
+    // Days from civil (Howard Hinnant's algorithm).
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    days * 86_400 + hour * 3600 + min * 60 + sec
+}

@@ -1,5 +1,5 @@
 //! Disk layout: GPT with protective MBR, a write-once FAT32 filesystem for the ESP, byte-level
-//! partition access and the Limine BIOS boot code installer.
+//! partition access.
 #![no_std]
 
 extern crate alloc;
@@ -7,7 +7,6 @@ extern crate alloc;
 pub mod crc32;
 pub mod fat32;
 pub mod gpt;
-pub mod limine;
 pub mod region;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

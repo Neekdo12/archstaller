@@ -1,9 +1,9 @@
-//! Uncached MMIO mappings added to the page tables Limine set up.
+//! Uncached MMIO mappings added to the page tables the boot loader set up (`crates/loadcore`).
 use alloc::alloc::{alloc_zeroed, Layout};
 use core::arch::asm;
 use core::sync::atomic::{AtomicU64, Ordering};
 
-/// PML4 slot 510; Limine only uses the HHDM (lower half of the upper half) and slot 511.
+/// PML4 slot 510; the loader only uses slot 0 (temporarily), the direct map (slot 256 on) and slot 511.
 const MMIO_BASE: u64 = 0xffff_ff00_0000_0000;
 const MMIO_END: u64 = 0xffff_ff80_0000_0000;
 
@@ -54,4 +54,15 @@ pub fn map_mmio(hhdm: u64, phys: u64, len: usize) -> *mut u8 {
         off += 4096;
     }
     (va + (phys & 0xfff)) as *mut u8
+}
+
+/// Removes the loader's identity-mapped trampoline page (PML4 slot 0) and flushes the TLB.
+///
+/// # Safety
+/// Nothing may still run from, or point into, the low half of the address space.
+pub unsafe fn drop_identity(hhdm: u64) {
+    let cr3: u64;
+    asm!("mov {}, cr3", out(reg) cr3, options(nomem, nostack));
+    table_at(hhdm, cr3 & ADDR_MASK).write_volatile(0);
+    asm!("mov cr3, {}", in(reg) cr3, options(nostack));
 }

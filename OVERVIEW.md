@@ -4,15 +4,18 @@ Current architecture of archstaler. Kept in sync with the repo by rule (see `AGE
 
 ## What it is
 
-An Arch Linux installer that boots without any Linux kernel. Limine (BIOS + UEFI) loads a custom
+An Arch Linux installer that boots without any Linux kernel. Our own single-purpose boot loader (`boot/`, BIOS + UEFI) loads a custom
 `no_std` Rust mini-kernel that installs Arch onto disk: partitions, downloads and verifies packages over
 HTTPS, writes the filesystem, and hands off to a first-boot service that runs real pacman/systemd steps
 that need a running Linux.
 
 ## Boot/install flow
 
-1. **Limine** loads `kernel`, plus modules: `config.bin`, `keyring.bin`, `tiny-init`, Limine's own
-   BIOS/UEFI files (see `xtask/src/iso.rs`'s `LIMINE_CONF`).
+1. **Boot loader** (`boot/uefi` for UEFI, `boot/bios-s1` + `boot/bios` for BIOS, both finishing in `crates/loadcore`)
+   finds the payload bundle (`payload.bin`: the kernel image plus modules `config.bin`, `keyring.bin`,
+   `tiny-init`, `bootx64.efi`, `bios-boot`, each deflated; layout in `crates/bootinfo`), unpacks it, builds
+   page tables (direct map at `0xffff800000000000`, kernel at `0xffffffff80000000`), and enters the kernel with
+   a `bootinfo::BootInfo` (memory map, framebuffer, modules) in `rdi`. No config, no menu, no CLI.
 2. **kernel** (`kernel/src/main.rs`, `install.rs`) runs, single core, polling only:
    - enumerates disks/NICs via `crates/drivers::probe_all()` (PCI scan). With the `usb-tethering` kernel
      feature it also brings up a tethered phone (iPhone via `imobiledevice::tether()`, Android via
@@ -27,18 +30,18 @@ that need a running Linux.
    - streams each package into `/var/cache/pacman/pkg` on the target, verifying SHA-256 and PGP signature
      (`crates/pgp-lite` + `keyring.bin`) before extracting.
    - writes `/etc` (fstab, hostname, locale, mirrorlist, ...), builds an initramfs (`crates/initrd` +
-     `tiny-init`), installs Limine onto the target ESP/BIOS boot partition, reboots.
+     `tiny-init`), installs the boot loader on the target (UEFI: our `BOOTX64.EFI` + `archstaler.cfg` on the ESP; BIOS: stage 1 in the MBR, stage 2 in the BIOS boot partition, told where `vmlinuz-linux` and the initramfs lie), reboots. That first-boot loader only starts the Arch kernel (UEFI: `LoadImage` of the EFI-stub `vmlinuz` with the command line and an initrd `LoadFile2`; BIOS: Linux 64-bit boot protocol).
 3. **First boot** (`firstboot/`): `archstaler-firstboot.target`/`.service` runs `pacman-key --init/
    --populate`, `pacman -U --overwrite '*'` on the cached packages (runs real scriptlets/hooks, writes
    the local pacman DB), creates users, enables services, builds the real
-   initramfs (without the `kms` hook, so a failing GPU driver cannot block the boot), rewrites the Limine entry, reboots into the installed system.
+   initramfs (without the `kms` hook, so a failing GPU driver cannot block the boot), replaces our loader with GRUB (`grub-install` for UEFI removable path + BIOS, hand-written `grub.cfg`; `grub` must be in `packages`), reboots into the installed system.
 
 ## Repository layout
 
 | Path | Contents |
 |---|---|
 | `kernel/` | the installer kernel: console (`fb.rs`, `serial.rs`, `console.rs`), heap (`heap.rs`: the largest usable region below 4 GiB, capped at 512 MiB, because the bootloader's direct map is only guaranteed there; it prints the region before using it), exceptions (`idt.rs`: all 256 vectors, spurious PIC IRQ7/15 handled), randomness (`rng.rs`: `RDRAND`, or on older CPUs a weaker timing-jitter generator hashed with SHA-256, which the hardware test reports as a warning), hardware test (`hwtest.rs`), driver log digest (`digest.rs`: keeps `hal::log!` lines so the hardware test reprints them at the end), idle tick (`idle.rs`: 1 kHz PIT via the legacy PIC, LAPIC LINT0 unmasked as ExtINT, so polling loops can `hlt` through `hal::idle()`; falls back to spinning if no tick arrives), paging (`paging.rs`), TSC clock (`time.rs`), install flow (`install.rs`), entry point and `reboot()` (`main.rs`: 8042 pulse, then port 0xCF9, then triple fault) |
-| `xtask/` | host tooling: `iso.rs` (build kernel + assemble ISO), `lua.rs` (config.lua -> config.bin, including shared preset modules on Windows), `keyring.rs` (keyring blob + pin), `limine.rs` (fetch pinned Limine), `qemu.rs` (run in QEMU), `e2e.rs` (install + boot test), `presets.rs`, `linux_test.rs`, `main.rs` (CLI) |
+| `xtask/` | host tooling: `iso.rs` (build kernel + assemble ISO), `lua.rs` (config.lua -> config.bin, including shared preset modules on Windows), `payload` bundle building and ISO assembly in `iso.rs`, `bios.rs` (build the BIOS stages, patch them into the ISO), `keyring.rs` (keyring blob + pin), `qemu.rs` (run in QEMU), `e2e.rs` (install + boot test), `presets.rs`, `linux_test.rs`, `main.rs` (CLI) |
 | `config/` | `Config`/`Disk`/`User`/`UserFile`/`UserArchive` types shared by `xtask` and `kernel`, plus validation |
 | `crates/hal` | traits: `BlockDevice`, `NetDevice`, `Clock`, `Rng` |
 | `crates/drivers` | PCI enumeration (`pci.rs`), virtio blk/net, AHCI, NVMe, Intel e1000/e1000e/igb(+igc), Realtek r8169/r8125/rtl8139 (r8169 has the RTL8168evl/8111evl setup, 256-entry RX ring, verified on one real board) — all polled, no IRQs |
@@ -49,9 +52,13 @@ that need a running Linux.
 | `crates/pgp-lite` | OpenPGP v4 signature verification (RSA, EdDSA) against an embedded keyring blob |
 | `crates/pkg` | sync DB parser (`desc.rs`, `db.rs`), `vercmp` port, dependency resolver (`resolve.rs`), tar/zstd/gzip readers (`tar.rs`, `compress.rs`, `io.rs`) |
 | `crates/ext4w` | write-once ext4 writer (`writer.rs`): extents, xattrs, symlinks, hardlinks; an internal journal and `metadata_csum`; no `dir_index` hashing at install time |
-| `crates/disk` | GPT + protective MBR (`gpt.rs`), FAT32 writer (`fat32.rs`), CRC32 (`crc32.rs`), Limine BIOS installer port (`limine.rs`), region helpers (`region.rs`) |
+| `crates/disk` | GPT + protective MBR (`gpt.rs`), FAT32 writer (`fat32.rs`), CRC32 (`crc32.rs`), region helpers (`region.rs`) |
 | `crates/initrd` | cpio newc writer (`cpio.rs`), kernel module dependency resolution from ELF `.modinfo` (`modules.rs`) |
-| `kstub/` | loader stub used only by `--super-small` ISOs (`no_std`, no allocator): Limine loads it instead of the kernel; it inflates the module `kernel.z` (deflate, via `miniz_oxide`) into 4 MiB it reserves at the kernel's link address `0xffffffff80000000` (a segment without file contents, which Limine maps and zeroes; Limine loads the whole span between the lowest and highest segment as one block, so the stub sits right above it), copies Limine's answers from its own copies of the kernel's requests (matched by request id) into the unpacked kernel, and jumps to the kernel entry. Its requests must stay equal to `kernel/src/main.rs`'s |
+| `boot/uefi` | `BOOTX64.EFI` (`x86_64-unknown-uefi`, raw UEFI FFI, ~23 KiB): with `\payload.bin` on its volume it picks the GOP framebuffer, allocates the loader arena, exits boot services and calls `loadcore`; with `\archstaler.cfg` (target ESP) it starts the Linux EFI stub kernel |
+| `boot/bios-s1` | BIOS stage 1, 512 bytes (MBR or El Torito boot sector): INT 13h extended reads of stage 2 to `0x8000`; sector size from function 48h (CD = 2048) |
+| `boot/bios` | BIOS stage 2: `entry.s` (real mode: A20 by BIOS/KBC/fast, E820 with E801/88h fallback, VBE mode choice from EDID, reads items into 16 MiB+ through protected mode, long mode with 4 GiB identity map), `main.rs` (memory map, `loadcore` for the installer), `linux.rs` (Linux 64-bit boot protocol for the first boot) |
+| `crates/loadcore` | firmware independent loader end: memory map sanitizing (`map.rs`), page tables (`paging.rs`), payload unpacking (miniz inflate), trampoline that switches CR3 and enters the kernel |
+| `crates/bootinfo` | loader/kernel contract: `BootInfo`, memory kinds, payload bundle layout, BIOS stage patch format |
 | `tiny-init/` | the initramfs `/init`: raw syscalls only, no libc, `no_std`; loads modules, mounts root, `switch_root` |
 | `firstboot/` | systemd unit files + `firstboot.sh`, embedded into the image at install time, run on first boot |
 | `presets/`, `examples/` | Lua configs; `presets/common.lua` holds shared defaults (firmware: `linux-firmware-{intel,realtek,amdgpu,radeon}`; desktop presets use full `linux-firmware`) and supports opt-in `dry_run` mode, `presets/tester.lua` is read-only hardware testing (probes, DHCP, mirror and package resolution, pings of the gateway, the DHCP DNS server and 1.1.1.1 plus a direct TCP connect to 1.1.1.1:443 (separating "no internet" from "DNS only"), and, if all of that passed, a throughput test that downloads up to 24 MiB of the largest resolved package and prints MiB/s and Mbit/s; then it reprints the driver/device log lines (NIC identification, link and receive diagnostics) and reboots after 60 s (300 s after a failed run) via `reboot()`: 8042, port 0xCF9, triple fault), `examples/config.lua` is the documented example, `examples/e2e.lua` is used by `xtask e2e` |
@@ -62,7 +69,7 @@ that need a running Linux.
 
 ## Config (`config.lua` -> `config.bin`)
 
-Evaluated on the build host by `xtask` (`mlua`), serialized with `postcard`, embedded as a Limine module.
+Evaluated on the build host by `xtask` (`mlua`), serialized with `postcard`, embedded as the `config.bin` payload module.
 Schema in `config/src/lib.rs`: `hostname`, `timezone`, `locale`, `keymap`, `disk` (selector + `esp_mib`),
 `mirrors`, `packages`, `providers` (dependency -> chosen package), `root_password_hash`, `users`
 (`password_hash` is SHA-512 crypt, never plaintext), `services`, `kernel_params`, `user_files`,
@@ -83,17 +90,18 @@ loader config).
 
 ## ISO layout (assembled by `xtask/src/iso.rs`)
 
-ISO9660 (via `xorriso`, hybrid El Torito BIOS + UEFI), containing `boot/kernel`, `boot/config.bin`,
-`boot/keyring.bin`, `boot/tiny-init`, `boot/limine/*` (Limine's BIOS files + `limine.conf`),
-`boot/limine-bios-hdd.bin` (MBR stage 1 for the *target* disk's BIOS install), `EFI/BOOT/BOOTX64.EFI`.
-`--super-small` (`xtask/src/iso.rs`): `boot/kernel` is the `kstub` loader (21 KiB), `boot/kernel.z` is the compressed kernel image (`[entry][length][raw deflate]`), and there is no loose `EFI/BOOT/BOOTX64.EFI`: the kernel takes it from the `efi.img` module (Limine `module_cmdline: offset:length`, found by xtask) when it writes the target's ESP. `efi.img` also has less slack. About 1.4 MiB total.
-Current total ~2.3 MiB; see `sizes.md` for the full byte-by-byte breakdown and reduction ideas.
+ISO9660 (via `xorriso`, hybrid El Torito BIOS + UEFI, also bootable when written to a USB stick) with just two
+files: `boot/bios.img` (stage 1 padded to 2048 bytes, then stage 2) and `boot/efi.img` (a FAT12 image with
+`EFI/BOOT/BOOTX64.EFI` and `payload.bin`). The BIOS stages read the payload straight out of `efi.img` inside
+the ISO: after `xorriso` finishes, `xtask` (`bios.rs`) finds both files in the ISO 9660 tree and patches stage 1
+(into the boot image and the hybrid MBR) and stage 2's header with their byte offsets. `--super-small` is an alias
+of `--small` (the payload is always compressed). About 0.77 MiB total; see `sizes.md`.
 
 ## Testing
 
 - Host unit tests per crate (`cargo test -p <crate> --features std`) check against real tools/data:
   `vercmp` vs `/usr/bin/vercmp`, resolution vs `pacman -Sp`, `ext4w` images vs `e2fsck`/`debugfs`, GPT vs
-  `sfdisk`/`fdisk`, FAT32 vs `fsck.fat`, BIOS installer vs `limine bios-install`.
+  `sfdisk`/`fdisk`, FAT32 vs `fsck.fat`.
 - `cargo xtask linux-test`: boots the host Linux kernel with our initramfs + an ext4w-built root.
 - `cargo xtask e2e [--uefi] [--disk ...] [--nic ...] [--config FILE]`: full install in QEMU onto a blank
   disk, then boots the result twice.

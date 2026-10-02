@@ -118,36 +118,3 @@ fn fat32_esp_passes_fsck_and_contents_match() {
     assert_eq!(std::fs::read_dir(dump.join("many")).unwrap().count(), 200);
     let _ = std::fs::remove_dir_all(&dir);
 }
-
-#[test]
-fn bios_install_matches_real_limine() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/limine/v12.9.1");
-    let (tool, header) = (root.join("limine"), root.join("limine-bios-hdd.h"));
-    if !tool.exists() || !header.exists() {
-        eprintln!("skipping: run `cargo xtask build` first");
-        return;
-    }
-    let hdd = disk::limine::parse_hdd_header(&std::fs::read_to_string(header).unwrap());
-    assert!(hdd.len() > 512 && hdd[510] == 0x55 && hdd[511] == 0xaa, "bad hdd image ({} bytes)", hdd.len());
-
-    let dir = scratch("limine");
-    let size = 2u64 << 30;
-    let (ours, mut dev) = make_disk(&dir, "ours.img", size, 512);
-    let layout = Layout::plan(512, dev.sectors, 1 << 30, guids()).unwrap();
-    layout.write(&mut Region::whole(&mut dev)).unwrap();
-    let theirs = dir.join("theirs.img");
-    std::fs::copy(&ours, &theirs).unwrap();
-
-    let (off, len) = layout.byte_range(Layout::BIOS);
-    disk::limine::bios_install(&mut Region::whole(&mut dev), &hdd, off, len).unwrap();
-    out(Command::new(&tool).arg("bios-install").arg(&theirs));
-
-    let a = std::fs::read(&ours).unwrap();
-    let b = std::fs::read(&theirs).unwrap();
-    assert_eq!(a[..512], b[..512], "boot sector differs");
-    let range = off as usize..off as usize + hdd.len() - 512;
-    assert_eq!(a[range.clone()], b[range], "stage 2 differs");
-    // Everything else on the disk is untouched by both.
-    assert!(a == b, "images differ outside the checked ranges");
-    let _ = std::fs::remove_dir_all(&dir);
-}

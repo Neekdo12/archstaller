@@ -12,7 +12,7 @@ return {
   disk = { esp_mib = 1024 },
   mirrors = { "https://geo.mirror.pkgbuild.com/$repo/os/$arch" },
   -- Only resolved, never downloaded.
-  packages = { "base", "linux", "mkinitcpio", "efibootmgr", "sudo", "nano" },
+  packages = { "base", "linux", "mkinitcpio", "grub", "efibootmgr", "sudo", "nano" },
   providers = { { "initramfs", "mkinitcpio" } },
   users = {},
   services = {},

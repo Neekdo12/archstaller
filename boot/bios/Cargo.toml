@@ -1,0 +1,12 @@
+[package]
+name = "boot-bios"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "boot-bios"
+path = "src/main.rs"
+
+[dependencies]
+bootinfo = { path = "../../crates/bootinfo" }
+loadcore = { path = "../../crates/loadcore" }

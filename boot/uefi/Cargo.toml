@@ -1,0 +1,12 @@
+[package]
+name = "boot-uefi"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "boot-uefi"
+path = "src/main.rs"
+
+[dependencies]
+bootinfo = { path = "../../crates/bootinfo" }
+loadcore = { path = "../../crates/loadcore" }

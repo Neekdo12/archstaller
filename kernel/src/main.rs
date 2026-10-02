@@ -21,47 +21,7 @@ mod time;
 
 use alloc::{boxed::Box, vec::Vec};
 use core::arch::asm;
-use limine::{
-    memmap::MEMMAP_USABLE,
-    request::{
-        DateAtBootRequest, FirmwareTypeRequest, FramebufferRequest, HhdmRequest, MemmapRequest,
-        ModulesRequest, StackSizeRequest,
-    },
-    BaseRevision, RequestsEndMarker, RequestsStartMarker,
-};
-
-#[used]
-#[link_section = ".limine_requests_start"]
-static REQUESTS_START: RequestsStartMarker = RequestsStartMarker::new();
-
-#[used]
-#[link_section = ".limine_requests"]
-static BASE_REVISION: BaseRevision = BaseRevision::new();
-#[used]
-#[link_section = ".limine_requests"]
-static STACK_SIZE: StackSizeRequest = StackSizeRequest::new(256 * 1024);
-#[used]
-#[link_section = ".limine_requests"]
-static HHDM: HhdmRequest = HhdmRequest::new();
-#[used]
-#[link_section = ".limine_requests"]
-static MEMMAP: MemmapRequest = MemmapRequest::new();
-#[used]
-#[link_section = ".limine_requests"]
-static FRAMEBUFFER: FramebufferRequest = FramebufferRequest::new();
-#[used]
-#[link_section = ".limine_requests"]
-static DATE_AT_BOOT: DateAtBootRequest = DateAtBootRequest::new();
-#[used]
-#[link_section = ".limine_requests"]
-static FIRMWARE: FirmwareTypeRequest = FirmwareTypeRequest::new();
-#[used]
-#[link_section = ".limine_requests"]
-static MODULES: ModulesRequest = ModulesRequest::new();
-
-#[used]
-#[link_section = ".limine_requests_end"]
-static REQUESTS_END: RequestsEndMarker = RequestsEndMarker::new();
+use bootinfo::{BootInfo, MEM_USABLE};
 
 pub fn halt() -> ! {
     loop {
@@ -109,35 +69,34 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 }
 
 #[no_mangle]
-extern "C" fn _start() -> ! {
+extern "C" fn _start(info: &'static BootInfo) -> ! {
     console::init_serial();
     println!("archstaler kernel starting");
-    if !BASE_REVISION.is_supported() {
-        println!("Limine base revision not supported");
+    if info.magic != bootinfo::MAGIC {
+        println!("boot info has a bad magic number");
         halt();
     }
+    // The loader keeps a temporary identity mapping of its trampoline page in PML4 slot 0.
+    unsafe { paging::drop_identity(info.hhdm) };
 
     idt::init();
     hal::set_log_hook(digest::log);
 
-    if let Some(resp) = FRAMEBUFFER.response() {
-        if let Some(fb) = resp.framebuffers().first() {
-            if let Some(c) = fb::FbConsole::new(fb) {
-                console::init_fb(c);
-                println!("archstaler kernel starting");
-            }
-        }
+    let hhdm = info.hhdm;
+    if let Some(c) = fb::FbConsole::new(hhdm, &info.fb) {
+        console::init_fb(c);
+        println!("archstaler kernel starting");
     }
 
-    let hhdm = HHDM.response().expect("no HHDM").offset;
-    let memmap = MEMMAP.response().expect("no memory map").entries();
+    let memmap = unsafe { info.memory() };
+    let modules = unsafe { info.modules() };
+    let module = |name: &str| modules.iter().find(|m| m.name() == name).map(|m| unsafe { core::slice::from_raw_parts(m.addr as *const u8, m.len as usize) });
     heap::init(hhdm, memmap);
 
-    let usable: u64 = memmap.iter().filter(|e| e.type_ == MEMMAP_USABLE).map(|e| e.length).sum();
-    let fw = match FIRMWARE.response().map(|r| r.firmware_type) {
-        Some(0) => "BIOS",
-        Some(1) => "UEFI 32",
-        Some(2) => "UEFI 64",
+    let usable: u64 = memmap.iter().filter(|e| e.kind == MEM_USABLE).map(|e| e.len).sum();
+    let fw = match info.firmware {
+        bootinfo::FIRMWARE_BIOS => "BIOS",
+        bootinfo::FIRMWARE_UEFI => "UEFI",
         _ => "unknown",
     };
     println!("firmware: {fw}");
@@ -150,12 +109,12 @@ extern "C" fn _start() -> ! {
     println!("heap test: {}", if *b == 499_500 && v[0] == 999 { "OK" } else { "FAILED" });
 
     println!("calibrating clock...");
-    time::init(DATE_AT_BOOT.response().map_or(0, |r| r.timestamp));
+    time::init(time::rtc_unix_time());
     idle::init(hhdm);
     println!("tsc: {} MHz, unix time {}", time::tsc_hz() / 1_000_000, time::unix_time());
 
-    let cfg = match MODULES.response().and_then(|r| r.modules().iter().find(|m| m.path().ends_with("config.bin"))) {
-        Some(m) => match postcard::from_bytes::<config::Config>(m.data()) {
+    let cfg = match module("config.bin") {
+        Some(m) => match postcard::from_bytes::<config::Config>(m) {
             Ok(c) => {
                 println!(
                     "config: hostname={} tz={} locale={} keymap={} packages={}",
@@ -238,10 +197,7 @@ extern "C" fn _start() -> ! {
     #[cfg(feature = "usb-selftest")]
     usb_selftest();
 
-    let keyring = MODULES
-        .response()
-        .and_then(|r| r.modules().iter().find(|m| m.path().ends_with("keyring.bin")))
-        .and_then(|m| pgp_lite::Keyring::from_bytes(m.data()));
+    let keyring = module("keyring.bin").and_then(pgp_lite::Keyring::from_bytes);
     match &keyring {
         Some(k) => println!("keyring: {} signing keys", k.keys.len()),
         None => println!("keyring.bin module missing or invalid"),
@@ -264,20 +220,11 @@ extern "C" fn _start() -> ! {
 
     #[cfg(not(any(feature = "disk-selftest", feature = "net-selftest", feature = "usb-selftest")))]
     {
-        let module = |suffix: &str| MODULES.response().and_then(|r| r.modules().iter().find(|m| m.path().ends_with(suffix))).map(|m| m.data());
-        // BOOTX64.EFI is a module of its own, or (smallest ISO) a slice of the efi.img module, whose
-        // cmdline is "offset:length".
-        let bootx64_efi = module("BOOTX64.EFI").or_else(|| {
-            let m = MODULES.response()?.modules().iter().find(|m| m.path().ends_with("efi.img"))?;
-            let (off, len) = m.cmdline().split_once(':')?;
-            let off: usize = off.parse().ok()?;
-            m.data().get(off..off.checked_add(len.parse().ok()?)?)
-        });
-        hal::log!("boot files: BOOTX64.EFI {} bytes, starts with {:02x?}", bootx64_efi.map_or(0, |e| e.len()), bootx64_efi.and_then(|e| e.get(..2)));
-        match (cfg, keyring, module("tiny-init"), module("limine-bios.sys"), module("limine-bios-hdd.bin"), bootx64_efi) {
+        hal::log!("boot files: bootx64.efi {} bytes, bios-boot {} bytes", module("bootx64.efi").map_or(0, |e| e.len()), module("bios-boot").map_or(0, |e| e.len()));
+        match (cfg, keyring, module("tiny-init"), module("bootx64.efi"), module("bios-boot")) {
             (Some(cfg), keyring, ..) if cfg.dry_run => hwtest::run(&cfg, devs, keyring.as_ref()),
-            (Some(cfg), Some(keyring), Some(tiny_init), Some(bios_sys), Some(hdd), Some(efi)) => {
-                let boot = install::BootFiles { tiny_init, limine_bios_sys: bios_sys, limine_bios_hdd: hdd, bootx64_efi: efi };
+            (Some(cfg), Some(keyring), Some(tiny_init), Some(efi), Some(bios)) => {
+                let boot = install::BootFiles { tiny_init, bootx64_efi: efi, bios_boot: bios };
                 match install::run(&cfg, devs, &keyring, &boot) {
                     Ok(()) => reboot(),
                     Err(e) => println!("INSTALLATION FAILED: {e}"),
