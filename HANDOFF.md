@@ -52,8 +52,8 @@ commits and pushes; leave changes uncommitted. (From the agent's shell, `git pus
 ## Boot loader
 
 Our own loader replaced Limine (`boot/`, `crates/loadcore`, `crates/bootinfo`; see `OVERVIEW.md`). The ISO is ~0.77 MiB.
-`--super-small` is only an alias of `--small` now. Verified in QEMU: UEFI and BIOS (CD, hybrid disk/USB) boot the
-installer. If the kernel image outgrows 4 MiB, raise `bootinfo::KERNEL_MAX`.
+`--super-small` is only an alias of `--small` now. Verified in QEMU: `cargo xtask e2e` and `e2e --uefi` pass (install, first boot through our loader, second boot through GRUB);
+the BIOS ISO also boots as a CD, an IDE disk and a USB stick (hybrid MBR). Not tested: real hardware, Ventoy. If the kernel image outgrows 4 MiB, raise `bootinfo::KERNEL_MAX`.
 
 ## Debug flag
 

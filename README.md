@@ -136,7 +136,7 @@ The ISOs boot from [Ventoy](https://www.ventoy.net): copy the `archstaler-*.iso`
 partition, boot the stick, pick an ISO, and choose **Boot in normal mode** (the first entry of the boot
 mode menu that Ventoy shows; grub2 and memdisk mode are not needed).
 
-This was tested with Ventoy 1.1.17 in QEMU, in both BIOS and UEFI mode, using an image laid out like a
+This was tested with Ventoy 1.1.17 in QEMU (while the ISO still booted through Limine; the custom boot loader that replaced it has not been tried under Ventoy yet), in both BIOS and UEFI mode, using an image laid out like a
 Ventoy stick (MBR, Ventoy's boot code and EFI partition, FAT32 data partition) attached as a USB drive:
 the menu lists the ISOs, the installer starts, sees only the blank target disk, and keeps installing after
 the virtual stick is removed. Not tested: real hardware, an exFAT data partition (Ventoy's default; Ventoy

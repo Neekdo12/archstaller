@@ -1,31 +1,34 @@
 # Velikost ISO
 
-Změřeno 2026-10-01 příkazem `cargo xtask size` (config `examples/config.lua`, profil `release`).
+Změřeno 2026-10-02 příkazem `cargo xtask size` (config `examples/config.lua`, profil `release`).
 Rozpad kernelu podle crate je z nestripnutého buildu (`CARGO_PROFILE_RELEASE_STRIP=false`) přes `llvm-nm --print-size`.
 
-**Celkem: 2 449 408 B (2,34 MiB).** S `--small`: 2 306 048 B (2,20 MiB). Kernel bez `--tethering`; tethering přidává asi 105 KiB.
-
-## `--super-small`: změřeno
-
-`cargo xtask size --super-small` dává **1 470 464 B (1,40 MiB)** (proti 2 306 048 B u `--small`). Kernel je deflate (`miniz_oxide`, úroveň 10) 936 400 → 487 890 B (52 %, zstd by dal asi 46 %, ale loader pak nepotřebuje alokátor), loader `kstub` má 21 KiB, `BOOTX64.EFI` je jen v `efi.img` (rezerva obrazu 20 KiB místo 48 KiB). Zbytek je Limine (1 130 KiB). Neřešeno: `tiny-init` padding (~20 KiB), TLS dieta (body 2, 5 níže).
+**Celkem: 798 720 B (0,76 MiB).** S `--small`: 739 328 B (0,71 MiB). Před vlastním boot loaderem (Limine) to bylo
+2 449 408 B (2,34 MiB), s `--super-small` 1 470 464 B (1,40 MiB). Kernel bez `--tethering`; tethering přidává asi 105 KiB.
 
 ## Co je na ISO
 
-| Soubor | Velikost | % ISO | Kdo to čte | K čemu |
-|---|---:|---:|---|---|
-| `boot/kernel` | 1058 KiB | 43 % | Limine | celý installer (drivery, síť, TLS, pacman-lite, ext4, GPT/FAT) |
-| `boot/limine/efi.img` | 416 KiB | 18 % | UEFI firmware | FAT12 image pro El Torito UEFI boot, obsahuje jen `BOOTX64.EFI` |
-| `EFI/BOOT/BOOTX64.EFI` | 368 KiB | 16 % | kernel (modul) | Limine pro UEFI boot **nainstalovaného** systému; kopíruje se na cílovou ESP |
-| `boot/limine/limine-bios.sys` | 324 KiB | 14 % | Limine BIOS + kernel (modul) | stage 2 Limine: bootování ISO v BIOSu i cílového systému v BIOSu |
-| `boot/tiny-init` | 37 KiB | 1,6 % | kernel (modul) | `/init` do initramfs cílového systému |
-| `boot/keyring.bin` | 32 KiB | 1,4 % | kernel (modul) | veřejné klíče packagerů pro ověření PGP podpisů |
-| `boot/limine/limine-bios-cd.bin` | 26 KiB | 1,1 % | BIOS | El Torito boot sektor pro BIOS |
-| `boot/limine-bios-hdd.bin` | 23 KiB | 1,0 % | kernel (modul) | MBR stage 1 pro BIOS boot cílového disku (`bios-install`) |
-| `boot/config.bin` | 0,4 KiB | – | kernel (modul) | vyhodnocený `config.lua` |
-| `boot/limine/limine.conf` | 0,3 KiB | – | Limine | konfigurace bootu ISO |
-| režie ISO9660 / hybrid | 107 KiB | 4,6 % | – | system area (32 KiB), deskriptory, Rock Ridge, El Torito katalog, GPT + MBR, zarovnání na 2 KiB |
+ISO má dva soubory. Payload (`payload.bin`) leží jednou, uvnitř FAT12 image `efi.img`; BIOS stage 1 a 2 ho čtou
+přímo z ISO podle offsetu, který `xtask` do nich vyplní po sestavení ISO.
 
-Limine (efi.img + BOOTX64.EFI + bios.sys + cd.bin + hdd.bin) dohromady zabírá **1157 KiB, tedy 49 % ISO**. To je víc než samotný kernel.
+| Soubor | Velikost | Kdo to čte | K čemu |
+|---|---:|---|---|
+| `boot/efi.img` | 657 KiB | UEFI firmware, BIOS stage 2 | FAT12: `EFI/BOOT/BOOTX64.EFI` (23 KiB) + `payload.bin` |
+| `boot/bios.img` | 21 KiB | BIOS (El Torito, hybridní MBR) | stage 1 (512 B, doplněno na 2048) + stage 2 (19 KiB) |
+| režie ISO9660 / hybrid | 103 KiB | – | system area (32 KiB), deskriptory, Rock Ridge, El Torito katalog, GPT + MBR, zarovnání |
+
+Obsah `payload.bin` (každá položka zvlášť deflate, jen když se zmenší):
+
+| Položka | Před | Po | K čemu |
+|---|---:|---:|---|
+| `kernel` | 1058 KiB | 533 KiB | celý installer (drivery, síť, TLS, pacman-lite, ext4, GPT/FAT) |
+| `keyring.bin` | 32 KiB | 32 KiB | veřejné klíče packagerů pro ověření PGP podpisů |
+| `bios-boot` | 19,5 KiB | 12,4 KiB | stage 1 + 2 pro BIOS boot **cílového** disku, kernel je zapíše do MBR a BIOS boot partition |
+| `bootx64.efi` | 23 KiB | 13,3 KiB | UEFI loader pro první boot cílového systému (kopíruje se na cílovou ESP) |
+| `tiny-init` | 37 KiB | 10 KiB | `/init` do initramfs cílového systému |
+| `config.bin` | 0,4 KiB | 0,3 KiB | vyhodnocený `config.lua` |
+
+Loader (UEFI 23 KiB, BIOS 19 KiB) je dohromady zhruba 4 % ISO, proti 49 % u Limine.
 
 ## Co je v kernelu
 
@@ -62,18 +65,9 @@ vtables, řetězce hlášek, PSF font (5 KiB), firstboot soubory (4,4 KiB), CRC 
 
 ## Jak to zmenšit
 
-Seřazeno podle poměru úspory a rizika. Úspory jsou odhady, pokud není uvedeno „změřeno“.
+Seřazeno podle poměru úspory a rizika. Úspory jsou odhady, pokud není uvedeno „změřeno“. Zbývá hlavně kernel (~70 % ISO).
 
-### 1. Neukládat `BOOTX64.EFI` dvakrát (hotovo v `--super-small`): −368 KiB (−15 %)
-Stejný soubor je na ISO dvakrát: jednou uvnitř `efi.img` (pro firmware), jednou volně (jako modul pro kernel).
-Kernel si ho může vzít z `efi.img`: dostane `efi.img` jako modul a přečte `EFI/BOOT/BOOTX64.EFI` z FAT12. Stačí
-minimální čtečka root/podadresáře a FAT řetězu v `crates/disk`, nebo xtask při buildu zapíše offset a délku souboru
-v image do `config.bin`, protože `mcopy` do čerstvého image zapisuje souvisle. Bez rizika a bez nové závislosti.
-
-Stahovat `BOOTX64.EFI` z balíčku `limine` z mirroru nedoporučuji: verze by se lišila od `limine-bios.sys`
-a `limine-bios-hdd.bin` z ISO, které spolu musí verzí sedět.
-
-### 2. Zeštíhlit TLS, HTTPS zůstane: −100 až −150 KiB
+### 1. Zeštíhlit TLS, HTTPS zůstane: −100 až −150 KiB
 - **Vlastní `CryptoProvider` bez `KeyProvider`**: klient nikdy nenačítá privátní klíč, ale `rustls_rustcrypto::provider()`
   s sebou táhne parsování PKCS#8, `RsaPrivateKey` a ECDSA signery (`load_private_key` 5 KiB, signery P-256/P-384 9 KiB,
   `pkcs8`, `sec1`, …). Úspora ~30–40 KiB.
@@ -86,51 +80,23 @@ a `limine-bios-hdd.bin` z ISO, které spolu musí verzí sedět.
 - **Méně cipher suites a skupin** (např. jen `TLS13_AES_128_GCM_SHA256` + X25519, podpisy ECDSA P-256/P-384, RSA-PSS,
   RSA PKCS#1): ~5–15 KiB. P-384 zůstat musí, ISRG Root X2 je P-384.
 
-### 3. `--small` jako výchozí pro release ISO (presety): −133 KiB (změřeno)
-`build-std` + `panic = "immediate-abort"`: kernel 1058 → 919 KiB. Nevýhoda: panic skončí bez hlášky, takže ladění na
-reálném HW je těžší. Doporučuji pro `cargo xtask presets`, pro vývoj a `run`/`e2e` nechat `release`.
+### Hotovo
+- **Vlastní boot loader místo Limine** (−1157 KiB, 49 % ISO), **komprimovaný payload** a **payload jen jednou** v `efi.img`.
+- **`--small`**: `build-std` + `panic = "immediate-abort"`: kernel 1058 → 913 KiB (−59 KiB ISO po kompresi). Nevýhoda: panic
+  skončí bez hlášky, takže ladění na reálném HW je těžší. Doporučuji pro `cargo xtask presets`.
 
-### 4. Zmenšit rezervu v `efi.img`: ~−35 KiB
-`make_efi_image` přidává 96 sektorů (48 KiB) navíc k velikosti `BOOTX64.EFI`. FAT12 potřebuje boot sektor, 2 FAT
-a root directory, což je ~10–15 KiB. Stačí zmenšit rezervu a omezit počet root entries (`mformat -r`).
-
-### 5. `tiny-init` bez zarovnání: ~−20 KiB
+### 2. `tiny-init` bez zarovnání: ~−20 KiB
 Obsah je 16,4 KiB (`.text` 13,7 + `.rodata` 1,9 + `.data` 0,8). Zbytek do 37 KiB tvoří padding z `ALIGN(4K)`
 v `tiny-init/linker.ld` a zarovnání segmentů. Zlepší to méně PT_LOAD segmentů nebo `-z max-page-size=4096` a
 `-z separate-code=no`. Soubor se po zstd zmenší na 9,5 KiB, což padding potvrzuje.
 
-### 6. Méně `Debug`/`format!` v kernelu: ~−10 až −30 KiB (nejisté)
+### 3. Méně `Debug`/`format!` v kernelu: ~−10 až −30 KiB (nejisté)
 `println!("... {e:?}")` táhne `Debug` implementace chybových typů z `rustls`, `smoltcp` a dalších crate. Chybové kódy
 nebo `&'static str` místo `{:?}` ušetří část `core::fmt` a řetězců. Přesný dopad ukáže až měření.
-
-### 7. Komprimovaný kernel + stub: ~−430 KiB (hotovo v `--super-small`)
-Kernel se přes zstd -19 zmenší na ~46 %. Limine kernel nedekomprimuje, takže by Limine načetl malý stub a ten by
-rozbalil skutečný kernel (dekodér `ruzstd` ~20 KiB je už v projektu), namapoval ho a skočil do něj. To znamená
-vlastní ELF loader a stránkování ve stubu, tedy nejvíc práce ze všech bodů. Limine soubory (`efi.img`, `BOOTX64.EFI`,
-`limine-bios.sys`) takhle zmenšit nejdou, protože je firmware a Limine čtou přímo. `keyring.bin` a `limine-bios-hdd.bin`
-se téměř nekomprimují.
-
-### 8. Varianty ISO jen pro jednu platformu
-- **Jen UEFI**: odpadne `limine-bios.sys`, `limine-bios-cd.bin` a `limine-bios-hdd.bin`, tedy **−373 KiB**. Cíl pak jde jen UEFI.
-- **Jen BIOS**: odpadne `efi.img` a `BOOTX64.EFI`, tedy −784 KiB (po bodu 1 −416 KiB). Cíl pak jde jen BIOS.
-
-Jde proti původnímu zadání (BIOS + UEFI), mohlo by to ale být jako volba `--platform`.
 
 ### Co nedoporučuji
 - **HTTP bez TLS** (−~385 KiB): integritu sync databází drží jen HTTPS (Arch db nejsou podepsané) a `user_files`
   a `user_archives` (např. Hyprland config) nejsou ověřeny ničím jiným. Bez TLS by šlo podvrhnout starou db
   a hlavně spustitelný obsah v home adresáři.
-- **Vypustit Rock Ridge (`-R -r`)**: úspora v řádu jednotek KiB a riziko, že Limine nenajde soubory podle jmen.
 - **Menší keyring**: 32 KiB jsou už jen veřejné klíče a náhodná data se nekomprimují.
-
-## Odhad po úpravách
-
-| Krok | ISO |
-|---|---:|
-| dnes (`release`) | 2350 KiB |
-| + bod 1 (bez duplicity `BOOTX64.EFI`) | ~1980 KiB |
-| + body 2, 4, 5 (TLS dieta, `efi.img`, `tiny-init`) | ~1800 KiB |
-| + bod 3 (`--small`) | ~1680 KiB |
-| + bod 7 (komprimovaný kernel) | ~1250 KiB |
-
-Spodní hranici pro BIOS + UEFI tvoří Limine (~790 KiB po bodech 1 a 4) a režie ISO (~100 KiB). Všechno nad tím je kernel.
+- **Jednoplatformní ISO**: odpadne jen ~20 KiB (loader je malý), nestojí to za ztrátu BIOS nebo UEFI.

@@ -29,7 +29,7 @@ const SIMPLE_FS: Guid = Guid(0x964e5b22, 0x6459, 0x11d2, [0x8e, 0x39, 0x00, 0xa0
 const FILE_INFO: Guid = Guid(0x09576e92, 0x6d3f, 0x11d2, [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b]);
 const GOP: Guid = Guid(0x9042a9de, 0x23dc, 0x4a38, [0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a]);
 const DEVICE_PATH: Guid = Guid(0x09576e91, 0x6d3f, 0x11d2, [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b]);
-const LOAD_FILE2: Guid = Guid(0x4006c0c1, 0xfcb3, 0x403e, [0x99, 0x6d, 0x4a, 0x6c, 0x87, 0x24, 0xe0, 0x6e]);
+const LOAD_FILE2: Guid = Guid(0x4006c0c1, 0xfcb3, 0x403e, [0x99, 0x6d, 0x4a, 0x6c, 0x87, 0x24, 0xe0, 0x6d]);
 /// The vendor-media device path the Linux EFI stub asks for to find its initramfs.
 const LINUX_INITRD_MEDIA: Guid = Guid(0x5568e427, 0x68fc, 0x4f3d, [0xac, 0x74, 0xca, 0x55, 0x52, 0x31, 0xcc, 0x68]);
 
@@ -167,8 +167,8 @@ struct GopMode {
 
 #[repr(C)]
 struct Gop {
-    query_mode: usize,
-    set_mode: usize,
+    query_mode: extern "efiapi" fn(*mut Gop, u32, *mut usize, *mut *const GopModeInfo) -> Status,
+    set_mode: extern "efiapi" fn(*mut Gop, u32) -> Status,
     blt: usize,
     mode: *const GopMode,
 }
@@ -338,7 +338,30 @@ fn gop_framebuffer() -> Framebuffer {
         return fb;
     }
     unsafe {
-        let mode = &*(*(p as *mut Gop)).mode;
+        let gop = p as *mut Gop;
+        // The firmware's current mode is often not the screen's native one (text then comes out huge):
+        // switch to the mode with the most pixels that we can use (a 32 bpp layout).
+        let usable = |i: &GopModeInfo| match i.pixel_format {
+            0 | 1 => true,
+            2 => [i.red_mask, i.green_mask, i.blue_mask].iter().all(|m| m.count_ones() == 8 && m.trailing_zeros() % 8 == 0),
+            _ => false,
+        };
+        let cur = (*(*gop).mode).mode;
+        let (mut best, mut best_px) = (cur, 0u64);
+        for n in 0..(*(*gop).mode).max_mode {
+            let (mut size, mut info) = (0usize, null());
+            if ((*gop).query_mode)(gop, n, &mut size, &mut info) != 0 || info.is_null() || !usable(&*info) {
+                continue;
+            }
+            let px = (*info).horizontal as u64 * (*info).vertical as u64;
+            if px > best_px || (px == best_px && n == cur) {
+                (best, best_px) = (n, px);
+            }
+        }
+        if best != cur {
+            ((*gop).set_mode)(gop, best);
+        }
+        let mode = &*(*gop).mode;
         if mode.info.is_null() || mode.frame_buffer_base == 0 {
             return fb;
         }

@@ -121,3 +121,58 @@ impl Map {
         self.entries().iter().filter(|e| matches!(e.kind, MEM_USABLE | MEM_ACPI_RECLAIMABLE | MEM_ACPI_NVS | MEM_LOADER)).map(|e| e.base + e.len).max().unwrap_or(0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+    use super::*;
+    use std::boxed::Box;
+    use std::vec::Vec;
+
+    fn kinds(m: &Map) -> Vec<(u64, u64, u32)> {
+        m.entries().iter().map(|e| (e.base, e.len, e.kind)).collect()
+    }
+
+    #[test]
+    fn sorts_and_merges() {
+        let mut m = Box::new(Map::new());
+        m.push(0x20_0000, 0x10_0000, MEM_USABLE);
+        m.push(0x10_0000, 0x10_0000, MEM_USABLE);
+        m.normalize();
+        assert_eq!(kinds(&m), [(0x10_0000, 0x20_0000, MEM_USABLE)]);
+    }
+
+    #[test]
+    fn reserved_wins_over_usable() {
+        let mut m = Box::new(Map::new());
+        m.push(0x10_0000, 0x40_0000, MEM_USABLE);
+        m.push(0x20_0000, 0x1000, MEM_RESERVED);
+        m.normalize();
+        assert_eq!(
+            kinds(&m),
+            [(0x10_0000, 0x10_0000, MEM_USABLE), (0x20_0000, 0x1000, MEM_RESERVED), (0x20_1000, 0x2f_f000, MEM_USABLE)]
+        );
+    }
+
+    #[test]
+    fn usable_shrinks_and_reserved_grows_to_pages() {
+        let mut m = Box::new(Map::new());
+        m.push(0x1800, 0x3000, MEM_USABLE); // 0x1800..0x4800 -> 0x2000..0x4000
+        m.push(0x10_0800, 0x100, MEM_RESERVED); // -> the whole page
+        m.normalize();
+        assert_eq!(kinds(&m), [(0x2000, 0x2000, MEM_USABLE), (0x10_0000, 0x1000, MEM_RESERVED)]);
+    }
+
+    #[test]
+    fn carve_and_find_free() {
+        let mut m = Box::new(Map::new());
+        m.push(0x10_0000, 0x100_0000, MEM_USABLE);
+        m.normalize();
+        assert_eq!(m.find_free(0x1000, 0x1000, 0x10_0000, u64::MAX), Some(0x10_0000));
+        m.carve(0x10_0000, 0x20_0000, MEM_LOADER);
+        assert_eq!(m.find_free(0x1000, 0x1000, 0x10_0000, u64::MAX), Some(0x30_0000));
+        assert_eq!(m.find_free(0x1000, 0x20_0000, 0x10_0000, u64::MAX), Some(0x40_0000));
+        assert_eq!(m.find_free(0x1000, 0x1000, 0x10_0000, 0x30_0000), None);
+        assert_eq!(m.top(), 0x110_0000);
+    }
+}
