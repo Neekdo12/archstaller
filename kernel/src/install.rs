@@ -466,6 +466,10 @@ pub fn run(cfg: &Config, mut devs: Devices, keyring: &Keyring, boot: &BootFiles)
         "UUID={root_uuid_text} / ext4 rw,relatime 0 1\nUUID={esp_uuid_text} /boot vfat rw,relatime,fmask=0077,dmask=0077,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro 0 2\n"
     ).into_bytes()));
     etc_files.push(("etc/hostname".into(), 0o644, format!("{}\n", cfg.hostname).into_bytes()));
+    // The login prompt (agetty expands \\r and \\l) and the message of the day show the banner.
+    let art = crate::banner::render("ARCHSTALLER");
+    etc_files.push(("etc/issue".into(), 0o644, format!("\n{art}\nArch Linux \\r (\\l)\n\n").into_bytes()));
+    etc_files.push(("etc/motd".into(), 0o644, format!("\n{art}\nInstalled by archstaler.\n\n").into_bytes()));
     etc_files.push(("etc/locale.conf".into(), 0o644, format!("LANG={}\n", cfg.locale).into_bytes()));
     etc_files.push(("etc/locale.gen".into(), 0o644, format!("{} {}\n", cfg.locale, charset_of(&cfg.locale)).into_bytes()));
     etc_files.push(("etc/vconsole.conf".into(), 0o644, format!("KEYMAP={}\n", cfg.keymap).into_bytes()));
@@ -478,6 +482,11 @@ pub fn run(cfg: &Config, mut devs: Devices, keyring: &Keyring, boot: &BootFiles)
     for (path, mode, data) in &etc_files {
         put(&w, path, *mode, data)?;
         put(&w, &overlay(path), *mode, data)?;
+    }
+    // The ly login manager draws the banner above its login box (firstboot.sh points ly's config at this file).
+    if cfg.packages.iter().any(|p| p == "ly") {
+        let dur = crate::banner::dur("ARCHSTALLER");
+        put(&w, &overlay("etc/ly/archstaler.dur"), 0o644, &dur)?;
     }
     let tz_target = format!("../usr/share/zoneinfo/{}", cfg.timezone);
     let link_meta = Meta { mode: 0o777, mtime: now, ..Default::default() };

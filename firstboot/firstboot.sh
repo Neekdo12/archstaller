@@ -21,6 +21,12 @@ say "applying system configuration"
 cp -a "$D/overlay/." / || fail "overlay"
 locale-gen || say "warning: locale-gen failed"
 
+# The ly login manager: show the banner above the login box (a .dur file drawn as ly's background).
+if [ -f /etc/ly/config.ini ] && [ -f /etc/ly/archstaler.dur ]; then
+    sed -i -E 's|^animation = .*|animation = dur_file|; s|^dur_file_path = .*|dur_file_path = /etc/ly/archstaler.dur|; s|^dur_offset_alignment = .*|dur_offset_alignment = topcenter|; s|^dur_y_offset = .*|dur_y_offset = 2|' /etc/ly/config.ini ||
+        say "warning: could not set up the ly banner"
+fi
+
 if [ -f "$D/root.hash" ]; then
     usermod -p "$(cat "$D/root.hash")" root || say "warning: root password"
 fi

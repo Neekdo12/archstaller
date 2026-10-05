@@ -4,6 +4,7 @@
 
 extern crate alloc;
 
+mod banner;
 mod console;
 mod fb;
 mod heap;
@@ -87,6 +88,7 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
         console::init_fb(c);
         println!("archstaler kernel starting");
     }
+    banner::show("ARCHSTALLER");
 
     let memmap = unsafe { info.memory() };
     let modules = unsafe { info.modules() };
@@ -226,7 +228,15 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
             (Some(cfg), Some(keyring), Some(tiny_init), Some(efi), Some(bios)) => {
                 let boot = install::BootFiles { tiny_init, bootx64_efi: efi, bios_boot: bios };
                 match install::run(&cfg, devs, &keyring, &boot) {
-                    Ok(()) => reboot(),
+                    Ok(()) => {
+                        banner::show("INSTALLED");
+                        println!("Remove the installation medium. Rebooting into the first boot in 8 seconds...");
+                        let start = time::uptime_ns();
+                        while time::uptime_ns() - start < 8_000_000_000 {
+                            core::hint::spin_loop();
+                        }
+                        reboot()
+                    }
                     Err(e) => println!("INSTALLATION FAILED: {e}"),
                 }
             }
