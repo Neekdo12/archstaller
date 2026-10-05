@@ -41,7 +41,7 @@ pub struct Options {
     pub extra_kernel_params: Vec<String>,
     pub uefi: bool,
     pub headless: bool,
-    /// virtio | ahci | nvme
+    /// virtio | ahci | nvme | ide (legacy IDE-mode controller, on the i440fx machine)
     pub disk: String,
     /// virtio | e1000 | e1000e | igb | rtl8139 | usb-rndis | none
     pub nic: String,
@@ -110,7 +110,7 @@ fn parse(args: &[String]) -> Result<Options> {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|keyring|update-keyring> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--profile super-small|large] [--progress json] [--workdir DIR] [--limit BYTES]")?;
+    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|keyring|update-keyring> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme|ide] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--profile super-small|large] [--progress json] [--workdir DIR] [--limit BYTES]")?;
     let opts = parse(rest)?;
     match cmd.as_str() {
         "build" => {

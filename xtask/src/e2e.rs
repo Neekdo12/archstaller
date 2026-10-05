@@ -8,7 +8,8 @@ const OVMF_DIR: &str = "/usr/share/edk2/x64";
 
 fn qemu(opts: &Options, disk: &Path, cdrom: Option<&Path>, log: &Path) -> Result<Child> {
     let mut cmd = Command::new("qemu-system-x86_64");
-    cmd.args(["-machine", "q35", "-m", "1536M", "-no-reboot", "-display", "none", "-monitor", "none"]);
+    // The "ide" disk needs the legacy i440fx board: q35 has only AHCI.
+    cmd.args(["-machine", if opts.disk == "ide" { "pc" } else { "q35" }, "-m", "1536M", "-no-reboot", "-display", "none", "-monitor", "none"]);
     cmd.arg("-serial").arg(format!("file:{}", log.display()));
     if Path::new("/dev/kvm").exists() {
         cmd.args(["-enable-kvm", "-cpu", "host"]);
@@ -29,6 +30,7 @@ fn qemu(opts: &Options, disk: &Path, cdrom: Option<&Path>, log: &Path) -> Result
         "virtio" => cmd.args(["-device", "virtio-blk-pci,drive=d0,serial=TESTDISK0"]),
         "ahci" => cmd.args(["-device", "ich9-ahci,id=ahci", "-device", "ide-hd,drive=d0,bus=ahci.0,serial=TESTDISK0"]),
         "nvme" => cmd.args(["-device", "nvme,drive=d0,serial=TESTDISK0"]),
+        "ide" => cmd.args(["-device", "ide-hd,drive=d0,bus=ide.0,serial=TESTDISK0"]),
         other => return Err(format!("unknown disk type {other}").into()),
     };
     cmd.args(["-netdev", "user,id=n0"]);

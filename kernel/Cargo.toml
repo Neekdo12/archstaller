@@ -26,10 +26,11 @@ postcard = { version = "1", default-features = false, features = ["alloc"] }
 [features]
 # Installer drivers (see hostcfg's catalogue); all on by default, `xtask` builds with only the
 # ones the config's `installer_drivers` lists.
-default = ["virtio-blk", "virtio-net", "ahci", "nvme", "e1000", "igb", "r8169", "rtl8139"]
+default = ["virtio-blk", "virtio-net", "ahci", "ata", "nvme", "e1000", "igb", "r8169", "rtl8139"]
 virtio-blk = ["drivers/virtio-blk"]
 virtio-net = ["drivers/virtio-net"]
 ahci = ["drivers/ahci"]
+ata = ["drivers/ata"]
 nvme = ["drivers/nvme"]
 e1000 = ["drivers/e1000"]
 igb = ["drivers/igb"]

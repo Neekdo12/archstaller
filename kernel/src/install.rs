@@ -581,7 +581,9 @@ pub fn run(cfg: &Config, mut devs: Devices, keyring: &Keyring, boot: &BootFiles)
     };
     // Root device drivers, plus vfat for /boot: modules.dep does not exist until the first boot's
     // depmod hook has run, so nothing can be modprobed before then.
-    let wanted = ["ext4", "nvme", "ahci", "sd_mod", "virtio_blk", "virtio_pci", "crc32c_intel", "crc32c_generic", "vfat", "fat", "nls_cp437", "nls_ascii"];
+    // The "ata_*"/"pata_*" drivers are for controllers the firmware set to IDE ("compatible") mode, which
+    // the AHCI driver does not handle; a module the kernel package lacks is skipped.
+    let wanted = ["ext4", "nvme", "ahci", "ata_piix", "ata_generic", "pata_acpi", "pata_amd", "pata_atiixp", "pata_via", "pata_sis", "pata_jmicron", "sd_mod", "virtio_blk", "virtio_pci", "crc32c_intel", "crc32c_generic", "vfat", "fat", "nls_cp437", "nls_ascii"];
     let resolved = {
         let mut src = ExtModules { w: &w, idx: &idx.modules };
         initrd::modules::resolve(&mut src, &[], &wanted, &builtin).map_err(dbg_err("initramfs modules"))?

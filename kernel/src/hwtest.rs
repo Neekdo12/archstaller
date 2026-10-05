@@ -131,7 +131,7 @@ fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Repo
 
     println!("--- disks (read only) ---");
     if devs.block.is_empty() {
-        r.warn("no supported disk found (NVMe, AHCI and virtio only)");
+        r.warn("no supported disk found (NVMe, AHCI, IDE-mode ATA and virtio only)");
     }
     let disks: Vec<Box<dyn BlockDevice>> = devs.block.drain(..).map(|d| Box::new(ReadOnly(d)) as Box<dyn BlockDevice>).collect();
     for mut d in disks {

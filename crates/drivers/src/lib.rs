@@ -1,10 +1,12 @@
-//! Polling drivers: PCI enumeration, virtio, AHCI, NVMe and NICs.
+//! Polling drivers: PCI enumeration, virtio, AHCI, legacy ATA (IDE mode), NVMe and NICs.
 #![no_std]
 
 extern crate alloc;
 
 #[cfg(feature = "ahci")]
 pub mod ahci;
+#[cfg(feature = "ata")]
+pub mod ata;
 pub mod dma;
 #[cfg(feature = "e1000")]
 pub mod e1000;
@@ -40,6 +42,8 @@ pub fn probe_all() -> Devices {
         virtio::probe(&dev, &mut devs);
         #[cfg(feature = "ahci")]
         ahci::probe(&dev, &mut devs);
+        #[cfg(feature = "ata")]
+        ata::probe(&dev, &mut devs);
         #[cfg(feature = "nvme")]
         nvme::probe(&dev, &mut devs);
         #[cfg(feature = "e1000")]

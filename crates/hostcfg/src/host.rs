@@ -81,6 +81,7 @@ pub struct Driver {
 pub const DRIVERS: &[Driver] = &[
     Driver { id: "virtio-blk", class: DriverClass::Storage, description: "virtio block device (QEMU, most hypervisors)", status: "tested in QEMU" },
     Driver { id: "ahci", class: DriverClass::Storage, description: "SATA through AHCI", status: "tested in QEMU" },
+    Driver { id: "ata", class: DriverClass::Storage, description: "legacy IDE-mode SATA and parallel ATA disks (PIO, slow)", status: "tested in QEMU" },
     Driver { id: "nvme", class: DriverClass::Storage, description: "NVMe SSDs", status: "tested in QEMU" },
     Driver { id: "virtio-net", class: DriverClass::Network, description: "virtio network device", status: "tested in QEMU" },
     Driver { id: "e1000", class: DriverClass::Network, description: "Intel e1000 / e1000e", status: "tested in QEMU" },

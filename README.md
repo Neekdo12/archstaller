@@ -166,7 +166,7 @@ Configs are Lua files evaluated on the **build host**; the result is serialized 
 | `kernel_params` | appended to the kernel command line |
 | `scripts` | `{ { id, args?, file? \| url?+sha256? }, ... }`: run as root, in order, at the end of the first boot. An `id` alone is a built-in script (`enable-sshd`, `enable-fstrim`); `file` is a local script embedded at build time (max 64 KiB); `url` must be `https://` and pinned by `sha256` (the installer fails on a mismatch). A failing script only logs a warning |
 | `build.profile`, `build.tethering` | host-only: `super-small` (default) or `large` installer build; include USB tethering. `extra-large` is reserved |
-| `installer_drivers` | host-only: installer drivers to include (`virtio-blk ahci nvme virtio-net e1000 igb r8169 rtl8139`); all if absent, at least one storage and one network driver (or `build.tethering`) otherwise |
+| `installer_drivers` | host-only: installer drivers to include (`virtio-blk ahci ata nvme virtio-net e1000 igb r8169 rtl8139`); all if absent, at least one storage and one network driver (or `build.tethering`) otherwise |
 
 Config values end up in shell-read data files, unit files and boot loader configuration, so `xtask`
 validates them strictly at build time and rejects anything with unexpected characters.
@@ -219,7 +219,7 @@ validates them strictly at build time and rejects anything with unexpected chara
 | `xtask/` | host tooling: Lua evaluation, keyring blob and its pin (`keyring.pin`), payload and ISO assembly, BIOS stage patching, QEMU runs, tests |
 | `config/` | config types shared by `xtask` and the kernel, plus validation |
 | `crates/hal` | `BlockDevice`, `NetDevice`, `Clock`, `Rng` traits |
-| `crates/drivers` | PCI, virtio-blk/net, AHCI, NVMe, Intel e1000/e1000e/igb/igc, Realtek r8169/r8125/rtl8139 (all polled) |
+| `crates/drivers` | PCI, virtio-blk/net, AHCI, legacy ATA (IDE mode), NVMe, Intel e1000/e1000e/igb/igc, Realtek r8169/r8125/rtl8139 (all polled) |
 | `crates/usb` | xHCI driver with control and bulk transfers (used only for tethering phones and USB dongles) |
 | `crates/imobiledevice` | iPhone USB tethering: plist, usbmuxd, pairing, lockdownd, `NetDevice` adapter |
 | `crates/usbnet` | Android tethering and USB Ethernet dongles: RNDIS, CDC-ECM, CDC-NCM and ASIX AX88179 `NetDevice` |
@@ -242,7 +242,7 @@ validates them strictly at build time and rejects anything with unexpected chara
 ```sh
 cargo test --release -p pgp-lite --features std -p pkg -p ext4w -p disk -p initrd -p hostcfg -p archstaler-gui -p loadcore
 cargo xtask linux-test                       # boots the host kernel with our initramfs and an ext4w root
-cargo xtask e2e [--uefi] [--disk ahci --nic e1000]   # install onto a blank disk, then boot twice
+cargo xtask e2e [--uefi] [--disk ahci|nvme|ide --nic e1000]   # install onto a blank disk, then boot twice
 cargo xtask e2e --config presets/i3.lua      # the same for a preset
 cargo xtask run --usb --headless            # xHCI smoke test: qemu-xhci + usb-storage, SCSI INQUIRY
 cargo xtask run --selftest --headless --nic usb-rndis   # DHCP + HTTPS + 1 MB over an emulated Android RNDIS adapter
@@ -265,7 +265,7 @@ paths boot in QEMU, and the BIOS path also when the ISO is written to a disk or 
 
 ## Status
 
-Verified in QEMU (BIOS and UEFI; virtio, AHCI and NVMe disks; virtio, e1000, e1000e, igb and rtl8139 NICs):
+Verified in QEMU (BIOS and UEFI; virtio, AHCI, IDE-mode and NVMe disks; virtio, e1000, e1000e, igb and rtl8139 NICs):
 install, first boot and a second boot to a login prompt, for the `i3` and `hyprland` presets and a minimal
 test config, plus the Ventoy boot described above. The `minimal`, `server` and `plasma` presets resolve
 (`check-presets`) but have not been through a full install in the test harness. Verified on real hardware: installs on an old Gigabyte GA-F2A88XM-D3H (RTL8168evl, no RDRAND) through

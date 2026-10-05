@@ -10,10 +10,11 @@ spin = { version = "0.12", default-features = false, features = ["once"] }
 [features]
 # Each driver is optional so a size-conscious installer build can leave unused ones out
 # (`installer_drivers` in the Lua config). All are on by default.
-default = ["virtio-blk", "virtio-net", "ahci", "nvme", "e1000", "igb", "r8169", "rtl8139"]
+default = ["virtio-blk", "virtio-net", "ahci", "ata", "nvme", "e1000", "igb", "r8169", "rtl8139"]
 virtio-blk = []
 virtio-net = []
 ahci = []
+ata = []
 nvme = []
 e1000 = []
 igb = []

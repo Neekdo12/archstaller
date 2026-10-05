@@ -141,6 +141,10 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
 
     drivers::platform::init(Box::leak(Box::new(platform::KernelPlatform { hhdm })));
     let mut devs = drivers::probe_all();
+    // Without this a machine whose disk or NIC is not supported shows nothing to go on.
+    for d in drivers::pci::enumerate().iter().filter(|d| matches!(d.class, 0x01 | 0x02)) {
+        println!("pci {:02x}:{:02x}.{} {:04x}:{:04x} class {:02x}{:02x}{:02x}", d.addr.bus, d.addr.dev, d.addr.func, d.vendor, d.device, d.class, d.subclass, d.prog_if);
+    }
     println!("block devices: {}", devs.block.len());
     for (i, d) in devs.block.iter_mut().enumerate() {
         println!(
