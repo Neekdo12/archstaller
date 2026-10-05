@@ -62,7 +62,7 @@ that need a running Linux.
 | `tiny-init/` | the initramfs `/init`: raw syscalls only, no libc, `no_std`; loads modules, mounts root, `switch_root` |
 | `firstboot/` | systemd unit files + `firstboot.sh`, embedded into the image at install time, run on first boot |
 | `presets/`, `examples/` | Lua configs; `presets/common.lua` holds shared defaults (firmware: `linux-firmware-{intel,realtek,amdgpu,radeon}`; desktop presets use full `linux-firmware`) and supports opt-in `dry_run` mode, `presets/tester.lua` is read-only hardware testing (probes, DHCP, mirror and package resolution, pings of the gateway, the DHCP DNS server and 1.1.1.1 plus a direct TCP connect to 1.1.1.1:443 (separating "no internet" from "DNS only"), and, if all of that passed, a throughput test that downloads up to 24 MiB of the largest resolved package and prints MiB/s and Mbit/s; then it reprints the driver/device log lines (NIC identification, link and receive diagnostics) and reboots after 60 s (300 s after a failed run) via `reboot()`: 8042, port 0xCF9, triple fault), `examples/config.lua` is the documented example, `examples/e2e.lua` is used by `xtask e2e` |
-| `docs/` | `wifi.md` (spec for a not-implemented feature), `iphone-tethering.md` (spec the tethering crates were written from) |
+| `docs/` | `wifi.md` (spec for a not-implemented feature), `iphone-tethering.md` (spec the tethering crates were written from), `implement-gui.md` (proposed host desktop GUI, Lua-driven builds, Ventoy copy, and safe USB flashing; not implemented) |
 | `sizes.md` | measured ISO size breakdown and size-reduction options |
 | `PLAN.md` | original design plan/decision log |
 | `HANDOFF.md` | temporary status notes for a new session (branches, hardware reports, what is unverified); delete when no longer useful |
@@ -178,5 +178,7 @@ QEMU arguments to `xtask run` (e.g. `-trace usb_*`).
 
 ## Out of scope
 
-Wi-Fi, USB devices other than tethering phones and Ethernet dongles, SMP, Secure Boot, an interactive UI, filesystems other than ext4, architectures
-other than x86_64. A spec exists for Wi-Fi in `docs/wifi.md`; it is not implemented.
+Wi-Fi, USB devices other than tethering phones and Ethernet dongles, SMP, Secure Boot, an interactive
+installer-kernel UI, filesystems other than ext4, architectures other than x86_64. A host desktop GUI is
+proposed in `docs/implement-gui.md` but is not implemented. A spec exists for Wi-Fi in `docs/wifi.md`; it is
+not implemented.
