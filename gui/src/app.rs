@@ -1,7 +1,7 @@
 //! The egui front end. All decisions live in `model`, `build`, `media` and `hostcfg`; this only draws them.
 use crate::build::{self, Build, Msg};
 use crate::media::{self, FolderCopy, MediaTarget, Phase, Volume};
-use crate::model::{Area, Model};
+use crate::model::{self, Area, Model, Preset};
 use eframe::egui;
 use hostcfg::host::{DriverClass, DRIVERS};
 use hostcfg::progress::{Event, State};
@@ -100,6 +100,7 @@ pub struct App {
     build: BuildState,
     media: MediaState,
     next_build: u32,
+    presets: Vec<Preset>,
 }
 
 impl App {
@@ -118,6 +119,7 @@ impl App {
             build: BuildState::default(),
             media: MediaState::default(),
             next_build: 0,
+            presets: build::find_root().map(|r| model::presets(&r)).unwrap_or_default(),
         };
         a.media.volumes = media::volumes();
         a
@@ -757,6 +759,27 @@ impl eframe::App for App {
                     self.load(Model::starter());
                     self.status = "New config".into();
                 }
+                ui.menu_button("From preset", |ui| {
+                    if self.presets.is_empty() {
+                        ui.label("No presets found (run from the checkout or set ARCHSTALER_ROOT).");
+                    }
+                    let mut pick = None;
+                    for p in &self.presets {
+                        if ui.button(&p.name).on_hover_text(&p.description).clicked() {
+                            pick = Some(p.path.clone());
+                            ui.close_menu();
+                        }
+                    }
+                    if let Some(path) = pick {
+                        match Model::from_preset(&path) {
+                            Ok(m) => {
+                                self.status = format!("New config from preset {} (unsaved; presets erase the largest disk, see the Disk tab)", path.file_stem().unwrap_or_default().to_string_lossy());
+                                self.load(m);
+                            }
+                            Err(e) => self.status = e,
+                        }
+                    }
+                });
                 if ui.button("Open...").clicked() {
                     if let Some(p) = rfd::FileDialog::new().add_filter("Lua config", &["lua"]).pick_file() {
                         match Model::open(&p) {

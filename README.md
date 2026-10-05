@@ -30,7 +30,7 @@ cargo xtask build --debug    # verbose driver/network tracing (always on for the
 cargo xtask presets          # one ISO per preset -> target/isos/archstaler-<preset>.iso (with USB tethering; --no-tethering leaves it out)
 cargo xtask build            # a single ISO from examples/config.lua -> target/archstaler.iso
 cargo xtask build --profile large   # regular release build, panic messages kept (the default profile is `super-small`; or set `build.profile` in the config)
-cargo run -p archstaler-gui         # desktop app: edit a config, check it, build the ISO, copy it to a Ventoy stick
+cargo run -p archstaler-gui         # desktop app: start from a preset or a blank config, edit, check it, build the ISO, copy it to a Ventoy stick
 cargo xtask build --config path/to/my.lua --out my.iso
 ```
 

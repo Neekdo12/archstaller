@@ -100,6 +100,13 @@ impl Model {
         }
     }
 
+    /// A new, unsaved document from one of the repository's presets (`presets/*.lua`). The preset is
+    /// evaluated like the CLI does and then edited as an ordinary form; saving writes plain Lua.
+    pub fn from_preset(path: &Path) -> Result<Model, String> {
+        let l = hostcfg::lua::load(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        Ok(Model { cfg: l.config, host: l.host, path: None, raw: None, dirty: true })
+    }
+
     /// The Lua text this document stands for.
     pub fn lua(&self) -> String {
         match &self.raw {
@@ -146,6 +153,30 @@ impl Model {
         self.host.build.profile = Some(name.to_string());
         self.dirty = true;
     }
+}
+
+/// A preset of the repository.
+pub struct Preset {
+    pub name: String,
+    /// The first comment line of the file.
+    pub description: String,
+    pub path: PathBuf,
+}
+
+/// The presets under `<root>/presets`, by name (`common.lua` holds shared code, not a preset).
+pub fn presets(root: &Path) -> Vec<Preset> {
+    let Ok(dir) = std::fs::read_dir(root.join("presets")) else { return vec![] };
+    let mut v: Vec<Preset> = dir
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "lua") && p.file_stem().is_some_and(|s| s != "common"))
+        .map(|p| {
+            let description = std::fs::read_to_string(&p).ok().and_then(|t| t.lines().next().map(|l| l.trim_start_matches('-').trim().to_string())).unwrap_or_default();
+            Preset { name: p.file_stem().unwrap().to_string_lossy().into_owned(), description, path: p }
+        })
+        .collect();
+    v.sort_by(|a, b| a.name.cmp(&b.name));
+    v
 }
 
 #[cfg(test)]
@@ -209,6 +240,29 @@ mod tests {
         let cli = hostcfg::lua::load(&path).err().map(|e| e.to_string());
         assert_eq!(gui.first().map(|p| p.message.clone()), cli);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn every_repository_preset_opens_as_an_editable_form() {
+        let root = crate::build::find_root().unwrap();
+        let list = presets(&root);
+        let names: Vec<&str> = list.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["hyprland", "i3", "minimal", "plasma", "server", "tester"]);
+        for p in &list {
+            assert!(!p.description.is_empty(), "{}", p.name);
+            let m = Model::from_preset(&p.path).unwrap_or_else(|e| panic!("{}: {e}", p.name));
+            assert!(m.raw.is_none() && m.path.is_none() && m.dirty);
+            assert!(m.problems().is_empty(), "{}: {:?}", p.name, m.problems().first().map(|x| &x.message));
+            // Saved as plain Lua, it loads back to the same thing.
+            let dir = std::env::temp_dir().join(format!("archstaler-preset-{}-{}", std::process::id(), p.name));
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut m = m;
+            m.save(&dir.join("c.lua")).unwrap();
+            let back = Model::open(&dir.join("c.lua")).unwrap();
+            assert_eq!(format!("{:?}", back.cfg), format!("{:?}", m.cfg), "{}", p.name);
+            assert_eq!(back.host, m.host, "{}", p.name);
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 
     #[test]
