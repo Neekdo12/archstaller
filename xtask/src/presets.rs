@@ -1,8 +1,5 @@
 //! Preset configs in presets/*.lua: dependency check and one ISO per preset.
 use crate::{iso, lua, root, Options, Result};
-use pkg::db::Db;
-use pkg::resolve::Resolver;
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 fn preset_files() -> Result<Vec<PathBuf>> {
@@ -21,25 +18,19 @@ fn stem(p: &std::path::Path) -> String {
 
 /// Resolves every preset against the host's sync databases and reports what would be installed.
 pub fn check() -> Result<()> {
-    let load = |name: &str| -> Result<Db> {
-        let data = std::fs::read(format!("/var/lib/pacman/sync/{name}.db"))?;
-        Db::parse(name, data.as_slice()).map_err(|e| format!("{name}.db: {e:?}").into())
-    };
-    let dbs = vec![load("core")?, load("extra")?];
+    let dbs = hostcfg::resolve::local_dbs()?;
     let mut failed = false;
     for f in preset_files()? {
         let cfg = lua::load_config(&f)?;
-        let providers: BTreeMap<String, String> = cfg.providers.iter().cloned().collect();
-        match Resolver::new(&dbs, &providers).resolve(&cfg.packages) {
+        match hostcfg::resolve::resolve(&cfg, &dbs) {
             Ok(r) => {
-                let total: u64 = r.packages.iter().map(|s| s.pkg.csize).sum();
-                println!("{:<10} {:>4} packages, {:>5} MiB to download, {} providers configured", stem(&f), r.packages.len(), total >> 20, providers.len());
+                println!("{:<10} {:>4} packages, {:>5} MiB to download, {} providers configured", stem(&f), r.packages.len(), r.download_bytes() >> 20, cfg.providers.len());
                 for a in &r.ambiguities {
                     println!("             ambiguous {} -> {} (of {})", a.dep, a.chosen, a.candidates.join(", "));
                 }
             }
             Err(e) => {
-                println!("{:<10} FAILED: {e:?}", stem(&f));
+                println!("{:<10} FAILED: {e}", stem(&f));
                 failed = true;
             }
         }
@@ -60,8 +51,8 @@ pub fn build_all(opts: &Options) -> Result<()> {
             out: Some(dir.join(format!("archstaler-{name}.iso"))),
             fault_test: false,
             selftest: false,
-            small: opts.small,
-            super_small: opts.super_small,
+            profile: opts.profile,
+            legacy_small: opts.legacy_small,
             limit: opts.limit,
             extra_kernel_params: Vec::new(),
             uefi: false,
@@ -71,6 +62,8 @@ pub fn build_all(opts: &Options) -> Result<()> {
             usb: false,
             tethering: opts.tethering,
             debug: opts.debug,
+            progress: false,
+            workdir: None,
         };
         let iso = iso::build(&o)?;
         println!("{name}: {} ({} bytes)", iso.display(), std::fs::metadata(&iso)?.len());

@@ -3,6 +3,8 @@
 -- package databases, prints a PASS/FAIL report and reboots after 60 seconds.
 -- It installs nothing and needs no disk selector: no disk is ever written.
 return {
+  -- Hardware test: keep panic messages (the default profile is "super-small").
+  build = { profile = "large" },
   hostname = "tester",
   timezone = "Europe/Prague",
   locale = "en_US.UTF-8",

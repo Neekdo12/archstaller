@@ -45,6 +45,7 @@ function M.build(spec)
     user_files = spec.user_files or {},
     user_archives = spec.user_archives or {},
     dry_run = spec.dry_run or false,
+    build = spec.build,
   }
 end
 

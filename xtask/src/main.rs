@@ -29,10 +29,10 @@ pub struct Options {
     pub fault_test: bool,
     /// Kernel overwrites sectors near the end of every disk; QEMU scratch disk only.
     pub selftest: bool,
-    /// Size-optimized kernel: build-std with panics that abort without messages.
-    pub small: bool,
-    /// Deprecated alias of `small` (the payload is always compressed now).
-    pub super_small: bool,
+    /// `--profile`: overrides the config's `build.profile` (default `super-small`).
+    pub profile: Option<hostcfg::host::Profile>,
+    /// Deprecated `--small`/`--super-small`: acts as `--profile super-small` and warns.
+    pub legacy_small: bool,
     /// `xtask size` fails when the ISO exceeds this many bytes.
     pub limit: u64,
     /// Output path of the ISO (default target/archstaler.iso).
@@ -52,6 +52,10 @@ pub struct Options {
     /// Build with the debug kernel feature: verbose driver and network tracing. Always on for a
     /// dry-run (hardware test) config such as presets/tester.lua.
     pub debug: bool,
+    /// `--progress json`: print structured build events (`hostcfg::progress`) on stdout.
+    pub progress: bool,
+    /// `--workdir DIR`: scratch directory of this build (default `target/`); the GUI gives every build its own.
+    pub workdir: Option<PathBuf>,
 }
 
 fn parse(args: &[String]) -> Result<Options> {
@@ -59,8 +63,8 @@ fn parse(args: &[String]) -> Result<Options> {
         config: root().join("examples/config.lua"),
         fault_test: false,
         selftest: false,
-        small: false,
-        super_small: false,
+        profile: None,
+        legacy_small: false,
         limit: 3 << 20,
         out: None,
         extra_kernel_params: Vec::new(),
@@ -71,6 +75,8 @@ fn parse(args: &[String]) -> Result<Options> {
         usb: false,
         tethering: false,
         debug: false,
+        progress: false,
+        workdir: None,
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -79,11 +85,8 @@ fn parse(args: &[String]) -> Result<Options> {
             "--fault-test" => o.fault_test = true,
             "--selftest" => o.selftest = true,
             "--out" => o.out = Some(it.next().ok_or("--out needs a path")?.into()),
-            "--small" => o.small = true,
-            "--super-small" => {
-                o.small = true;
-                o.super_small = true;
-            }
+            "--profile" => o.profile = Some(hostcfg::host::Profile::parse(it.next().ok_or("--profile needs super-small or large")?)?),
+            "--small" | "--super-small" => o.legacy_small = true,
             "--limit" => o.limit = it.next().ok_or("--limit needs bytes")?.parse()?,
             "--uefi" => o.uefi = true,
             "--bios" => o.uefi = false,
@@ -94,6 +97,11 @@ fn parse(args: &[String]) -> Result<Options> {
             "--tethering" => o.tethering = true,
             "--no-tethering" => {} // handled by the presets command
             "--debug" => o.debug = true,
+            "--progress" => match it.next().map(String::as_str) {
+                Some("json") => o.progress = true,
+                _ => return Err("--progress needs the value json".into()),
+            },
+            "--workdir" => o.workdir = Some(it.next().ok_or("--workdir needs a path")?.into()),
             other => return Err(format!("unknown option {other}").into()),
         }
     }
@@ -102,7 +110,7 @@ fn parse(args: &[String]) -> Result<Options> {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|keyring|update-keyring> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--small|--super-small] [--limit BYTES]")?;
+    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|keyring|update-keyring> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--profile super-small|large] [--progress json] [--workdir DIR] [--limit BYTES]")?;
     let opts = parse(rest)?;
     match cmd.as_str() {
         "build" => {

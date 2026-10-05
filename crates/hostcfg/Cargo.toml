@@ -1,0 +1,19 @@
+[package]
+name = "hostcfg"
+version = "0.1.0"
+edition = "2021"
+description = "Host-side configuration model shared by xtask and the desktop GUI (std only; never part of the kernel or the boot path)"
+
+[dependencies]
+config = { path = "../../config", features = ["std"] }
+mlua = { version = "0.12", features = ["lua54", "vendored", "serialize"] }
+postcard = { version = "1", features = ["use-std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+pkg = { path = "../pkg" }
+sha-crypt = { version = "0.5", default-features = false, features = ["simple"] }
+ureq = { version = "3", optional = true }
+
+[features]
+# Downloading the package databases (the GUI turns it on; xtask uses the host's pacman databases).
+net = ["dep:ureq"]

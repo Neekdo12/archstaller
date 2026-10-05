@@ -77,6 +77,20 @@ if [ -s "$D/services.list" ]; then
     while read -r unit; do say "service $unit: $(systemctl is-enabled "$unit" 2>&1)"; done < "$D/services.list"
 fi
 
+# Configured scripts (config `scripts`), in order, as root. Each runs from a file under $D/scripts; its
+# arguments are plain words from scripts.list (validated: no spaces, quotes or shell syntax) passed as
+# separate arguments. Output is bounded, a failure or timeout only warns.
+if [ -s "$D/scripts.list" ]; then
+    while IFS=: read -r idx sid sargs; do
+        [ -n "$idx" ] || continue
+        read -r -a sargv <<< "$sargs"
+        say "running script $sid"
+        timeout 900 bash "$D/scripts/$idx.sh" "${sargv[@]}" 2>&1 | head -c 65536
+        rc=${PIPESTATUS[0]}
+        if [ "$rc" -eq 0 ]; then say "script $sid: done"; else say "warning: script $sid exited with status $rc"; fi
+    done < "$D/scripts.list"
+fi
+
 # The journal is created when the file system is written (crates/ext4w), not here: adding one with
 # `tune2fs -j` while the root is mounted leaves a /.journal file that only a later fsck turns into the
 # journal inode, and a boot that mounts first fails with "failed to locate journal superblock".

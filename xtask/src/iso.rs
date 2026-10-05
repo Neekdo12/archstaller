@@ -1,4 +1,7 @@
-use crate::{keyring, lua, root, run, Options, Result};
+use crate::{keyring, root, run, Options, Result};
+use hostcfg::host::Profile;
+use hostcfg::progress::{Event, State};
+use sha2::Digest;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -107,44 +110,53 @@ fn find_in_image(hay: &[u8], needle: &[u8]) -> Result<usize> {
 
 /// Verbose tracing is on with `--debug`, and always for a dry-run (hardware test) config, whose whole
 /// purpose is to show what the hardware does.
-fn wants_debug(opts: &Options) -> bool {
-    opts.debug
-        || std::fs::read_to_string(&opts.config)
-            .is_ok_and(|t| t.lines().any(|l| l.trim_start().starts_with("dry_run") && l.contains("true")))
+fn wants_debug(opts: &Options, loaded: &hostcfg::lua::Loaded) -> bool {
+    opts.debug || loaded.config.dry_run
 }
 
-fn build_kernel(opts: &Options) -> Result<PathBuf> {
+fn build_kernel(opts: &Options, loaded: &hostcfg::lua::Loaded, profile: Profile) -> Result<PathBuf> {
     let mut cmd = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
     cmd.current_dir(root()).args(["build", "-p", "kernel", "--target", TARGET]);
-    if opts.small {
-        cmd.args(["--profile", "small", "-Z", "build-std=core,alloc,compiler_builtins", "-Z", "build-std-features=compiler-builtins-mem"]);
-    } else {
-        cmd.arg("--release");
+    match profile {
+        Profile::SuperSmall => {
+            cmd.args(["--profile", "small", "-Z", "build-std=core,alloc,compiler_builtins", "-Z", "build-std-features=compiler-builtins-mem"]);
+        }
+        Profile::Large => {
+            cmd.arg("--release");
+        }
     }
-    let mut features = vec![];
+    let mut features: Vec<String> = vec![];
     if opts.selftest {
-        features.push("disk-selftest");
-        features.push("net-selftest");
+        features.push("disk-selftest".into());
+        features.push("net-selftest".into());
     }
     if opts.fault_test {
-        features.push("fault-test");
+        features.push("fault-test".into());
     }
     if opts.usb {
-        features.push("usb-selftest");
+        features.push("usb-selftest".into());
     }
-    if opts.tethering || opts.nic.starts_with("usb-") {
-        features.push("usb-tethering");
+    if opts.tethering || loaded.host.build.tethering || opts.nic.starts_with("usb-") {
+        features.push("usb-tethering".into());
     }
-    if wants_debug(opts) {
-        features.push("debug");
+    if wants_debug(opts, loaded) {
+        features.push("debug".into());
+    }
+    // `installer_drivers` in the config narrows the drivers; without it the kernel's defaults (all) apply.
+    if loaded.host.installer_drivers.is_some() {
+        cmd.arg("--no-default-features");
+        features.extend(loaded.host.drivers().into_iter().map(String::from));
     }
     cmd.args(["--features", &features.join(",")]);
     run(&mut cmd)?;
-    Ok(kernel_path(opts))
+    Ok(kernel_path(profile))
 }
 
-fn kernel_path(opts: &Options) -> PathBuf {
-    root().join("target").join(TARGET).join(if opts.small { "small/kernel" } else { "release/kernel" })
+fn kernel_path(profile: Profile) -> PathBuf {
+    root().join("target").join(TARGET).join(match profile {
+        Profile::SuperSmall => "small/kernel",
+        Profile::Large => "release/kernel",
+    })
 }
 
 /// A FAT12 image (the ESP the firmware boots from the ISO) holding the UEFI loader and the payload.
@@ -162,66 +174,120 @@ pub fn iso_path() -> PathBuf {
     root().join("target/archstaler.iso")
 }
 
+/// Prints a progress event when `--progress json` was given.
+pub fn emit(opts: &Options, e: Event) {
+    if opts.progress {
+        println!("{}", e.line());
+    }
+}
+
+/// Runs one build stage, reporting its start and end.
+fn stage<T>(opts: &Options, name: &str, f: impl FnOnce() -> Result<T>) -> Result<T> {
+    emit(opts, Event::Stage { name: name.into(), state: State::Start });
+    let r = f();
+    emit(opts, Event::Stage { name: name.into(), state: if r.is_ok() { State::Ok } else { State::Fail } });
+    r
+}
+
+/// Where this build keeps its scratch files (`--workdir`, default `target/`).
+fn workdir(opts: &Options) -> PathBuf {
+    opts.workdir.clone().unwrap_or_else(|| root().join("target"))
+}
+
 pub fn build(opts: &Options) -> Result<PathBuf> {
-    let kernel = flatten_kernel(&std::fs::read(build_kernel(opts)?)?)?;
-    let config_bin = lua::eval_config(&opts.config, &opts.extra_kernel_params)?;
-    let keyring_blob = keyring::build()?;
-    run(Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
-        .current_dir(root())
-        .args(["build", "-p", "tiny-init", "--bin", "tiny-init", "--release", "--target", TARGET]))?;
-    let tiny_init = std::fs::read(root().join("target").join(TARGET).join("release/tiny-init"))?;
-    let efi = build_uefi_loader()?;
-    let bios = crate::bios::build()?;
+    let r = build_inner(opts);
+    if let Err(e) = &r {
+        emit(opts, Event::Failed { message: e.to_string() });
+    }
+    r
+}
+
+fn build_inner(opts: &Options) -> Result<PathBuf> {
+    let (loaded, resolved) = stage(opts, "config", || {
+        let loaded = hostcfg::lua::load(&opts.config)?;
+        let resolved = hostcfg::host::resolve_profile(opts.profile, opts.legacy_small, &loaded.host)?;
+        for w in &resolved.warnings {
+            eprintln!("warning: {w}");
+        }
+        println!("build: config {}, profile {}", opts.config.display(), resolved.profile.name());
+        for l in hostcfg::scripts::summary(&loaded.config) {
+            println!("build: {l}");
+        }
+        Ok((loaded, resolved))
+    })?;
+    let kernel = stage(opts, "kernel", || flatten_kernel(&std::fs::read(build_kernel(opts, &loaded, resolved.profile)?)?))?;
+    let config_bin = hostcfg::lua::config_bin(&loaded, &opts.extra_kernel_params)?;
+    let keyring_blob = stage(opts, "keyring", keyring::build)?;
+    let tiny_init = stage(opts, "tiny-init", || {
+        run(Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+            .current_dir(root())
+            .args(["build", "-p", "tiny-init", "--bin", "tiny-init", "--release", "--target", TARGET]))?;
+        Ok(std::fs::read(root().join("target").join(TARGET).join("release/tiny-init"))?)
+    })?;
+    let efi = stage(opts, "uefi-loader", build_uefi_loader)?;
+    let bios = stage(opts, "bios", crate::bios::build)?;
     let mut bios_boot = bios.stage1.to_vec();
     bios_boot.extend_from_slice(&bios.stage2);
 
-    let payload = make_payload(
-        &kernel,
-        &[("config.bin", &config_bin), ("keyring.bin", &keyring_blob), ("tiny-init", &tiny_init), ("bootx64.efi", &efi), ("bios-boot", &bios_boot)],
-    )?;
-
-    let tree = root().join("target/iso_root");
-    let _ = std::fs::remove_dir_all(&tree);
-    std::fs::create_dir_all(tree.join("boot"))?;
-    let (efi_file, payload_file) = (root().join("target/BOOTX64.EFI"), root().join("target/payload.bin"));
-    std::fs::write(&efi_file, &efi)?;
-    std::fs::write(&payload_file, &payload)?;
-    let efi_img = tree.join("boot/efi.img");
-    make_efi_image(&efi_file, &payload_file, &efi_img)?;
-    let payload_in_efi_img = find_in_image(&std::fs::read(&efi_img)?, &payload)?;
-    let mut bios_img = bios.stage1.to_vec();
-    bios_img.resize(bootinfo::bios::S2_ALIGN, 0);
-    bios_img.extend_from_slice(&bios.stage2);
-    std::fs::write(tree.join("boot/bios.img"), bios_img)?;
+    let work = workdir(opts);
+    let tree = work.join("iso_root");
+    let (payload, payload_in_efi_img) = stage(opts, "payload", || {
+        let payload = make_payload(
+            &kernel,
+            &[("config.bin", &config_bin), ("keyring.bin", &keyring_blob), ("tiny-init", &tiny_init), ("bootx64.efi", &efi), ("bios-boot", &bios_boot)],
+        )?;
+        let _ = std::fs::remove_dir_all(&tree);
+        std::fs::create_dir_all(tree.join("boot"))?;
+        let (efi_file, payload_file) = (work.join("BOOTX64.EFI"), work.join("payload.bin"));
+        std::fs::write(&efi_file, &efi)?;
+        std::fs::write(&payload_file, &payload)?;
+        let efi_img = tree.join("boot/efi.img");
+        make_efi_image(&efi_file, &payload_file, &efi_img)?;
+        let at = find_in_image(&std::fs::read(&efi_img)?, &payload)?;
+        let mut bios_img = bios.stage1.to_vec();
+        bios_img.resize(bootinfo::bios::S2_ALIGN, 0);
+        bios_img.extend_from_slice(&bios.stage2);
+        std::fs::write(tree.join("boot/bios.img"), bios_img)?;
+        Ok((payload, at))
+    })?;
 
     let iso = opts.out.clone().unwrap_or_else(iso_path);
-    if let Some(dir) = iso.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    // libvirt may have taken ownership of a previous ISO; unlinking works, overwriting does not.
-    let _ = std::fs::remove_file(&iso);
-    run(Command::new("xorriso")
-        .args(["-as", "mkisofs", "-R", "-r", "-no-pad"])
-        .args(["-b", "boot/bios.img", "-no-emul-boot", "-boot-load-size", "4"])
-        .args(["--efi-boot", "boot/efi.img"])
-        .args(["-efi-boot-part", "--efi-boot-image", "--protective-msdos-label"])
-        .arg(&tree)
-        .arg("-o")
-        .arg(&iso))?;
+    stage(opts, "iso", || {
+        if let Some(dir) = iso.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        // libvirt may have taken ownership of a previous ISO; unlinking works, overwriting does not.
+        let _ = std::fs::remove_file(&iso);
+        run(Command::new("xorriso")
+            .args(["-as", "mkisofs", "-R", "-r", "-no-pad"])
+            .args(["-b", "boot/bios.img", "-no-emul-boot", "-boot-load-size", "4"])
+            .args(["--efi-boot", "boot/efi.img"])
+            .args(["-efi-boot-part", "--efi-boot-image", "--protective-msdos-label"])
+            .arg(&tree)
+            .arg("-o")
+            .arg(&iso))?;
 
-    // Tell the BIOS stages where things lie in the finished image.
-    let mut img = std::fs::read(&iso)?;
-    let extent = |path: &str| crate::bios::iso_extent(&img, path).ok_or_else(|| format!("{path} is not in the ISO"));
-    let (bios_img, efi_extent) = (extent("boot/bios.img")?, extent("boot/efi.img")?);
-    crate::bios::patch_iso(&mut img, &bios, bios_img.0, efi_extent.0 + payload_in_efi_img as u64, payload.len() as u64)?;
-    std::fs::write(&iso, &img)?;
+        // Tell the BIOS stages where things lie in the finished image.
+        let mut img = std::fs::read(&iso)?;
+        let extent = |path: &str| crate::bios::iso_extent(&img, path).ok_or_else(|| format!("{path} is not in the ISO"));
+        let (bios_img, efi_extent) = (extent("boot/bios.img")?, extent("boot/efi.img")?);
+        crate::bios::patch_iso(&mut img, &bios, bios_img.0, efi_extent.0 + payload_in_efi_img as u64, payload.len() as u64)?;
+        std::fs::write(&iso, &img)?;
+        Ok(())
+    })?;
+    let data = std::fs::read(&iso)?;
+    let sha256: String = sha2::Sha256::digest(&data).iter().map(|b| format!("{b:02x}")).collect();
     println!("built {}", iso.display());
+    emit(
+        opts,
+        Event::Done { path: iso.display().to_string(), size: data.len() as u64, sha256, profile: resolved.profile.name().into(), config: opts.config.display().to_string() },
+    );
     Ok(iso)
 }
 
 pub fn size(opts: &Options) -> Result<()> {
     let iso = build(opts)?;
-    let tree = root().join("target/iso_root");
+    let tree = workdir(opts).join("iso_root");
     let mut files: Vec<(u64, String)> = Vec::new();
     fn walk(dir: &std::path::Path, base: &std::path::Path, out: &mut Vec<(u64, String)>) -> std::io::Result<()> {
         for e in std::fs::read_dir(dir)? {

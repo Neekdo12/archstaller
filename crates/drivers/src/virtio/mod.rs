@@ -1,5 +1,7 @@
 //! virtio 1.x over PCI (modern transport only), split virtqueues, polled.
+#[cfg(feature = "virtio-blk")]
 mod blk;
+#[cfg(feature = "virtio-net")]
 mod net;
 
 use crate::dma::Dma;
@@ -33,16 +35,20 @@ pub fn probe(dev: &PciDevice, out: &mut Devices) {
     }
     // Transitional ids 0x1000..=0x103f and modern ids 0x1040 + type.
     let kind = match dev.device {
+        #[cfg(feature = "virtio-net")]
         0x1000 | 0x1041 => Kind::Net,
+        #[cfg(feature = "virtio-blk")]
         0x1001 | 0x1042 => Kind::Blk,
         _ => return,
     };
     let Some(t) = Transport::new(dev) else { return };
     match kind {
+        #[cfg(feature = "virtio-blk")]
         Kind::Blk => match blk::VirtioBlk::new(t) {
             Ok(d) => out.block.push(Box::new(d)),
             Err(_) => {}
         },
+        #[cfg(feature = "virtio-net")]
         Kind::Net => match net::VirtioNet::new(t) {
             Ok(d) => out.net.push(Box::new(d)),
             Err(_) => {}
@@ -51,7 +57,9 @@ pub fn probe(dev: &PciDevice, out: &mut Devices) {
 }
 
 enum Kind {
+    #[cfg(feature = "virtio-blk")]
     Blk,
+    #[cfg(feature = "virtio-net")]
     Net,
 }
 

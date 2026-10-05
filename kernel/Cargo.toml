@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 config = { path = "../config" }
 hal = { path = "../crates/hal" }
-drivers = { path = "../crates/drivers" }
+drivers = { path = "../crates/drivers", default-features = false }
 net = { path = "../crates/net" }
 pgp-lite = { path = "../crates/pgp-lite" }
 pkg = { path = "../crates/pkg" }
@@ -24,6 +24,17 @@ spinning_top = "0.3"
 postcard = { version = "1", default-features = false, features = ["alloc"] }
 
 [features]
+# Installer drivers (see hostcfg's catalogue); all on by default, `xtask` builds with only the
+# ones the config's `installer_drivers` lists.
+default = ["virtio-blk", "virtio-net", "ahci", "nvme", "e1000", "igb", "r8169", "rtl8139"]
+virtio-blk = ["drivers/virtio-blk"]
+virtio-net = ["drivers/virtio-net"]
+ahci = ["drivers/ahci"]
+nvme = ["drivers/nvme"]
+e1000 = ["drivers/e1000"]
+igb = ["drivers/igb"]
+r8169 = ["drivers/r8169"]
+rtl8139 = ["drivers/rtl8139"]
 # Verbose driver and network tracing (the tester preset always builds with it).
 debug = ["hal/debug"]
 fault-test = []

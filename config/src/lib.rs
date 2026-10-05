@@ -41,7 +41,35 @@ pub struct Config {
     /// `disk.confirm_serial` is not needed. The kernel wraps every disk so writes are refused.
     #[serde(default)]
     pub dry_run: bool,
+    /// Scripts run as root, in order, at the end of the first boot (after users and services).
+    #[serde(default)]
+    pub scripts: Vec<Script>,
 }
+
+/// A first-boot script. Exactly one source: none of `file`/`url` (a built-in script of that `id`),
+/// `file` (a local file; `xtask` reads it into `content` at build time), or `url` + `sha256`
+/// (downloaded by the installer and checked against the digest).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Script {
+    pub id: String,
+    /// Extra arguments, passed to the script as separate words (no spaces, quotes or shell syntax).
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Host only: path of a local script, relative to the config file.
+    #[serde(default)]
+    pub file: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Lower-case hex SHA-256 of the script at `url`; required with `url`.
+    #[serde(default)]
+    pub sha256: Option<String>,
+    /// The script itself, filled in by `xtask`.
+    #[serde(default)]
+    pub content: Option<Vec<u8>>,
+}
+
+/// The largest script the installer will embed or download.
+pub const SCRIPT_MAX: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserArchive {
@@ -176,6 +204,43 @@ impl Config {
         for a in &self.user_archives {
             if !a.url.starts_with("https://") || a.url.chars().any(|c| c.is_whitespace() || c == '\'' || c == '"') {
                 return bad("user_archives url (https:// only)", &a.url);
+            }
+        }
+        if self.scripts.len() > 32 {
+            return Err("at most 32 scripts".into());
+        }
+        for (i, sc) in self.scripts.iter().enumerate() {
+            let at = |m: &str| Err(format!("scripts[{}]: {m}", i + 1));
+            if !ident(&sc.id, "._-") {
+                return at(&format!("invalid id {:?}", sc.id));
+            }
+            if self.scripts[..i].iter().any(|o| o.id == sc.id) {
+                return at(&format!("id {:?} is used twice", sc.id));
+            }
+            if sc.args.len() > 16 || sc.args.iter().any(|a| !ident(a, "._=:/@+,-")) {
+                return at("args must be at most 16 words of [A-Za-z0-9._=:/@+,-]");
+            }
+            if sc.file.is_some() && sc.url.is_some() {
+                return at("give either file or url, not both");
+            }
+            if sc.file.as_deref() == Some("") {
+                return at("file is empty");
+            }
+            match (&sc.url, &sc.sha256) {
+                (Some(u), Some(h)) => {
+                    if !u.starts_with("https://") || u.chars().any(|c| c.is_whitespace() || c == '\'' || c == '"') {
+                        return at("url must be https:// without spaces or quotes");
+                    }
+                    if h.len() != 64 || !h.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)) {
+                        return at("sha256 must be 64 lower-case hex digits");
+                    }
+                }
+                (Some(_), None) => return at("a downloaded script needs its sha256"),
+                (None, Some(_)) => return at("sha256 only makes sense with url"),
+                (None, None) => {}
+            }
+            if sc.content.as_ref().is_some_and(|c| c.len() > SCRIPT_MAX) {
+                return at("script is larger than 64 KiB");
             }
         }
         Ok(())

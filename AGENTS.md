@@ -18,6 +18,7 @@ Do not run `git commit` (or `git push`). Leave changes staged/unstaged for the u
 - No Linux kernel anywhere in the installer path. `kernel/` is a `no_std` `x86_64-unknown-none` binary.
 - The boot loader is ours (`boot/`, `crates/loadcore`, `crates/bootinfo`); `bootinfo` is the contract with the kernel, and `crates/bootinfo`'s
   payload and BIOS patch formats are shared with `xtask` (`iso.rs`, `bios.rs`) and the installer (`kernel/src/install.rs`): change all sides together.
+- Host-side config rules live in `crates/hostcfg` (Lua loading, profiles, driver/script catalogues, validation) and are used by `xtask` and `gui/`; do not duplicate validation in either. GUI dependencies (egui, rfd, ...) stay in `gui/` and `hostcfg`, never in `kernel/`, `config/` or the boot path.
 - Drivers are polling only, no device interrupts. The only other interrupt is the 1 kHz PIT tick (`kernel/src/idle.rs`) that lets
   idle polling loops `hlt` via `hal::idle()`; interrupts are off everywhere else. Follow the style in
   `crates/drivers/src/e1000.rs` / `nvme.rs` for new drivers.

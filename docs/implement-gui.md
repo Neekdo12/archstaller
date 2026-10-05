@@ -1,6 +1,9 @@
 # Archstaler GUI Implementation Specification
 
-Status: proposed; the GUI and host-side USB writing workflow are not implemented.
+Status: phases 1-4 implemented (`crates/hostcfg`, `gui/`): shared config/profile model, config editor, ISO build with
+progress, Ventoy/folder copy with hash verification. Not implemented: direct flash (phase 5) and AUR (phase 6).
+Deviations from this text: `extra-large` is reserved (rejected until a second optional build feature exists);
+`--small`/`--super-small` still work as deprecated overrides; the GUI is cross-platform, raw flash will be Linux-only.
 
 ## Goal
 

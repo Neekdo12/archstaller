@@ -29,7 +29,8 @@ OVMF (`/usr/share/edk2/x64`). `rust-toolchain.toml` selects the toolchain.
 cargo xtask build --debug    # verbose driver/network tracing (always on for the tester preset)
 cargo xtask presets          # one ISO per preset -> target/isos/archstaler-<preset>.iso (with USB tethering; --no-tethering leaves it out)
 cargo xtask build            # a single ISO from examples/config.lua -> target/archstaler.iso
-cargo xtask build --small    # size-optimized kernel (build-std, no panic messages); `--super-small` is an alias
+cargo xtask build --profile large   # regular release build, panic messages kept (the default profile is `super-small`; or set `build.profile` in the config)
+cargo run -p archstaler-gui         # desktop app: edit a config, check it, build the ISO, copy it to a Ventoy stick
 cargo xtask build --config path/to/my.lua --out my.iso
 ```
 
@@ -163,6 +164,9 @@ Configs are Lua files evaluated on the **build host**; the result is serialized 
 | `user_archives` | `{ { url }, ... }`: `https://` zip archives (max 16 MiB) downloaded by the installer and extracted on first boot into the home directory of every configured user (paths inside the zip are relative to the home, e.g. `.config/hypr/hyprland.lua`), as that user. Same failure handling as `user_files`; an answer that is not a zip is skipped too |
 | `services` | units enabled on first boot |
 | `kernel_params` | appended to the kernel command line |
+| `scripts` | `{ { id, args?, file? \| url?+sha256? }, ... }`: run as root, in order, at the end of the first boot. An `id` alone is a built-in script (`enable-sshd`, `enable-fstrim`); `file` is a local script embedded at build time (max 64 KiB); `url` must be `https://` and pinned by `sha256` (the installer fails on a mismatch). A failing script only logs a warning |
+| `build.profile`, `build.tethering` | host-only: `super-small` (default) or `large` installer build; include USB tethering. `extra-large` is reserved |
+| `installer_drivers` | host-only: installer drivers to include (`virtio-blk ahci nvme virtio-net e1000 igb r8169 rtl8139`); all if absent, at least one storage and one network driver (or `build.tethering`) otherwise |
 
 Config values end up in shell-read data files, unit files and boot loader configuration, so `xtask`
 validates them strictly at build time and rejects anything with unexpected characters.
@@ -229,18 +233,20 @@ validates them strictly at build time and rejects anything with unexpected chara
 | `crates/bootinfo`, `crates/loadcore` | loader/kernel contract and the firmware-independent loader core |
 | `tiny-init/` | the initramfs `init` (raw syscalls, no libc) |
 | `firstboot/` | systemd units and script for the first boot |
+| `crates/hostcfg` | host-only config model shared by `xtask` and the GUI: Lua loading, build profiles, driver and script catalogues, Lua writer, package resolution preview, build progress events |
+| `gui/` | `archstaler-gui`, the desktop app (egui): config editor, ISO build, Ventoy copy |
 | `presets/`, `examples/` | Lua configs |
 
 ## Testing
 
 ```sh
-cargo test --release -p pgp-lite --features std -p pkg -p ext4w -p disk -p initrd
+cargo test --release -p pgp-lite --features std -p pkg -p ext4w -p disk -p initrd -p hostcfg -p archstaler-gui -p loadcore
 cargo xtask linux-test                       # boots the host kernel with our initramfs and an ext4w root
 cargo xtask e2e [--uefi] [--disk ahci --nic e1000]   # install onto a blank disk, then boot twice
 cargo xtask e2e --config presets/i3.lua      # the same for a preset
 cargo xtask run --usb --headless            # xHCI smoke test: qemu-xhci + usb-storage, SCSI INQUIRY
 cargo xtask run --selftest --headless --nic usb-rndis   # DHCP + HTTPS + 1 MB over an emulated Android RNDIS adapter
-cargo xtask size [--small] [--limit BYTES]   # ISO contents and size limit check
+cargo xtask size [--profile large] [--limit BYTES]   # ISO contents and size limit check
 cargo xtask check-presets                    # resolve every preset against the local pacman databases
 cargo xtask update-keyring                   # move the keyring pin to the newest release
 ```
@@ -253,7 +259,7 @@ every run (a partition table left by an earlier run would make the firmware try 
 `xtask e2e` overwrites nothing of yours, but `xtask run --selftest` builds are destructive to every disk
 they see and are meant for QEMU scratch disks only.
 
-`--small` builds the kernel and the loaders with `build-std` and immediate-abort panics: smaller, but panic
+`super-small` (default profile) builds the kernel and the loaders with `build-std` and immediate-abort panics: smaller, but panic
 messages are lost. The payload is always stored deflate-compressed; the ISO is about 0.77 MiB. Both firmware
 paths boot in QEMU, and the BIOS path also when the ISO is written to a disk or USB stick (hybrid MBR).
 
@@ -273,5 +279,5 @@ the journal and is not persisted.
 USB tethering: the iPhone path worked on real hardware (an ASUS ExpertBook with an unlocked iPhone); the Android path (RNDIS, CDC-ECM) worked on one real phone and in QEMU's emulated adapters; the AX88179 dongle worked on real hardware. `xtask e2e` does not exercise tethering.
 
 Not supported: Wi-Fi, USB devices other than tethering phones and Ethernet dongles, ARM and Raspberry Pi, and installing onto anything but NVMe, SATA/AHCI and virtio
-disks. The ISO is about 2.4 MB (2.3 MB with `--small`; tethering adds about 105 KiB); the design notes in `PLAN.md` describe what was
+disks. The ISO is about 0.7 MB (`super-small`) to 0.8 MB (`large`); tethering adds about 105 KiB; the design notes in `PLAN.md` describe what was
 aimed at and what remains.

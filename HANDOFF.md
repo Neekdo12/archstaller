@@ -52,7 +52,7 @@ commits and pushes; leave changes uncommitted. (From the agent's shell, `git pus
 ## Boot loader
 
 Our own loader replaced Limine (`boot/`, `crates/loadcore`, `crates/bootinfo`; see `OVERVIEW.md`). The ISO is ~0.77 MiB.
-`--super-small` is only an alias of `--small` now. Verified in QEMU: `cargo xtask e2e` and `e2e --uefi` pass (install, first boot through our loader, second boot through GRUB);
+`--small`/`--super-small` are deprecated overrides of `--profile super-small` (the default profile); `examples/e2e.lua` and `presets/tester.lua` pin `build.profile = "large"`. Verified in QEMU: `cargo xtask e2e` and `e2e --uefi` pass (install, first boot through our loader, second boot through GRUB);
 the BIOS ISO also boots as a CD, an IDE disk and a USB stick (hybrid MBR). Not tested: real hardware, Ventoy. If the kernel image outgrows 4 MiB, raise `bootinfo::KERNEL_MAX`.
 
 ## Debug flag
@@ -72,7 +72,7 @@ cargo xtask e2e [--uefi] [--disk ahci --nic e1000]      # full install and two b
 cargo test -p usb -p imobiledevice -p usbnet --features usb/std,imobiledevice/std
 cargo test -p net                         # includes the DHCP probe/decline tests (no `std` feature)
 QEMU_EXTRA='-trace usb_* -D /tmp/qtrace.log' cargo xtask run ...   # raw QEMU args
-cargo xtask size [--small|--super-small]   # ISO ~0.77 MiB; tethering adds ~105 KiB
+cargo xtask size [--profile super-small|large]   # ISO ~0.77 MiB; tethering adds ~105 KiB
 ```
 
 `presets/tester.lua` is a read-only dry run: probes hardware, brings up the network (wired, then tethering if no

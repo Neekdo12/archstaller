@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 hal = { path = "../hal" }
-drivers = { path = "../drivers" }
+drivers = { path = "../drivers", default-features = false }
 
 [features]
 std = []

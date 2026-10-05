@@ -86,7 +86,7 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
     let default_cfg = root().join("examples/config.lua");
     // A preset can be tested with --config; otherwise use the serial-locked e2e config.
     let config = if opts.config != default_cfg { opts.config.clone() } else { root().join("examples/e2e.lua") };
-    let o = Options { config: config.clone(), fault_test: false, selftest: false, small: opts.small, super_small: opts.super_small, limit: opts.limit, out: Some(dir.join("e2e.iso")), extra_kernel_params: vec!["console=ttyS0,115200".into()], uefi: opts.uefi, headless: true, disk: opts.disk.clone(), nic: opts.nic.clone(), usb: false, tethering: false, debug: opts.debug };
+    let o = Options { config: config.clone(), fault_test: false, selftest: false, profile: opts.profile, legacy_small: opts.legacy_small, limit: opts.limit, out: Some(dir.join("e2e.iso")), extra_kernel_params: vec!["console=ttyS0,115200".into()], uefi: opts.uefi, headless: true, disk: opts.disk.clone(), nic: opts.nic.clone(), usb: false, tethering: false, debug: opts.debug, progress: false, workdir: None };
     let iso_path = iso::build(&o)?;
 
     let disk = dir.join(format!("disk-{mode}.img"));

@@ -1,6 +1,15 @@
 -- Example archstaler config. Evaluated on the host at ISO build time.
 -- Generate password hashes with:  openssl passwd -6
 return {
+  -- Build-host settings (not part of what the installer receives):
+  build = {
+    profile = "super-small",  -- "super-small" (default, smallest installer) or "large" (keeps panic messages)
+    tethering = false,        -- include USB tethering (iPhone, Android, USB Ethernet) in the installer
+  },
+  -- Installer drivers to include; leave it out for all of them. Needs at least one storage and one
+  -- network driver (or build.tethering). Ids: virtio-blk ahci nvme virtio-net e1000 igb r8169 rtl8139
+  -- installer_drivers = { "virtio-blk", "ahci", "nvme", "virtio-net", "e1000" },
+
   hostname = "archbox",
   timezone = "Europe/Prague",
   locale = "en_US.UTF-8",

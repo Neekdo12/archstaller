@@ -1,5 +1,8 @@
 -- Configuration for `cargo xtask e2e`: a minimal system installed onto the QEMU test disk.
 return {
+  -- Keep panic messages for debugging the installer under test (the default profile is "super-small").
+  build = { profile = "large" },
+
   hostname = "archbox",
   timezone = "Europe/Prague",
   locale = "en_US.UTF-8",
@@ -18,6 +21,8 @@ return {
   },
 
   services = { "systemd-networkd.service", "ly@tty2.service" },
+  -- Exercises the first-boot script runner.
+  scripts = { { id = "enable-fstrim" } },
   kernel_params = { "console=ttyS0,115200" },
 
   -- Exercises both paths: a file that downloads, and a server that does not exist (must only warn).

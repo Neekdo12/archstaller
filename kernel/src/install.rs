@@ -522,6 +522,36 @@ pub fn run(cfg: &Config, mut devs: Devices, keyring: &Keyring, boot: &BootFiles)
     }
     put(&w, &format!("{STATE_DIR}/userarchives.list"), 0o644, userarchives.as_bytes())?;
 
+    // First-boot scripts: built-in and local ones travel inside the config; a downloaded one must
+    // match its digest (a mismatch fails the install, an unreachable server only skips the script).
+    let mut scripts = String::new();
+    for (i, s) in cfg.scripts.iter().enumerate() {
+        let data = match (&s.content, &s.url, &s.sha256) {
+            (Some(c), ..) => c.clone(),
+            (None, Some(url), Some(want)) => match fetch_optional(&client, &mut stack, url, config::SCRIPT_MAX) {
+                Ok(d) => {
+                    let got: String = Sha256::digest(&d).iter().map(|b| format!("{b:02x}")).collect();
+                    if &got != want {
+                        return Err(format!("script {} from {url} does not match its sha256 (got {got})", s.id));
+                    }
+                    d
+                }
+                Err(e) => {
+                    println!("warning: skipping script {}: {e}", s.id);
+                    continue;
+                }
+            },
+            _ => {
+                println!("warning: skipping script {}: no content", s.id);
+                continue;
+            }
+        };
+        put(&w, &format!("{STATE_DIR}/scripts/{i}.sh"), 0o700, &data)?;
+        scripts.push_str(&format!("{i}:{}:{}\n", s.id, s.args.join(" ")));
+        println!("script {} ({} bytes) will run at the end of the first boot", s.id, data.len());
+    }
+    put(&w, &format!("{STATE_DIR}/scripts.list"), 0o644, scripts.as_bytes())?;
+
     let files: Vec<String> = resolution.packages.iter().map(|s| s.pkg.filename.clone()).collect();
     let deps: Vec<String> = resolution.packages.iter().filter(|s| !s.explicit).map(|s| s.pkg.name.clone()).collect();
     let mut users = String::new();
