@@ -388,7 +388,17 @@ pub fn run(cfg: &Config, mut devs: Devices, keyring: &Keyring, boot: &BootFiles)
         db_bytes.push((repo, bytes));
     }
     let providers: BTreeMap<String, String> = cfg.providers.iter().cloned().collect();
-    let resolution = pkg::resolve::Resolver::new(&dbs, &providers).resolve(&cfg.packages).map_err(dbg_err("dependency resolution"))?;
+    // The official packages the AUR recipes need (to build and to run) are installed with the rest; the
+    // AUR packages themselves are built by the installed system (firstboot/archstaler-aur.sh).
+    let mut wanted = cfg.packages.clone();
+    for a in &cfg.aur {
+        for d in &a.deps {
+            if !wanted.contains(d) {
+                wanted.push(d.clone());
+            }
+        }
+    }
+    let resolution = pkg::resolve::Resolver::new(&dbs, &providers).resolve(&wanted).map_err(dbg_err("dependency resolution"))?;
     for a in &resolution.ambiguities {
         println!("note: {} is provided by {:?}; using {} (set providers.{} to choose)", a.dep, a.candidates, a.chosen, a.dep);
     }
@@ -553,7 +563,9 @@ pub fn run(cfg: &Config, mut devs: Devices, keyring: &Keyring, boot: &BootFiles)
     put(&w, &format!("{STATE_DIR}/scripts.list"), 0o644, scripts.as_bytes())?;
 
     let files: Vec<String> = resolution.packages.iter().map(|s| s.pkg.filename.clone()).collect();
-    let deps: Vec<String> = resolution.packages.iter().filter(|s| !s.explicit).map(|s| s.pkg.name.clone()).collect();
+    // Packages named only because an AUR recipe needs them are dependencies, not explicit installs.
+    let aur_only = |n: &str| !cfg.packages.iter().any(|p| p == n) && cfg.aur.iter().any(|a| a.deps.iter().any(|d| d == n));
+    let deps: Vec<String> = resolution.packages.iter().filter(|s| !s.explicit || aur_only(&s.pkg.name)).map(|s| s.pkg.name.clone()).collect();
     let mut users = String::new();
     for u in &cfg.users {
         users.push_str(&format!("{}:{}:{}:{}\n", u.name, u.password_hash, u.groups.join(","), u.shell));
@@ -566,6 +578,25 @@ pub fn run(cfg: &Config, mut devs: Devices, keyring: &Keyring, boot: &BootFiles)
     put(&w, &format!("{STATE_DIR}/cmdline"), 0o644, cmdline.as_bytes())?;
     if let Some(h) = &cfg.root_password_hash {
         put(&w, &format!("{STATE_DIR}/root.hash"), 0o600, h.as_bytes())?;
+    }
+    // AUR packages: one `name:pkgbase:commit:sha256:vcs:as_dep:services` line each, in build order. The
+    // build-only official packages are listed so the build script can offer to remove them.
+    let mut aur = String::new();
+    let mut aur_builddeps: Vec<String> = Vec::new();
+    for a in &cfg.aur {
+        aur.push_str(&format!("{}:{}:{}:{}:{}:{}:{}\n", a.name, a.pkgbase, a.commit, a.sha256, u8::from(a.vcs), u8::from(a.as_dep), a.services.join(",")));
+        for d in &a.build_deps {
+            if !aur_builddeps.contains(d) && !cfg.packages.contains(d) {
+                aur_builddeps.push(d.clone());
+            }
+        }
+        println!("AUR package {} ({}) will be built on the first boot after the install", a.name, if a.vcs { "VCS source, not pinned by the commit" } else { "pinned" });
+    }
+    if !cfg.aur.is_empty() {
+        put(&w, &format!("{STATE_DIR}/aur.list"), 0o644, aur.as_bytes())?;
+        put(&w, &format!("{STATE_DIR}/aur_builddeps.list"), 0o644, lines(&aur_builddeps).as_bytes())?;
+        put(&w, "usr/lib/systemd/system/archstaler-aur.service", 0o644, include_bytes!("../../firstboot/archstaler-aur.service"))?;
+        put(&w, "usr/lib/archstaler/aur.sh", 0o755, include_bytes!("../../firstboot/archstaler-aur.sh"))?;
     }
     put(&w, &format!("{STATE_DIR}/firstboot"), 0o644, b"1\n")?;
     put(&w, "usr/lib/systemd/system/archstaler-firstboot.target", 0o644, include_bytes!("../../firstboot/archstaler-firstboot.target"))?;

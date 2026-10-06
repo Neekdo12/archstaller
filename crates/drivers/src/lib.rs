@@ -5,6 +5,8 @@ extern crate alloc;
 
 #[cfg(feature = "ahci")]
 pub mod ahci;
+#[cfg(feature = "alx")]
+pub mod alx;
 #[cfg(feature = "ata")]
 pub mod ata;
 pub mod dma;
@@ -20,6 +22,10 @@ pub mod platform;
 pub mod port;
 #[cfg(feature = "r8169")]
 pub mod r8169;
+#[cfg(feature = "vmxnet3")]
+pub mod vmxnet3;
+#[cfg(feature = "r8169")]
+mod r8169_chip;
 #[cfg(feature = "rtl8139")]
 pub mod rtl8139;
 #[cfg(any(feature = "virtio-blk", feature = "virtio-net"))]
@@ -42,6 +48,8 @@ pub fn probe_all() -> Devices {
         virtio::probe(&dev, &mut devs);
         #[cfg(feature = "ahci")]
         ahci::probe(&dev, &mut devs);
+        #[cfg(feature = "alx")]
+        alx::probe(&dev, &mut devs);
         #[cfg(feature = "ata")]
         ata::probe(&dev, &mut devs);
         #[cfg(feature = "nvme")]
@@ -52,6 +60,8 @@ pub fn probe_all() -> Devices {
         igb::probe(&dev, &mut devs);
         #[cfg(feature = "r8169")]
         r8169::probe(&dev, &mut devs);
+        #[cfg(feature = "vmxnet3")]
+        vmxnet3::probe(&dev, &mut devs);
         #[cfg(feature = "rtl8139")]
         rtl8139::probe(&dev, &mut devs);
     }

@@ -88,9 +88,11 @@ Scripts are executable code, not harmless config values. Never execute a selecte
 
 ### Packages and AUR
 
+The detailed AUR plan is in `docs/aur.md`; the notes below are the original constraints.
+
 Keep official repository packages in the existing `packages` list and make individual package/group selection visible, including the resolved dependency set and ambiguous provider choices. Validate against the same package metadata and dependency rules used by the build/install workflow.
 
-AUR packages require a separate host-side build pipeline; the current installer resolver covers Arch `core` and `extra`, and the `no_std` installer cannot run `makepkg` or arbitrary PKGBUILDs. Do not fetch/build an AUR package on the installed target during the unattended kernel install.
+AUR packages are not built by the `no_std` installer, which cannot run `makepkg` or arbitrary PKGBUILDs, and nothing AUR-related is shipped in the ISO. The decided design (`docs/aur.md`) pins and reviews packages on the host, and builds them on the installed target in a separate first-boot service, never during the unattended kernel install.
 
 For an initial AUR-capable design:
 

@@ -6,6 +6,7 @@ description = "Desktop app to compose an archstaler config, build the ISO and co
 
 [dependencies]
 hostcfg = { path = "../crates/hostcfg", features = ["net"] }
+aurbuild = { path = "../crates/aurbuild", features = ["net"] }
 config = { path = "../config", features = ["std"] }
 eframe = { version = "0.32", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 rfd = "0.15"

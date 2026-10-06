@@ -27,6 +27,7 @@ OVMF (`/usr/share/edk2/x64`). `rust-toolchain.toml` selects the toolchain.
 
 ```sh
 cargo xtask build --debug    # verbose driver/network tracing (always on for the tester preset)
+cargo xtask aur-pin NAME [--commit C]   # review an AUR package and print the `aur_packages` entry that pins it (see docs/aur.md)
 cargo xtask presets          # one ISO per preset -> target/isos/archstaler-<preset>.iso (with USB tethering; --no-tethering leaves it out)
 cargo xtask build            # a single ISO from examples/config.lua -> target/archstaler.iso
 cargo xtask build --profile large   # regular release build, panic messages kept (the default profile is `super-small`; or set `build.profile` in the config)
@@ -97,19 +98,24 @@ cargo xtask run --uefi --disk nvme --nic e1000e
   packages come from the network, so the stick can be pulled once the installer's first log lines have
   appeared. **Pull it before the final reboot**: if the firmware still prefers the stick, the machine boots
   the installer again and, with `auto_largest`, erases the system that was just installed.
-- Networking: wired PCI NICs, plus optional iPhone and Android USB tethering and USB Ethernet dongles (below). No Wi-Fi. The installer recognizes 71 PCI device IDs in these driver families:
-  virtio-net (2 IDs), Intel e1000 (14) and e1000e (10), Intel igb (28, the 82576/82580/I350/I210/I211
-  generations) and igc (10, I225/I226), Realtek RTL8168/8169 (4) and RTL8125/8126 (2), and the old Realtek
-  RTL8139 (1). Tested in QEMU's emulated NICs: virtio, e1000, e1000e, igb and rtl8139, each with an
-  ARP exchange, DHCP, a TLS download from the Arch mirror and a 1 MB HTTP transfer, and for igb and
-  rtl8139 also the start of a real installation. **Real hardware**: the RTL8168evl/8111evl (xid 0x2c9, Gigabyte GA-F2A88XM-D3H) works, including DHCP, the
-  package downloads and a full install, on a network that needed the DHCP address probe (below); the AX88179 USB
-  dongle works too. **Never run**: igc, the other RTL8168/8169 revisions and RTL8125/8126, because QEMU has no
-  models for them; they follow the Linux drivers' setup and may not work on a given chip revision (the RTL8125/8126
-  in particular need chip-specific tuning in Linux). Some PCI IDs, especially
-  igc's, were written from memory and are unchecked. Newer Intel chips that share an ID (for example the
-  PCH-integrated I217/I219) may need setup the e1000e driver does not do. Not supported: Broadcom `tg3`,
-  Marvell/Aquantia `atlantic`, VMware `vmxnet3` and 10 Gbit NICs.
+- Networking: wired PCI NICs, plus optional iPhone and Android USB tethering and USB Ethernet dongles (below). No Wi-Fi. The installer drives these families (the exact PCI ids are in each driver):
+  virtio-net; Intel e1000 (every id of Linux's `e1000`: 8254x) and e1000e (82571-82574, 82583, 80003ES2LAN, ICH8-ICH10,
+  PCH 82577-82579, I217, I218, I219) and igb/igc (82576, 82580, I350, I210/I211, I225/I226); Realtek RTL8101/8102/8103/
+  8105/8106 (the 100 Mbit/s 8136), RTL8168/8111 steppings b, c, cp, d, dp, e, evl, f, g, h, ep, RTL8411, RTL8169
+  s/sb/sc, RTL8125/8126 and RTL8139; Qualcomm Atheros AR8131/8132/8151/8152 (atl1c) and AR8161/8162/8171/8172 and
+  Killer E2200/E2400/E2500 (alx); VMware vmxnet3. Realtek chips are identified by their TxConfig revision and get
+  Linux's per-revision start sequence (the 8168/8111 revision is printed in the log). Tested in QEMU's emulated NICs:
+  virtio, e1000, e1000e, igb, rtl8139 and vmxnet3, each with an ARP exchange, DHCP, a TLS download from the Arch
+  mirror and a 1 MB HTTP transfer, and for igb and rtl8139 also the start of a real installation. **Real hardware**:
+  the RTL8168evl/8111evl (xid 0x2c9, Gigabyte GA-F2A88XM-D3H) works, including DHCP, the package downloads and a full
+  install, on a network that needed the DHCP address probe (below); the AX88179 USB dongle works too. **Never run**:
+  igc, every other Realtek revision (the new start sequences were ported from the Linux driver without the chips),
+  the Atheros drivers and the PCH-integrated Intel parts from the I217 on, because QEMU has no models for them;
+  they follow the Linux drivers' setup and may not work on a given chip revision (the RTL8125/8126 in particular
+  need chip-specific tuning in Linux). Some PCI IDs, especially igc's, were written from memory and are unchecked.
+  When a NIC is not recognized the installer prints every storage and network PCI device it found (`pci 02:00.0
+  10ec:8136 class 020000`). Not supported: Broadcom `tg3`/`bnx2`, Marvell Yukon/`sky2`, JMicron, nVidia nForce,
+  VIA, SiS, Aquantia and 10 Gbit NICs.
 - DHCP behaviour: the offered address is ARP-probed before use, like Linux clients do. If another host already uses it
   (a static device inside a DHCP range), the installer sends a DHCPDECLINE and asks again, up to 4 times. DNS falls
   back to 1.1.1.1 and 8.8.8.8 if the DHCP-provided servers do not answer. Old CPUs without `RDRAND` get a weaker
@@ -166,7 +172,7 @@ Configs are Lua files evaluated on the **build host**; the result is serialized 
 | `kernel_params` | appended to the kernel command line |
 | `scripts` | `{ { id, args?, file? \| url?+sha256? }, ... }`: run as root, in order, at the end of the first boot. An `id` alone is a built-in script (`enable-sshd`, `enable-fstrim`); `file` is a local script embedded at build time (max 64 KiB); `url` must be `https://` and pinned by `sha256` (the installer fails on a mismatch). A failing script only logs a warning |
 | `build.profile`, `build.tethering` | host-only: `super-small` (default) or `large` installer build; include USB tethering. `extra-large` is reserved |
-| `installer_drivers` | host-only: installer drivers to include (`virtio-blk ahci ata nvme virtio-net e1000 igb r8169 rtl8139`); all if absent, at least one storage and one network driver (or `build.tethering`) otherwise |
+| `installer_drivers` | host-only: installer drivers to include (`virtio-blk ahci ata nvme virtio-net vmxnet3 e1000 igb r8169 rtl8139 alx`); all if absent, at least one storage and one network driver (or `build.tethering`) otherwise |
 
 Config values end up in shell-read data files, unit files and boot loader configuration, so `xtask`
 validates them strictly at build time and rejects anything with unexpected characters.
@@ -219,7 +225,7 @@ validates them strictly at build time and rejects anything with unexpected chara
 | `xtask/` | host tooling: Lua evaluation, keyring blob and its pin (`keyring.pin`), payload and ISO assembly, BIOS stage patching, QEMU runs, tests |
 | `config/` | config types shared by `xtask` and the kernel, plus validation |
 | `crates/hal` | `BlockDevice`, `NetDevice`, `Clock`, `Rng` traits |
-| `crates/drivers` | PCI, virtio-blk/net, AHCI, legacy ATA (IDE mode), NVMe, Intel e1000/e1000e/igb/igc, Realtek r8169/r8125/rtl8139 (all polled) |
+| `crates/drivers` | PCI, virtio-blk/net, AHCI, legacy ATA (IDE mode), NVMe, Intel e1000/e1000e/igb/igc, Realtek r8101/r8168/r8169/r8125/rtl8139, Atheros alx/atl1c, VMware vmxnet3 (all polled) |
 | `crates/usb` | xHCI driver with control and bulk transfers (used only for tethering phones and USB dongles) |
 | `crates/imobiledevice` | iPhone USB tethering: plist, usbmuxd, pairing, lockdownd, `NetDevice` adapter |
 | `crates/usbnet` | Android tethering and USB Ethernet dongles: RNDIS, CDC-ECM, CDC-NCM and ASIX AX88179 `NetDevice` |
@@ -233,6 +239,7 @@ validates them strictly at build time and rejects anything with unexpected chara
 | `crates/bootinfo`, `crates/loadcore` | loader/kernel contract and the firmware-independent loader core |
 | `tiny-init/` | the initramfs `init` (raw syscalls, no libc) |
 | `firstboot/` | systemd units and script for the first boot |
+| `crates/aurbuild` | host-only AUR support: search, review, pin and plan (the packages are built on the installed system, see `docs/aur.md`) |
 | `crates/hostcfg` | host-only config model shared by `xtask` and the GUI: Lua loading, build profiles, driver and script catalogues, Lua writer, package resolution preview, build progress events |
 | `gui/` | `archstaler-gui`, the desktop app (egui): config editor, ISO build, Ventoy copy |
 | `presets/`, `examples/` | Lua configs |
@@ -244,6 +251,7 @@ cargo test --release -p pgp-lite --features std -p pkg -p ext4w -p disk -p initr
 cargo xtask linux-test                       # boots the host kernel with our initramfs and an ext4w root
 cargo xtask e2e [--uefi] [--disk ahci|nvme|ide --nic e1000]   # install onto a blank disk, then boot twice
 cargo xtask e2e --config presets/i3.lua      # the same for a preset
+cargo xtask e2e --config examples/e2e-aur.lua   # plus one AUR package, built and installed on the second boot
 cargo xtask run --usb --headless            # xHCI smoke test: qemu-xhci + usb-storage, SCSI INQUIRY
 cargo xtask run --selftest --headless --nic usb-rndis   # DHCP + HTTPS + 1 MB over an emulated Android RNDIS adapter
 cargo xtask size [--profile large] [--limit BYTES]   # ISO contents and size limit check
@@ -270,8 +278,8 @@ install, first boot and a second boot to a login prompt, for the `i3` and `hyprl
 test config, plus the Ventoy boot described above. The `minimal`, `server` and `plasma` presets resolve
 (`check-presets`) but have not been through a full install in the test harness. Verified on real hardware: installs on an old Gigabyte GA-F2A88XM-D3H (RTL8168evl, no RDRAND) through
 first boot; the second boot failed there once with a missing journal, which is fixed by writing a real internal
-journal (checked with `e2fsck`/`debugfs` and in QEMU, not yet re-run on that machine). Not verified: the igc and
-other Realtek drivers (other RTL8168/8169 revisions, RTL8125/8126), real hardware in general, logging in with the default
+journal (checked with `e2fsck`/`debugfs` and in QEMU, not yet re-run on that machine). Not verified: the igc, Atheros and
+new Realtek paths (other RTL8168/8169/8101 revisions, RTL8125/8126), real hardware in general, logging in with the default
 credentials, starting the Hyprland session with the downloaded config, and the UEFI boot entry created by
 `efibootmgr` (GRUB is installed to the fallback path, so booting works through `EFI/BOOT/BOOTX64.EFI`). The first-boot log is only in
 the journal and is not persisted.

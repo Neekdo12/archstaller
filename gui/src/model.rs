@@ -35,7 +35,9 @@ pub fn area_of(message: &str) -> Area {
     let m = message;
     if m.starts_with("scripts[") {
         Area::Scripts
-    } else if m.starts_with("installer_drivers") || m.starts_with("build.") || m.starts_with("aur_packages") {
+    } else if m.starts_with("aur_packages") {
+        Area::Packages
+    } else if m.starts_with("installer_drivers") || m.starts_with("build.") {
         Area::Build
     } else if m.contains("hostname") || m.contains("timezone") || m.contains("locale") || m.contains("keymap") {
         Area::System
@@ -72,6 +74,7 @@ impl Model {
                 user_files: vec![],
                 user_archives: vec![],
                 dry_run: false,
+                aur: vec![],
                 scripts: vec![],
             },
             host: HostConfig::default(),
@@ -273,6 +276,7 @@ mod tests {
         assert_eq!(area_of("disk.confirm_serial must be set"), Area::Disk);
         assert_eq!(area_of("invalid mirror: x"), Area::Packages);
         assert_eq!(area_of("invalid user name: x"), Area::Users);
+        assert_eq!(area_of("aur_packages[1]: commit must be a full 40-digit lower-case hex commit id"), Area::Packages);
         assert_eq!(area_of("invalid service: x"), Area::Services);
     }
 }

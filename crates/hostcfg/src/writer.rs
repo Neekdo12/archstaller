@@ -39,6 +39,37 @@ fn opt(name: &str, v: &Option<String>) -> Option<String> {
     v.as_ref().map(|s| format!("{name} = {}", lua_str(s)))
 }
 
+/// The `aur_packages = { ... }` table for a config (empty string when there are no packages).
+pub fn aur_block(aur: &[config::AurPackage]) -> String {
+    let mut o = String::new();
+    if aur.is_empty() {
+        return o;
+    }
+    writeln!(o, "  -- Built on the installed system at its first boot, from the pinned and reviewed recipe.").unwrap();
+    writeln!(o, "  aur_packages = {{").unwrap();
+    for a in aur {
+        let mut f = vec![format!("name = {}", lua_str(&a.name)), format!("pkgbase = {}", lua_str(&a.pkgbase)), format!("commit = {}", lua_str(&a.commit)), format!("sha256 = {}", lua_str(&a.sha256))];
+        if a.vcs {
+            f.push("vcs = true".into());
+        }
+        if a.as_dep {
+            f.push("as_dep = true".into());
+        }
+        if !a.deps.is_empty() {
+            f.push(format!("deps = {}", list(&a.deps)));
+        }
+        if !a.build_deps.is_empty() {
+            f.push(format!("build_deps = {}", list(&a.build_deps)));
+        }
+        if !a.services.is_empty() {
+            f.push(format!("services = {}", list(&a.services)));
+        }
+        writeln!(o, "    {{ {} }},", f.join(", ")).unwrap();
+    }
+    writeln!(o, "  }},").unwrap();
+    o
+}
+
 /// Renders the config. `Script::content` is never written (it is filled in at build time).
 pub fn to_lua(cfg: &Config, host: &HostConfig) -> String {
     let mut o = String::new();
@@ -133,6 +164,7 @@ pub fn to_lua(cfg: &Config, host: &HostConfig) -> String {
         }
         writeln!(o, "  }},").unwrap();
     }
+    o.push_str(&aur_block(&cfg.aur));
     if cfg.dry_run {
         writeln!(o, "  dry_run = true,").unwrap();
     }
@@ -154,6 +186,17 @@ mod tests {
         c.root_password_hash = Some("$6$salt$abcdefghijklmnopqrstuvwxyz./".into());
         c.users = vec![config::User { name: "arch".into(), password_hash: "$6$salt$abcdefghijklmnopqrstuvwxyz./".into(), groups: vec!["wheel".into()], shell: "/bin/bash".into() }];
         c.services = vec!["systemd-networkd.service".into()];
+        c.aur = vec![config::AurPackage {
+            name: "zen-browser-bin".into(),
+            pkgbase: "zen-browser-bin".into(),
+            commit: "a".repeat(40),
+            sha256: "b".repeat(64),
+            vcs: false,
+            as_dep: false,
+            deps: vec!["gtk3".into(), "base-devel".into()],
+            build_deps: vec!["base-devel".into()],
+            services: vec!["zen.service".into()],
+        }];
         c.kernel_params = vec!["quiet".into()];
         c.user_files = vec![config::UserFile { url: "https://e.org/a.lua".into(), dest: ".config/a.lua".into() }];
         c.user_archives = vec![config::UserArchive { url: "https://e.org/c.zip".into() }];
@@ -165,7 +208,6 @@ mod tests {
         let h = HostConfig {
             build: Build { profile: Some("large".into()), tethering: true },
             installer_drivers: Some(vec!["virtio-blk".into(), "virtio-net".into()]),
-            aur_packages: vec![],
         };
         (c, h)
     }

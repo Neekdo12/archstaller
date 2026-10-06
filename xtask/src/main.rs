@@ -1,3 +1,4 @@
+mod aur;
 mod bios;
 mod e2e;
 mod iso;
@@ -43,7 +44,7 @@ pub struct Options {
     pub headless: bool,
     /// virtio | ahci | nvme | ide (legacy IDE-mode controller, on the i440fx machine)
     pub disk: String,
-    /// virtio | e1000 | e1000e | igb | rtl8139 | usb-rndis | none
+    /// virtio | e1000 | e1000e | igb | rtl8139 | usb-rndis | none | any QEMU NIC model name (vmxnet3, pcnet, i82559er, ...)
     pub nic: String,
     /// Build with the usb-selftest kernel feature and attach qemu-xhci + usb-storage.
     pub usb: bool,
@@ -110,7 +111,10 @@ fn parse(args: &[String]) -> Result<Options> {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|keyring|update-keyring> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme|ide] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--profile super-small|large] [--progress json] [--workdir DIR] [--limit BYTES]")?;
+    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|aur-pin|keyring|update-keyring> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme|ide] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--profile super-small|large] [--progress json] [--workdir DIR] [--limit BYTES]")?;
+    if cmd == "aur-pin" {
+        return aur::pin(rest);
+    }
     let opts = parse(rest)?;
     match cmd.as_str() {
         "build" => {

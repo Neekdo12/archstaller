@@ -69,6 +69,7 @@ pub(crate) mod tests_support {
             user_files: vec![],
             user_archives: vec![],
             dry_run: false,
+            aur: vec![],
             scripts: vec![],
         }
     }

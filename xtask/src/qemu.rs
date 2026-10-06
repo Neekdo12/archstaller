@@ -83,6 +83,8 @@ pub fn run_iso(iso: &Path, opts: &Options) -> Result<()> {
         // No NIC at all (exercises the installer paths that run when no wired link exists).
         "none" => &mut cmd,
         "usb-rndis" => cmd.args(["-device", "qemu-xhci,id=xhcin", "-device", "usb-net,bus=xhcin.0,netdev=n0"]),
+        // Any other QEMU PCI NIC model (vmxnet3, pcnet, i82559er, ne2k_pci, tulip, ...): `--nic <model>`.
+        model if model.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') => cmd.args(["-device", &format!("{model},netdev=n0")]),
         other => return Err(format!("unknown nic type {other}").into()),
     };
     if opts.usb {

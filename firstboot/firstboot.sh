@@ -72,6 +72,12 @@ if [ -s "$D/userarchives.list" ]; then
     done < "$D/users.list"
 fi
 
+# AUR packages are built on the next boot by archstaler-aur.service, once the network is up; enabling it here
+# does not wait for it, so a missing network never blocks this first boot.
+if [ -s "$D/aur.list" ]; then
+    systemctl enable archstaler-aur.service || say "warning: could not enable the AUR build service"
+fi
+
 if [ -s "$D/services.list" ]; then
     xargs -a "$D/services.list" systemctl enable || say "warning: enabling some services failed"
     while read -r unit; do say "service $unit: $(systemctl is-enabled "$unit" 2>&1)"; done < "$D/services.list"
