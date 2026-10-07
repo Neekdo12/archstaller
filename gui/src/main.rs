@@ -1,11 +1,12 @@
 //! archstaler-gui: compose an archstaler config, check it with the same code as the CLI, build the
-//! ISO through `cargo xtask`, and copy it onto a Ventoy stick. Host only, Linux, GTK 4.
+//! ISO through `cargo xtask`, and copy it onto a Ventoy stick or flash it over a USB stick. Host only, Linux, GTK 4.
 mod app;
 mod aur;
 mod build;
 mod completion;
 mod data;
 mod dialogs;
+mod flash;
 mod launcher;
 mod media;
 mod model;

@@ -2,7 +2,7 @@
 name = "archstaler-gui"
 version = "0.1.0"
 edition = "2021"
-description = "GTK4 desktop app to compose an archstaler config, build the ISO and copy it to a Ventoy stick (host only, Linux)"
+description = "GTK4 desktop app to compose an archstaler config, build the ISO and copy it to a Ventoy stick or flash a USB stick (host only, Linux)"
 
 [dependencies]
 hostcfg = { path = "../crates/hostcfg", features = ["net"] }
@@ -12,4 +12,5 @@ gtk = { package = "gtk4", version = "0.11", features = ["v4_12"] }
 sourceview5 = "0.11"
 dirs = "6"
 sha2 = "0.10"
+libc = "0.2"
 serde_json = "1"

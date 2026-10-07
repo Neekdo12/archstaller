@@ -65,7 +65,7 @@ the tester preset and any `dry_run = true` config get it automatically). `hal::i
 
 ```sh
 cargo xtask build --tethering --config configs/tester.lua --out NAME.iso   # real-hardware test ISO
-cargo xtask presets                       # all seven preset ISOs into target/isos/ (tethering on, tester has full debug)
+cargo xtask presets                       # all eight preset ISOs into target/isos/ (tethering on, tester has full debug)
 cargo xtask run --usb --headless          # xHCI smoke test in QEMU
 cargo xtask run --selftest --headless --nic usb-rndis   # Android RNDIS path in QEMU
 cargo xtask e2e [--uefi] [--disk ahci --nic e1000]      # full install and two boots in QEMU

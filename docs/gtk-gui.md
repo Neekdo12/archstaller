@@ -19,7 +19,8 @@ is gone. Decisions and differences from the text below:
   exercised by hand under X11 with a dark theme; see "Manual check" in `README.md`. Not exercised: a light theme beyond one page,
   Wayland, a screen reader, high-contrast mode, and a build onto a real Ventoy stick.
 - **Not done:** a separate controller layer (the pages write through `App::edit`), completion while typing (only on
-  Ctrl+Space), package-name suggestions beyond the last resolution (no sync database is kept loaded), raw flashing.
+  Ctrl+Space), package-name suggestions beyond the last resolution (no sync database is kept loaded). Raw flashing was added
+  later as a separate `MediaTarget`, see `docs/raw-usb-flash.md`.
 
 This is the implementation spec for replacing the current egui desktop frontend with a GTK application.
 The GUI remains a host-side tool for editing Archstaler configs, validating them, building installer

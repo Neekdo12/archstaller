@@ -1,5 +1,5 @@
-//! Putting the ISO on removable media. Phase 4: copying it as a file onto a mounted Ventoy volume.
-//! `MediaTarget` is the seam where a Linux-only raw flash (UDisks2) can be added later.
+//! Putting the ISO on removable media: copying it as a file onto a mounted (Ventoy) volume. Writing it over
+//! a whole USB stick is the other `MediaTarget`, `flash::RawBlockFlash`.
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -117,9 +117,14 @@ pub fn is_ventoy(v: &Volume, _all: &[Volume]) -> bool {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Report {
+    /// The copied file, or the flashed device node.
     pub dest: PathBuf,
     pub size: u64,
     pub sha256: String,
+    /// Said after the result (for a flash: whether the stick was powered off).
+    pub note: Option<String>,
+    /// Written over a whole device rather than copied as a file.
+    pub flashed: bool,
 }
 
 pub trait MediaTarget {
@@ -131,6 +136,24 @@ pub trait MediaTarget {
 pub enum Phase {
     Copying,
     Verifying,
+    /// Raw flash only, in this order around `Verifying`.
+    Unmounting,
+    Writing,
+    Flushing,
+    Ejecting,
+}
+
+impl Phase {
+    pub fn label(self) -> &'static str {
+        match self {
+            Phase::Copying => "copying",
+            Phase::Verifying => "verifying",
+            Phase::Unmounting => "unmounting",
+            Phase::Writing => "writing",
+            Phase::Flushing => "flushing",
+            Phase::Ejecting => "powering off",
+        }
+    }
 }
 
 /// Copies the ISO as a regular file into a directory of a mounted volume.
@@ -282,7 +305,7 @@ impl MediaTarget for FolderCopy {
             if got != sha256 {
                 return Err(format!("verification failed: the copy hashes to {got}, the ISO to {sha256}"));
             }
-            Ok(Report { dest: dest.clone(), size, sha256 })
+            Ok(Report { dest: dest.clone(), size, sha256, note: None, flashed: false })
         })();
         if result.is_err() {
             let _ = std::fs::remove_file(&part);

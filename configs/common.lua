@@ -40,6 +40,7 @@ local DEFAULT_HASH = "$6$archstlr$gnUg60P8TrWaKT.8/oW8Iq1kc8LlPnk4A6UWw5ij0AAQNe
 ---@field kernel_params? string[]
 ---@field user_files? AsUserFile[]
 ---@field user_archives? AsUserArchive[]
+---@field scripts? AsScript[]
 ---@field dry_run? boolean
 ---@field build? AsBuild
 
@@ -79,6 +80,7 @@ function M.build(spec)
       kernel_params = spec.kernel_params or {},
       user_files = spec.user_files or {},
       user_archives = spec.user_archives or {},
+      scripts = spec.scripts or {},
     },
     build = spec.build or {},
   }
