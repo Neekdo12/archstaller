@@ -84,6 +84,8 @@ pub struct MediaState {
     pub rx: Option<Receiver<MediaMsg>>,
     pub cancel: Arc<AtomicBool>,
     pub result: Option<Result<String, String>>,
+    /// The running or last media operation is a raw flash, not a file copy.
+    pub flashing: bool,
 }
 
 pub struct State {

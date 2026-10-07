@@ -291,6 +291,7 @@ password `passwd` (change it before connecting the machine to a network) and kee
 | `minimal` | console system, systemd-networkd | ~0.4 GiB | 4 GiB+ |
 | `server` | minimal + OpenSSH, htop, tmux, rsync, vim (sshd enabled) | ~0.4 GiB | 4 GiB+ |
 | `i3` | Xorg + i3, NetworkManager, PipeWire, Firefox | ~1.0 GiB | 10 GiB+ |
+| `sway` | Sway (Wayland), waybar, wofi, foot, mako, NetworkManager, PipeWire, Firefox, plus a written `~/.config/sway/config` | ~1.1 GiB (estimate) | 10 GiB+ |
 | `hyprland` | Hyprland (Wayland), kitty, rofi, waybar, Neovim, Nerd fonts, plus a downloaded config zip | ~1.4 GiB | 15 GiB+ |
 | `plasma` | KDE Plasma (Wayland session) | ~1.3 GiB | 20 GiB+ |
 | `omarchy` | Hyprland with the application set of Omarchy v4.0.4, official packages only | ~2.4 GiB | 24 GiB+ |

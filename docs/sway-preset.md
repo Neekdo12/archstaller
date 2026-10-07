@@ -1,7 +1,17 @@
 # Sway desktop preset implementation
 
-This document specifies a future Sway desktop preset for Archstaler. It is an implementation plan only;
-no `sway.lua` preset is added by this document.
+**Status: written, not tested.** `configs/sway.lua` exists (paths below say `presets/`; the presets now live
+in `configs/`, marked `-- archstaler: kind=preset`). Its packages were checked by name against the `core`/`extra`
+databases of 2026-10-07; `waybar` needs `jack`, so it pins `jack = pipewire-jack`. The user config is a local
+first-boot script, `configs/sway-config.sh` (embedded at build time, no download; `common.build` gained a `scripts`
+field for it): it writes `~/.config/sway/config` for every regular user that has none and puts the same file in
+`/etc/skel`. That config starts waybar as sway's `swaybar_command` (no second bar on reload), mako, wofi and foot,
+binds brightness, volume (`wpctl`), media and screenshot keys, and includes `/etc/sway/config.d/*` so portals get
+the session environment. Lock-on-idle is present but commented out until it is tested. Not done yet: steps 4-6
+below (`check-presets`, QEMU install with ly starting sway, real hardware); the download size in the preset
+tables is an estimate.
+
+This document specifies a future Sway desktop preset for Archstaler.
 
 Sway is an i3-compatible Wayland compositor. The intended result is a conventional Arch desktop that
 uses Sway for the session, NetworkManager for networking, PipeWire for audio, and a small set of

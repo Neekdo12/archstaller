@@ -103,7 +103,13 @@ Rebuild after every code change.
   what a config means.
 - **Build ISO:** builds from the saved file (an unsaved config is saved first, or built from a temporary copy
   when the target is a Ventoy drive), shows the stages and the log, can cancel, and copies the finished ISO
-  onto a mounted Ventoy volume as a file with a SHA-256 read-back check. It never flashes a raw device.
+  onto a mounted Ventoy volume as a file with a SHA-256 read-back check. Without a Ventoy drive it can also copy
+  into a folder of any mounted volume, or, only when you press **Flash ISO to USB (erases device)**, write the
+  ISO over a whole USB stick: the dialog lists only removable USB disks that hold neither the running system nor
+  the ISO, preselects none, and starts after you type the disk's name (`sdb`). The stick is unmounted and opened
+  through UDisks2 (your desktop asks for your password), written from its first byte, read back and compared by
+  SHA-256, then powered off. This erases everything on the stick and is Linux only; it needs UDisks2 2.7.3 or
+  newer and util-linux 2.37 or newer. Not yet tested on a real stick.
 - **Theme and size:** the window is dark by default, whatever the system theme says
   (`ARCHSTALER_THEME=system` follows the system, `ARCHSTALER_THEME=light` forces light). Its default size is
   90% of the screen at most. A window narrower than 760 px hides the sidebar (the header's toggle brings it
@@ -129,6 +135,7 @@ page); keyboard-only use with a screen reader and other desktops was not.
 | `archstaler-minimal.iso` | console system, systemd-networkd | ~0.4 GiB | 4 GiB+ |
 | `archstaler-server.iso` | minimal + OpenSSH, htop, tmux, rsync, vim | ~0.4 GiB | 4 GiB+ |
 | `archstaler-i3.iso` | Xorg + i3, NetworkManager, PipeWire, Firefox | ~1.0 GiB | 10 GiB+ |
+| `archstaler-sway.iso` | Sway (Wayland) with waybar, wofi, foot, mako, swaylock/swayidle, portals, NetworkManager, PipeWire, Firefox; a first-boot script writes `~/.config/sway/config` (`configs/sway-config.sh`). Not yet resolved or install-tested | ~1.1 GiB (estimate) | 10 GiB+ |
 | `archstaler-hyprland.iso` | Hyprland (Wayland) with kitty, rofi, waybar, quickshell, hyprlock/hypridle, Neovim (LazyVim) and Nerd fonts (FantasqueSansM, JetBrains Mono, Iosevka), plus the downloaded config zip | ~1.4 GiB | 15 GiB+ |
 | `archstaler-plasma.iso` | KDE Plasma (Wayland session), same extras | ~1.3 GiB | 20 GiB+ |
 | `archstaler-omarchy.iso` | Hyprland with the application set of Omarchy v4.0.4, official-repository packages only (not Omarchy itself: no Omarchy scripts, themes or dotfiles; the omitted packages are listed in `configs/omarchy.lua`). Installs and boots to the login prompt in QEMU | ~2.4 GiB | 24 GiB+ |
@@ -361,7 +368,7 @@ validates them strictly at build time and rejects anything with unexpected chara
 | `firstboot/` | systemd units and script for the first boot |
 | `crates/aurbuild` | host-only AUR support: search, review, pin and plan (the packages are built on the installed system, see `docs/aur.md`) |
 | `crates/hostcfg` | host-only config model shared by `xtask` and the GUI: Lua loading, build profiles, driver and script catalogues, Lua writer, package resolution preview, build progress events |
-| `gui/` | `archstaler-gui`, the GTK4 desktop app (Linux): config editor, Lua source editor, ISO build, Ventoy copy |
+| `gui/` | `archstaler-gui`, the GTK4 desktop app (Linux): config editor, Lua source editor, ISO build, Ventoy copy, raw USB flash |
 | `configs/` | Lua configs: example, e2e, presets, shared modules, generated LuaLS types |
 
 ## Testing

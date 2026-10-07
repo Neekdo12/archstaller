@@ -1,5 +1,35 @@
 # Raw USB installer flashing
 
+**Status: implemented, not tested.** No Rust toolchain was available when it was written, so it has not been
+compiled, its unit tests have not run, and no real stick has been flashed. Before calling it supported: `cargo test
+-p archstaler-gui`, then the manual tests below on a disposable stick. Where the code is:
+
+- `gui/src/flash.rs`: devices from `lsblk -J -b` (util-linux 2.37+, for `MOUNTPOINTS`) plus sysfs (`/sys/dev/block/M:m`
+  for the USB ancestry, `holders/`); `problems()` holds the eligibility rules; `RawBlockFlash` is the `MediaTarget`;
+  `Backend` is the injectable device interface, `UDisks` the real one (gio's D-Bus client, already linked by GTK, no new
+  D-Bus crate; `libc` for `posix_fadvise`). Tests use an lsblk fixture and a regular file as the device.
+- `gui/src/pages/iso.rs`: the "Flash ISO to USB (erases device)" button (only when no Ventoy volume is present) and the
+  dialog (`flash_dialog`, `flash_scan`, `flash_show`).
+
+Decisions the text below left open:
+
+- **Mounted partitions.** A stick whose file systems are mounted under `/run/media`, `/media` or `/mnt` (the desktop's
+  automount places) is offered and unmounted through UDisks2 before writing; a mount anywhere else, active swap or any
+  holder (dm-crypt, LVM, RAID) makes it ineligible.
+- **USB ancestry** needs both udev's transport (`TRAN=usb`) and a `/usb` component in the resolved sysfs path; one
+  without the other is treated as conflicting metadata. The device must also be removable or hot-pluggable.
+- **Identity** is the kernel name, major:minor, resolved sysfs path, size, vendor, model and serial. It is compared
+  before unmounting, after unmounting, and after the device is opened; the opened handle's `st_rdev` must equal the
+  selected major:minor.
+- **Confirmation** is typing the kernel name (`sdb`) after selecting a drive; nothing is preselected.
+- **Opening**: `org.freedesktop.UDisks2.Block.OpenDevice("rw", {flags: O_EXCL|O_CLOEXEC})` with interactive
+  authorization, which is why UDisks2 2.7.3 or newer is required (checked through the Manager's `Version` property; when
+  it is missing or older, the dialog says so and only the folder copy remains).
+- **Read-back** uses the same handle: after `fsync`, `posix_fadvise(DONTNEED)` drops the cached pages so the bytes come
+  from the stick. A drive that keeps a volatile cache of its own and lies about flushing could still pass.
+- **Eject** is `Drive.PowerOff`, falling back to `Drive.Eject`; when both fail the result still reports a verified
+  flash and tells the user to use the desktop's safe removal.
+
 This document specifies a future GUI feature that writes the Archstaler hybrid ISO directly to a USB
 block device. It is offered when no Ventoy data volume is detected. The operation erases the selected
 USB device; it must never start automatically because Ventoy is missing.
