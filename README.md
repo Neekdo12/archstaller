@@ -191,7 +191,7 @@ example, `configs/e2e.lua` is the config of `xtask e2e`, and `configs/*.lua` mar
 `-- archstaler: kind=preset` on their first line are the presets (`configs/common.lua` holds their shared
 code and is not one). Modules beside a config load with `require("common")`.
 
-All Lua files live flat in `configs/`. The Lua Language Server types (`configs/archstaler.lua`, generated from
+`docs/lua-config.md` is the full reference for every setting, with checked examples; it is written to be pasted whole into a chatbot. All Lua files live flat in `configs/`. The Lua Language Server types (`configs/archstaler.lua`, generated from
 the Rust schema by `cargo xtask gen-luals`; `--check` fails when it is stale) and the root `.luarc.json` give
 completion and diagnostics for the `as` table in VS Code and Neovim/LazyVim (point `lua_ls` at the repository
 root; it reads `.luarc.json`). The editor only helps while typing: the build rejects unknown keys and wrong

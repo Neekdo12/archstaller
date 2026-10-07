@@ -263,4 +263,38 @@ mod tests {
         let generated = std::fs::read_to_string(dir.join("archstaler.lua")).unwrap();
         assert_eq!(generated, crate::luals::annotations(&crate::asconfig::json_schema()), "run `cargo xtask gen-luals`");
     }
+
+    /// `docs/lua-config.md` is meant to be pasted into a chatbot, so its examples must be right: every
+    /// example marked `<!-- check: valid -->` has to load and validate, and the tables must name every
+    /// installer driver, built-in script and preset that exists.
+    #[test]
+    fn the_lua_config_documentation_is_checked() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let doc = std::fs::read_to_string(root.join("docs/lua-config.md")).expect("docs/lua-config.md");
+        let mut checked = 0;
+        let mut rest = doc.as_str();
+        while let Some(i) = rest.find("<!-- check: valid -->") {
+            rest = &rest[i + "<!-- check: valid -->".len()..];
+            let start = rest.find("```lua\n").expect("a lua block after the marker") + "```lua\n".len();
+            let end = rest[start..].find("```").expect("the block ends") + start;
+            let code = &rest[start..end];
+            let l = load_text("doc", code).unwrap_or_else(|e| panic!("a documented example does not load: {e}\n{code}"));
+            assert!(l.warnings.is_empty(), "documented examples use the `as` layout");
+            checked += 1;
+            rest = &rest[end..];
+        }
+        assert!(checked >= 7, "only {checked} checked examples");
+        for d in crate::host::DRIVERS {
+            assert!(doc.contains(&format!("| `{}` |", d.id)), "driver {} is not in the documentation", d.id);
+        }
+        for b in crate::scripts::BUILTINS {
+            assert!(doc.contains(&format!("| `{}` |", b.id)), "built-in script {} is not in the documentation", b.id);
+        }
+        for p in crate::configs::presets(&root.join(crate::configs::DIR)) {
+            assert!(doc.contains(&format!("| `{}` |", p.name)), "preset {} is not in the documentation", p.name);
+        }
+        // Numbers the text states.
+        assert!(doc.contains("64–8192"), "ESP size range");
+        assert!(doc.contains(&format!("Up to {}", config::AUR_MAX)), "AUR limit");
+    }
 }
