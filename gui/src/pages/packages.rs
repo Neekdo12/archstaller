@@ -1,8 +1,6 @@
 use crate::app::{App, Page};
 use crate::aur;
-use crate::dialogs;
 use crate::ui::{self, Kind};
-use gtk::glib;
 use gtk::prelude::*;
 use std::rc::Rc;
 use std::sync::mpsc::channel;
@@ -100,49 +98,7 @@ fn resolution_card(app: &Rc<App>, d: &gtk::Box) {
 
 fn aur_card(app: &Rc<App>, d: &gtk::Box) {
     let c = ui::card(d, Some("AUR packages"));
-    let (used, trust, services) = {
-        let st = app.st.borrow();
-        (!st.model.cfg.aur.is_empty(), st.aur.trust_ack, st.model.cfg.services.clone())
-    };
-    if !used && !trust {
-        ui::hint(&c, "Packages from the Arch User Repository. They are built on the installed machine from a recipe you review first.");
-        let a = app.clone();
-        let b = ui::button("Add an AUR package…", move || {
-            let a = a.clone();
-            glib::spawn_future_local(async move {
-                if dialogs::confirm(a.win.upcast_ref(), "Use AUR packages?", "AUR packages are built on the installed machine during its first boot, from recipes nobody at Arch reviewed. The build runs as an unprivileged user but it still executes the recipe's code there, and the result is not signed by Arch. You review and pin every recipe yourself. Continue?", "Yes, continue").await {
-                    {
-                        let mut st = a.st.borrow_mut();
-                        st.aur.trust_ack = true;
-                        st.aur.message = None;
-                    }
-                    a.refresh_page(Page::Packages);
-                }
-            });
-        });
-        b.set_halign(gtk::Align::Start);
-        c.append(&b);
-        return;
-    }
-    ui::hint(&c, "Built on the installed machine at its second boot, from the exact recipe you review. Not signed by Arch.");
-    if !aur::has_network_service(&services) {
-        let r = ui::hbox(10);
-        let l = gtk::Label::builder().label("The build needs a network on the installed system.").xalign(0.0).hexpand(true).wrap(true).css_classes(["note-warn"]).build();
-        r.append(&l);
-        let a = app.clone();
-        r.append(&ui::button("Add NetworkManager", move || {
-            a.edit(|m| {
-                if !m.cfg.packages.iter().any(|p| p == "networkmanager") {
-                    m.cfg.packages.push("networkmanager".into());
-                }
-                m.cfg.services.push("NetworkManager.service".into());
-            });
-            // The list editors above show the old lists; rebuild the pages that hold them.
-            a.rebuild(Page::Packages);
-            a.rebuild(Page::Services);
-        }));
-        c.append(&r);
-    }
+    ui::hint(&c, "Type a package name. It is built on the installed machine, at its second boot, from the recipe you review. Not signed by Arch.");
 
     // Pinned packages: one compact row each.
     let pinned = app.st.borrow().model.cfg.aur.clone();
@@ -194,13 +150,25 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
         move |t| a.st.borrow_mut().aur.search = t.to_string()
     });
     entry.set_placeholder_text(Some("Search the AUR by name"));
+    // After a pin the box takes the focus (and the page scrolls to it) for the next package.
+    if std::mem::take(&mut app.st.borrow_mut().aur_focus_search) {
+        let e = entry.clone();
+        gtk::glib::idle_add_local_once(move || {
+            e.grab_focus();
+        });
+    }
     let go = ui::primary("Search", || {});
     go.set_sensitive(!busy && search.trim().len() >= 2);
     {
         let (a, e) = (app.clone(), entry.clone());
         let start = Rc::new(move || {
             if e.text().trim().len() >= 2 && !a.st.borrow().aur.busy() {
-                a.st.borrow_mut().aur.start_search();
+                {
+                    let mut st = a.st.borrow_mut();
+                    st.aur.start_search();
+                    // An exact name goes straight to its review when the results arrive.
+                    st.aur_auto_review = true;
+                }
                 a.refresh_page(Page::Packages);
             }
         });
@@ -224,29 +192,31 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
         }
         Some(Ok(list)) => {
             for info in list {
-                let r = ui::hbox(8);
-                let rv = ui::button("Review", {
-                    let (a, info) = (app.clone(), info.clone());
-                    move || {
-                        a.st.borrow_mut().aur.start_review(&info);
-                        a.refresh_page(Page::Packages);
-                    }
-                });
-                rv.set_sensitive(!busy);
-                r.append(&rv);
+                let row = ui::hbox(10);
                 let name = ui::strong(&info.name);
-                if let Some(desc) = &info.description {
-                    name.set_tooltip_text(Some(desc));
-                }
-                r.append(&name);
-                r.append(&ui::dim(&format!("{}  ·  {} votes", info.version, info.votes)));
+                name.set_hexpand(false);
+                row.append(&name);
+                row.append(&ui::dim(&format!("{}  ·  {} votes", info.version, info.votes)));
                 if info.maintainer.is_none() {
-                    r.append(&ui::chip("orphaned", "chip-warn"));
+                    row.append(&ui::chip("orphaned", "chip-warn"));
                 }
                 if info.out_of_date.is_some() {
-                    r.append(&ui::chip("out of date", "chip-warn"));
+                    row.append(&ui::chip("out of date", "chip-warn"));
                 }
-                c.append(&r);
+                let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+                spacer.set_hexpand(true);
+                row.append(&spacer);
+                row.append(&ui::dim("Review ›"));
+                let btn = gtk::Button::builder().child(&row).css_classes(["flat"]).sensitive(!busy).build();
+                if let Some(desc) = &info.description {
+                    btn.set_tooltip_text(Some(desc));
+                }
+                let (a, info) = (app.clone(), info.clone());
+                btn.connect_clicked(move |_| {
+                    a.st.borrow_mut().aur.start_review(&info);
+                    a.refresh_page(Page::Packages);
+                });
+                c.append(&btn);
             }
         }
         None => {}
@@ -270,6 +240,7 @@ fn review(app: &Rc<App>, c: &gtk::Box, busy: bool) {
         let st = app.st.borrow();
         st.aur.review.clone().map(|r| (r, st.aur.file.clone(), st.aur.ack_reviewed, st.aur.ack_vcs))
     }) else {
+        app.st.borrow_mut().aur_focused_commit = None;
         return;
     };
     let p = ui::vbox(8);
@@ -344,40 +315,87 @@ fn review(app: &Rc<App>, c: &gtk::Box, busy: bool) {
         }
     }
 
-    // One acknowledgement (two when the recipe builds from unpinned VCS sources), then the pin.
-    let a = app.clone();
-    p.append(&ui::check("I reviewed this recipe and accept that it is built and installed", ack_rev, move |on| {
-        a.st.borrow_mut().aur.ack_reviewed = on;
-        a.refresh_page(Page::Packages);
-    }));
+    // The click on the button is the acknowledgement. A recipe that builds from unpinned VCS sources needs a
+    // second, explicit one.
+    let mut vcs_box = None;
     if rev.vcs {
         let a = app.clone();
-        p.append(&ui::check("Its VCS sources are not pinned by the commit: the build fetches whatever they point to then", ack_vcs, move |on| {
-            a.st.borrow_mut().aur.ack_vcs = on;
+        let cb = ui::check("Its VCS sources are not pinned by the commit: the build fetches whatever they point to then", ack_vcs, move |on| {
+            {
+                let mut st = a.st.borrow_mut();
+                st.aur.ack_vcs = on;
+                // The page is rebuilt: let the focus move on to the button (or back to this box).
+                st.aur_focused_commit = None;
+            }
             a.refresh_page(Page::Packages);
-        }));
+        });
+        p.append(&cb);
+        vcs_box = Some(cb);
     }
+    let _ = ack_rev;
     let r = ui::hbox(8);
     r.set_halign(gtk::Align::End);
     let a = app.clone();
     r.append(&ui::button("Cancel", move || {
-        a.st.borrow_mut().aur.review = None;
+        {
+            let mut st = a.st.borrow_mut();
+            st.aur.review = None;
+            st.aur_focused_commit = None;
+        }
         a.refresh_page(Page::Packages);
     }));
-    let ok = ack_rev && (!rev.vcs || ack_vcs) && !busy;
-    let pin = ui::primary("Pin and add", {
+    let ok = (!rev.vcs || ack_vcs) && !busy;
+    let pin = ui::primary(&format!("I reviewed it: add {}", rev.name), {
         let (a, rev) = (app.clone(), rev.clone());
         move || {
+            // The build needs a network on the installed system: add NetworkManager when none is enabled.
+            let services = a.st.borrow().model.cfg.services.clone();
+            let mut note = None;
+            if !aur::has_network_service(&services) {
+                a.edit(|m| {
+                    if !m.cfg.packages.iter().any(|p| p == "networkmanager") {
+                        m.cfg.packages.push("networkmanager".into());
+                    }
+                    m.cfg.services.push("NetworkManager.service".into());
+                });
+                note = Some("NetworkManager was added: the AUR build needs a network on the installed system.");
+            }
             let (mirror, existing) = {
                 let st = a.st.borrow();
                 (st.model.cfg.mirrors.first().cloned().unwrap_or_default(), st.model.cfg.aur.clone())
             };
             let cache = dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("archstaler-gui");
-            a.st.borrow_mut().aur.start_pin(rev.clone(), existing, mirror, cache);
-            a.refresh_page(Page::Packages);
+            {
+                let mut st = a.st.borrow_mut();
+                st.aur.ack_reviewed = true;
+                st.aur.start_pin(rev.clone(), existing, mirror, cache);
+            }
+            if let Some(n) = note {
+                a.set_status(n);
+                // The list editors show the old lists: rebuild the pages that hold them.
+                a.rebuild(Page::Services);
+                a.rebuild(Page::Packages);
+            } else {
+                a.refresh_page(Page::Packages);
+            }
         }
     });
     pin.set_sensitive(ok);
     r.append(&pin);
     p.append(&r);
+
+    // A review that has just opened: scroll to its button and focus it, so that Enter adds the package. When
+    // the recipe needs the VCS acknowledgement first, that checkbox gets the focus instead.
+    let first_time = app.st.borrow().aur_focused_commit.as_deref() != Some(rev.commit.as_str());
+    if first_time {
+        app.st.borrow_mut().aur_focused_commit = Some(rev.commit.clone());
+        let target: gtk::Widget = match (&vcs_box, ok) {
+            (Some(cb), false) => cb.clone().upcast(),
+            _ => pin.clone().upcast(),
+        };
+        // Focusing a widget inside the page's scrolled window scrolls it into view.
+        gtk::glib::idle_add_local_once(move || {
+            target.grab_focus();
+        });
+    }
 }

@@ -191,6 +191,16 @@ record of what the user approved.
 
 ### GUI (`gui/`)
 
+**As implemented in the GTK GUI** (this supersedes the bullets below where they differ): the AUR group is always
+shown. It states in one line that packages are built on the installed machine from the reviewed recipe and are not
+signed by Arch, and there is no separate confirmation dialog. Typing a package name and pressing Enter searches the
+AUR; an exact name opens its review at once, otherwise a click on a result does. The review shows the automatic
+checks folded behind a count, the file picker, the recipe with risky lines highlighted, and one button, "I reviewed
+it: add NAME" (scrolled into view and focused when the review opens, so Enter presses it; the search box takes
+the focus again after the pin): the click is the acknowledgement (a recipe with unpinned VCS sources also needs its own checkbox
+first). When no network service is enabled, NetworkManager (package and unit) is added automatically, with a status
+message, because the build needs a network.
+
 - **Mirrors & packages tab**: a new "AUR packages" group, off by default. Enabling it shows the trust
   warning: arbitrary code runs on the installed machine during its first boot, built from a recipe nobody at
   Arch reviewed; the build user is unprivileged but the build still executes untrusted code on that

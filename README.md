@@ -59,13 +59,17 @@ builds the ISO through `cargo xtask`. With a prebuilt binary: `cargo build --pro
 - **Build ISO:** builds from the saved file (an unsaved config is saved first, or built from a temporary copy when
   the target is a Ventoy drive), shows the stages and the log, can cancel, and copies the finished ISO onto a
   mounted Ventoy volume as a file with a SHA-256 read-back check. It never flashes a raw device.
-- **Theme and size:** the window is dark by default, whatever the system theme says (`ARCHSTALER_THEME=system`
-  follows the system, `ARCHSTALER_THEME=light` forces light). Its default size is 90% of the screen at most, a
+- **Theme and size:** the window is dark by default, whatever the system theme says (it sets `GTK_THEME=Adwaita:dark` at
+  start unless you set `GTK_THEME` yourself; `ARCHSTALER_THEME=system` follows the system,
+  `ARCHSTALER_THEME=light` forces light). Its default size is 90% of the screen at most, a
   window narrower than 760 px hides the sidebar (the header's toggle brings it back), and long labels wrap, so it
   works in a tiling-window-manager tile or a small laptop screen; the narrowest tested width was 600 px. A second
   copy can be started next to the first.
-- **AUR packages:** one compact card: search, a result row with Review, then the recipe with its automatic checks
-  folded behind a count, risky lines highlighted and one acknowledgement before "Pin and add".
+- **AUR packages:** type a package name and press Enter. An exact name opens its recipe at once (otherwise click a
+  result); the automatic checks are folded behind a count and risky lines are highlighted. One button, "I reviewed it:
+  add NAME", pins it; the page scrolls to it and gives it the keyboard focus, so Enter is enough, and the
+  search box gets the focus back for the next package (a recipe with unpinned VCS sources also needs its checkbox). NetworkManager is added
+  automatically when no network service is enabled, because the build needs one.
 - `ARCHSTALER_PAGE=<id>` (`system disk packages users services build scripts lua iso`) opens the window on a page.
 
 Manual check (no display server in the tests): start the app; open a preset from the menu and see the warning;

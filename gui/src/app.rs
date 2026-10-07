@@ -544,12 +544,31 @@ impl App {
             }
             let was_busy = st.aur.busy();
             if let Some(p) = st.aur.poll() {
+                // Pinned: the search that led here is done with.
+                st.aur.results = None;
+                st.aur.search.clear();
+                st.aur_focus_search = true;
                 st.model.cfg.aur = p.entries;
                 st.model.dirty = true;
                 changed = true;
             }
             if was_busy && !st.aur.busy() {
                 changed = true;
+            }
+            // A search for an exact package name goes straight to that package's review.
+            if st.aur_auto_review && st.aur.search_rx.is_none() {
+                st.aur_auto_review = false;
+                let term = st.aur.search.trim().to_lowercase();
+                let hit = match &st.aur.results {
+                    Some(Ok(list)) => list.iter().find(|i| i.name.to_lowercase() == term).cloned(),
+                    _ => None,
+                };
+                if let Some(info) = hit {
+                    if st.aur.review.is_none() && !st.aur.busy() {
+                        st.aur.start_review(&info);
+                        changed = true;
+                    }
+                }
             }
         }
         if pages::iso::pump(self) {

@@ -9,8 +9,6 @@ pub type Reply<T> = Result<T, String>;
 
 #[derive(Default)]
 pub struct AurState {
-    /// The user has read the trust warning and wants AUR packages.
-    pub trust_ack: bool,
     pub search: String,
     pub results: Option<Reply<Vec<Info>>>,
     pub search_rx: Option<Receiver<Reply<Vec<Info>>>>,

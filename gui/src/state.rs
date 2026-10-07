@@ -99,6 +99,12 @@ pub struct State {
     pub presets: Vec<Preset>,
     /// Set by background work when the visible page has something new to show.
     pub ui_dirty: bool,
+    /// A search was started by the AUR group: when its results arrive, an exact name match is reviewed at once.
+    pub aur_auto_review: bool,
+    /// Commit of the review whose button already got the keyboard focus (so a refresh does not take it again).
+    pub aur_focused_commit: Option<String>,
+    /// A package was just pinned: put the keyboard focus back on the AUR search box for the next one.
+    pub aur_focus_search: bool,
 }
 
 impl State {
@@ -115,6 +121,9 @@ impl State {
             next_build: 0,
             presets: crate::build::find_root().map(|r| crate::model::presets(&r)).unwrap_or_default(),
             ui_dirty: false,
+            aur_auto_review: false,
+            aur_focused_commit: None,
+            aur_focus_search: false,
         };
         s.media.volumes = crate::media::volumes();
         s
