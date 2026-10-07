@@ -99,9 +99,9 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
     let mode = &format!("{}-{}-{}", if opts.uefi { "uefi" } else { "bios" }, opts.disk, opts.nic);
     let dir = root().join("target/e2e");
     std::fs::create_dir_all(&dir)?;
-    let default_cfg = root().join("examples/config.lua");
+    let default_cfg = root().join("configs/config.lua");
     // A preset can be tested with --config; otherwise use the serial-locked e2e config.
-    let config = if opts.config != default_cfg { opts.config.clone() } else { root().join("examples/e2e.lua") };
+    let config = if opts.config != default_cfg { opts.config.clone() } else { root().join("configs/e2e.lua") };
     let o = Options { config: config.clone(), fault_test: false, selftest: false, profile: opts.profile, legacy_small: opts.legacy_small, limit: opts.limit, out: Some(dir.join("e2e.iso")), extra_kernel_params: vec!["console=ttyS0,115200".into()], uefi: opts.uefi, headless: true, disk: opts.disk.clone(), nic: opts.nic.clone(), usb: false, tethering: false, debug: opts.debug, progress: false, workdir: None };
     let iso_path = iso::build(&o)?;
 

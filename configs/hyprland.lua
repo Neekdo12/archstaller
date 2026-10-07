@@ -1,6 +1,7 @@
+-- archstaler: kind=preset
 -- Hyprland (Wayland) with NetworkManager, PipeWire and Firefox; ly starts the session.
 -- Needs a GPU with working KMS; in a VM enable 3D acceleration (virtio-gpu with virgl). 15 GiB+ disk.
-local common = dofile(CONFIG_DIR .. "/common.lua")
+local common = require("common")
 
 -- A friend's Hyprland config: a zip with the config laid out relative to the home directory
 -- (.config/hypr/hyprland.lua, .config/hypr/modules/..., and so on). The installer downloads it and
@@ -29,7 +30,7 @@ return common.build{
     "firefox",
   },
   firmware = { "linux-firmware" },
-  providers = { { "jack", "pipewire-jack" } },
+  providers = { jack = "pipewire-jack" },
   services = { "NetworkManager.service" },
   user_archives = FRIEND_CONFIG ~= "" and { { url = FRIEND_CONFIG } } or {},
 }

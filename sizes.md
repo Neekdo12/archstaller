@@ -1,6 +1,6 @@
 # ISO size
 
-Measured on 2026-10-02 with `cargo xtask size` (config `examples/config.lua`, profile `release`).
+Measured on 2026-10-02 with `cargo xtask size` (config `configs/config.lua`, profile `release`).
 The kernel breakdown by crate is from an unstripped build (`CARGO_PROFILE_RELEASE_STRIP=false`) through `llvm-nm --print-size`.
 
 **Total: 798,720 B (0.76 MiB).** With `--small`: 739,328 B (0.71 MiB). Before our own boot loader (Limine) it was

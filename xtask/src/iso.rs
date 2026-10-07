@@ -206,7 +206,7 @@ fn build_inner(opts: &Options) -> Result<PathBuf> {
     let (loaded, resolved) = stage(opts, "config", || {
         let loaded = hostcfg::lua::load(&opts.config)?;
         let resolved = hostcfg::host::resolve_profile(opts.profile, opts.legacy_small, &loaded.host)?;
-        for w in &resolved.warnings {
+        for w in resolved.warnings.iter().chain(&loaded.warnings) {
             eprintln!("warning: {w}");
         }
         println!("build: config {}, profile {}", opts.config.display(), resolved.profile.name());

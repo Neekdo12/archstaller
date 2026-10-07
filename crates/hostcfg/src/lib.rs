@@ -5,7 +5,10 @@
 //!   [`host::HostConfig`] (`build`, `installer_drivers`).
 //! * [`host`]: build profiles, the installer driver catalogue and their validation.
 
+pub mod asconfig;
+pub mod configs;
 pub mod host;
+pub mod luals;
 pub mod lua;
 pub mod password;
 pub mod progress;

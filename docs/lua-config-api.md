@@ -1,5 +1,25 @@
 # Typed Lua config API
 
+**Status: implemented.** The `as` loader (`crates/hostcfg/src/asconfig.rs`, `lua.rs`), the writer, the flat
+`configs/` directory with first-line markers (`crates/hostcfg/src/configs.rs`), the generated LuaLS types
+(`configs/archstaler.lua`, `cargo xtask gen-luals [--check]`) and `.luarc.json` exist, and every repository
+config uses the new layout. Decisions the text below left open:
+
+- The open question is settled as recommended: the legacy flat layout still loads with a warning
+  (`hostcfg::lua::LEGACY_WARNING`); the writer emits only `as`; mixing both in one file is an error.
+- Placement of fields the example did not show: `system.root_password_hash`, `install.dry_run`,
+  `packages.aur`, `first_boot.user_files`, `first_boot.user_archives`, `build.installer_drivers`.
+- `packages.providers` is a table; it is normalized and written sorted by dependency name.
+- Preset marker: `-- archstaler: kind=preset|example|e2e|module` on line 1 (no manifest); the next comment line
+  is the description. A file with no marker is not listed anywhere.
+- Error paths count list positions from 1 (`as.users[1].groups`), like Lua and the existing domain messages.
+- `presets/common.lua` became `configs/common.lua`, a documented builder that returns a complete `{ as = ... }`.
+- Editor diagnostics were verified with `lua-language-server` 3.19.1 (`--check`): the repository's configs
+  report no problems, and a config with a wrong value type, a missing required field and an invalid profile
+  reports errors. A misspelled key is reported as the missing required field. `lua-language-server` is not part
+  of `cargo test`; the generated file is covered by a test against the schema. README.md has the VS Code and
+  Neovim/LazyVim setup.
+
 This spec describes a new host-side Lua config model inspired by the structure of the local
 `~/.config/hypr/` setup: one root file composes focused modules, and settings live under a single
 namespace. Use `as` for Archstaler. The goal is convenient hand editing with useful Lua Language Server

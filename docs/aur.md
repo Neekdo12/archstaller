@@ -6,7 +6,7 @@ official packages the recipes need and writes `aur.list`; `firstboot/archstaler-
 `archstaler-aur.sh` build and install the packages on the boot after the first one. Checked by unit tests
 (`cargo test -p aurbuild`, including a run of the real shell script against local git repositories with
 stand-ins for `pacman`, `makepkg` and the other root-only commands) and by an end-to-end QEMU install
-(`cargo xtask e2e --config examples/e2e-aur.lua`). Differences from the first draft of this plan are listed
+(`cargo xtask e2e --config configs/e2e-aur.lua`). Differences from the first draft of this plan are listed
 under "As implemented". This document replaces the short AUR notes in `docs/implement-gui.md` (phase 6).
 
 ## Goal

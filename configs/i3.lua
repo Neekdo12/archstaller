@@ -1,5 +1,6 @@
+-- archstaler: kind=preset
 -- i3 on Xorg with NetworkManager, PipeWire and Firefox; ly starts the session. 10 GiB+ disk.
-local common = dofile(CONFIG_DIR .. "/common.lua")
+local common = require("common")
 
 return common.build{
   hostname = "i3",
@@ -10,6 +11,6 @@ return common.build{
     "ttf-dejavu", "noto-fonts", "firefox",
   },
   firmware = { "linux-firmware" },
-  providers = { { "jack", "pipewire-jack" } },
+  providers = { jack = "pipewire-jack" },
   services = { "NetworkManager.service" },
 }

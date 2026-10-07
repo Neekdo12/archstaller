@@ -103,7 +103,7 @@ impl Model {
         }
     }
 
-    /// A new, unsaved document from one of the repository's presets (`presets/*.lua`). The preset is
+    /// A new, unsaved document from one of the repository's presets (`configs/`). The preset is
     /// evaluated like the CLI does and then edited as an ordinary form; saving writes plain Lua.
     pub fn from_preset(path: &Path) -> Result<Model, String> {
         let l = hostcfg::lua::load(path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -158,28 +158,11 @@ impl Model {
     }
 }
 
-/// A preset of the repository.
-pub struct Preset {
-    pub name: String,
-    /// The first comment line of the file.
-    pub description: String,
-    pub path: PathBuf,
-}
+pub use hostcfg::configs::Preset;
 
-/// The presets under `<root>/presets`, by name (`common.lua` holds shared code, not a preset).
+/// The presets under `<root>/configs` (files marked `-- archstaler: kind=preset`), by name.
 pub fn presets(root: &Path) -> Vec<Preset> {
-    let Ok(dir) = std::fs::read_dir(root.join("presets")) else { return vec![] };
-    let mut v: Vec<Preset> = dir
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "lua") && p.file_stem().is_some_and(|s| s != "common"))
-        .map(|p| {
-            let description = std::fs::read_to_string(&p).ok().and_then(|t| t.lines().next().map(|l| l.trim_start_matches('-').trim().to_string())).unwrap_or_default();
-            Preset { name: p.file_stem().unwrap().to_string_lossy().into_owned(), description, path: p }
-        })
-        .collect();
-    v.sort_by(|a, b| a.name.cmp(&b.name));
-    v
+    hostcfg::configs::presets(&root.join(hostcfg::configs::DIR))
 }
 
 #[cfg(test)]
@@ -250,7 +233,7 @@ mod tests {
         let root = crate::build::find_root().unwrap();
         let list = presets(&root);
         let names: Vec<&str> = list.iter().map(|p| p.name.as_str()).collect();
-        assert_eq!(names, ["hyprland", "i3", "minimal", "plasma", "server", "tester"]);
+        assert_eq!(names, ["hyprland", "i3", "minimal", "omarchy", "plasma", "server", "tester"]);
         for p in &list {
             assert!(!p.description.is_empty(), "{}", p.name);
             let m = Model::from_preset(&p.path).unwrap_or_else(|e| panic!("{}: {e}", p.name));

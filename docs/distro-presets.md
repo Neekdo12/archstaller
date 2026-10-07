@@ -1,5 +1,11 @@
 # Omarchy and CachyOS support
 
+**Status:** the Omarchy preset exists (`configs/omarchy.lua`, derived from Omarchy v4.0.4) and resolves with
+`cargo xtask check-presets` (896 packages, about 2.4 GiB). It is the official-repository subset of Omarchy's package
+list, with `ly` instead of `sddm`, and without Omarchy's own scripts, themes and dotfiles, because those come from
+Omarchy's repository or the AUR, which the installer does not use for presets. The QEMU install-and-boot test has
+not been run. CachyOS support is not started.
+
 This document describes how to extend Archstaler to other Arch-derived systems. Only Arch-based
 distributions are in scope. The installer kernel remains Archstaler's own, while package selection and
 system configuration vary by preset.
@@ -17,7 +23,7 @@ needs explicit repository and trust support before it can be called supported.
 
 ## Current boundary
 
-The existing preset mechanism is `presets/*.lua`, with shared defaults in `presets/common.lua`. The
+The existing preset mechanism is the files marked `-- archstaler: kind=preset` in `configs/`, with shared defaults in `configs/common.lua`. The
 presets supply package names and system configuration; they do not select a different installer kernel.
 The GUI and CLI already load these configs through `hostcfg`.
 
@@ -36,7 +42,7 @@ Several current assumptions must be addressed when adding Arch-derived distribut
 
 Implement Omarchy first, reusing the Arch backend and adding no new kernel code.
 
-1. Add `presets/omarchy.lua`. Reuse `presets/common.lua` for shared Arch packages, users, disk setup,
+1. Add `configs/omarchy.lua` (first line `-- archstaler: kind=preset`). Reuse `configs/common.lua` for shared Arch packages, users, disk setup,
    and standard configuration. Keep the Omarchy package list and any supported configuration files in
    the Omarchy preset or small shared Lua modules; do not fork all common defaults.
 2. Derive the package list and configuration from a documented, pinned Omarchy release. Prefer normal

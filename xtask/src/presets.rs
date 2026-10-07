@@ -1,15 +1,9 @@
-//! Preset configs in presets/*.lua: dependency check and one ISO per preset.
+//! Preset configs in configs/ (files marked `-- archstaler: kind=preset`): dependency check and one ISO per preset.
 use crate::{iso, lua, root, Options, Result};
 use std::path::PathBuf;
 
 fn preset_files() -> Result<Vec<PathBuf>> {
-    let mut files: Vec<PathBuf> = std::fs::read_dir(root().join("presets"))?
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "lua") && p.file_stem().is_some_and(|s| s != "common"))
-        .collect();
-    files.sort();
-    Ok(files)
+    Ok(hostcfg::configs::presets(&root().join(hostcfg::configs::DIR)).into_iter().map(|p| p.path).collect())
 }
 
 fn stem(p: &std::path::Path) -> String {

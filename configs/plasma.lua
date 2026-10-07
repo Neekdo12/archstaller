@@ -1,6 +1,7 @@
+-- archstaler: kind=preset
 -- KDE Plasma (Wayland session) with NetworkManager, PipeWire and Firefox; ly starts the session.
 -- The biggest preset (well over 1 GiB to download); use a disk of 20 GiB or more.
-local common = dofile(CONFIG_DIR .. "/common.lua")
+local common = require("common")
 
 return common.build{
   hostname = "plasma",
@@ -11,6 +12,6 @@ return common.build{
     "ttf-dejavu", "noto-fonts", "firefox",
   },
   firmware = { "linux-firmware" },
-  providers = { { "jack", "pipewire-jack" } },
+  providers = { jack = "pipewire-jack" },
   services = { "NetworkManager.service" },
 }

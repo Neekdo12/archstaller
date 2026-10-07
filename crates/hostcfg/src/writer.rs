@@ -1,5 +1,6 @@
-//! Writes a config as readable, deterministic Lua. The output loads back with [`crate::lua::load`]
+//! Writes a config as readable, deterministic Lua in the `as` layout. The output loads back with [`crate::lua::load`]
 //! to the same configuration; field order and list order are fixed, and passwords appear only as hashes.
+use crate::asconfig::AsConfig;
 use crate::host::HostConfig;
 use config::Config;
 use std::fmt::Write;
@@ -39,14 +40,15 @@ fn opt(name: &str, v: &Option<String>) -> Option<String> {
     v.as_ref().map(|s| format!("{name} = {}", lua_str(s)))
 }
 
-/// The `aur_packages = { ... }` table for a config (empty string when there are no packages).
+/// The `aur = { ... }` field of `as.packages` for these packages, indented to sit inside it (empty
+/// string when there are none).
 pub fn aur_block(aur: &[config::AurPackage]) -> String {
     let mut o = String::new();
     if aur.is_empty() {
         return o;
     }
-    writeln!(o, "  -- Built on the installed system at its first boot, from the pinned and reviewed recipe.").unwrap();
-    writeln!(o, "  aur_packages = {{").unwrap();
+    writeln!(o, "    -- Built on the installed system at its first boot, from the pinned and reviewed recipe.").unwrap();
+    writeln!(o, "    aur = {{").unwrap();
     for a in aur {
         let mut f = vec![format!("name = {}", lua_str(&a.name)), format!("pkgbase = {}", lua_str(&a.pkgbase)), format!("commit = {}", lua_str(&a.commit)), format!("sha256 = {}", lua_str(&a.sha256))];
         if a.vcs {
@@ -64,95 +66,104 @@ pub fn aur_block(aur: &[config::AurPackage]) -> String {
         if !a.services.is_empty() {
             f.push(format!("services = {}", list(&a.services)));
         }
-        writeln!(o, "    {{ {} }},", f.join(", ")).unwrap();
+        writeln!(o, "      {{ {} }},", f.join(", ")).unwrap();
     }
-    writeln!(o, "  }},").unwrap();
+    writeln!(o, "    }},").unwrap();
     o
 }
 
-/// Renders the config. `Script::content` is never written (it is filled in at build time).
+const KEYWORDS: &[&str] = &["and", "break", "do", "else", "elseif", "end", "false", "for", "function", "goto", "if", "in", "local", "nil", "not", "or", "repeat", "return", "then", "true", "until", "while"];
+
+/// A table key: bare when it is a Lua name, `["..."]` otherwise.
+fn key(k: &str) -> String {
+    let bare = k.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && !KEYWORDS.contains(&k);
+    if bare {
+        k.to_string()
+    } else {
+        format!("[{}]", lua_str(k))
+    }
+}
+
+/// Renders the config as `return { as = ... }`. `Script::content` is never written (it is filled in
+/// at build time); providers are written sorted by dependency name.
 pub fn to_lua(cfg: &Config, host: &HostConfig) -> String {
+    let a = AsConfig::from_parts(cfg, host);
     let mut o = String::new();
     writeln!(o, "{HEADER}").unwrap();
     writeln!(o, "-- Plain Lua: edit it by hand or with the GUI. Password hashes only, never plaintext.").unwrap();
-    writeln!(o, "return {{").unwrap();
-
-    writeln!(o, "  -- Build-host settings (not part of what the installer receives).").unwrap();
-    let mut b = Vec::new();
-    if let Some(p) = &host.build.profile {
-        b.push(format!("profile = {}", lua_str(p)));
-    }
-    b.push(format!("tethering = {}", host.build.tethering));
-    writeln!(o, "  build = {{ {} }},", b.join(", ")).unwrap();
-    if let Some(d) = &host.installer_drivers {
-        writeln!(o, "  installer_drivers = {},", list(d)).unwrap();
-    }
+    writeln!(o, "---@type AsConfig").unwrap();
+    writeln!(o, "local as = {{").unwrap();
+    writeln!(o, "  schema = {},", a.schema).unwrap();
     writeln!(o).unwrap();
 
-    writeln!(o, "  hostname = {},", lua_str(&cfg.hostname)).unwrap();
-    writeln!(o, "  timezone = {},", lua_str(&cfg.timezone)).unwrap();
-    writeln!(o, "  locale = {},", lua_str(&cfg.locale)).unwrap();
-    writeln!(o, "  keymap = {},", lua_str(&cfg.keymap)).unwrap();
-    writeln!(o).unwrap();
-
-    writeln!(o, "  disk = {{").unwrap();
-    if let Some(m) = &cfg.disk.model {
-        writeln!(o, "    model = {},", lua_str(m)).unwrap();
+    writeln!(o, "  system = {{").unwrap();
+    writeln!(o, "    hostname = {},", lua_str(&a.system.hostname)).unwrap();
+    writeln!(o, "    timezone = {},", lua_str(&a.system.timezone)).unwrap();
+    writeln!(o, "    locale = {},", lua_str(&a.system.locale)).unwrap();
+    writeln!(o, "    keymap = {},", lua_str(&a.system.keymap)).unwrap();
+    if let Some(h) = &a.system.root_password_hash {
+        writeln!(o, "    root_password_hash = {},", lua_str(h)).unwrap();
     }
-    if !cfg.disk.confirm_serial.is_empty() {
-        writeln!(o, "    confirm_serial = {},", lua_str(&cfg.disk.confirm_serial)).unwrap();
-    }
-    writeln!(o, "    auto_largest = {},", cfg.disk.auto_largest).unwrap();
-    writeln!(o, "    esp_mib = {},", cfg.disk.esp_mib).unwrap();
     writeln!(o, "  }},").unwrap();
     writeln!(o).unwrap();
 
-    writeln!(o, "  mirrors = {},", list(&cfg.mirrors)).unwrap();
-    writeln!(o, "  packages = {},", list(&cfg.packages)).unwrap();
-    let providers: Vec<String> = cfg.providers.iter().map(|(a, b)| format!("{{ {}, {} }}", lua_str(a), lua_str(b))).collect();
-    writeln!(o, "  providers = {{ {} }},", providers.join(", ")).unwrap();
+    writeln!(o, "  install = {{").unwrap();
+    writeln!(o, "    disk = {{").unwrap();
+    if let Some(m) = &a.install.disk.model {
+        writeln!(o, "      model = {},", lua_str(m)).unwrap();
+    }
+    if !a.install.disk.confirm_serial.is_empty() {
+        writeln!(o, "      confirm_serial = {},", lua_str(&a.install.disk.confirm_serial)).unwrap();
+    }
+    if a.install.disk.auto_largest {
+        writeln!(o, "      -- WARNING: erases and installs onto the LARGEST disk, without asking.").unwrap();
+    }
+    writeln!(o, "      auto_largest = {},", a.install.disk.auto_largest).unwrap();
+    writeln!(o, "      esp_mib = {},", a.install.disk.esp_mib).unwrap();
+    writeln!(o, "    }},").unwrap();
+    writeln!(o, "    mirrors = {},", list(&a.install.mirrors)).unwrap();
+    if a.install.dry_run {
+        writeln!(o, "    dry_run = true,").unwrap();
+    }
+    writeln!(o, "  }},").unwrap();
     writeln!(o).unwrap();
 
-    match &cfg.root_password_hash {
-        Some(h) => writeln!(o, "  root_password_hash = {},", lua_str(h)).unwrap(),
-        None => writeln!(o, "  root_password_hash = nil,").unwrap(),
-    }
+    writeln!(o, "  packages = {{").unwrap();
+    writeln!(o, "    explicit = {},", list(&a.packages.explicit)).unwrap();
+    let providers: Vec<String> = a.packages.providers.iter().map(|(k, v)| format!("{} = {}", key(k), lua_str(v))).collect();
+    writeln!(o, "    providers = {{ {} }},", providers.join(", ")).unwrap();
+    o.push_str(&aur_block(&cfg.aur));
+    writeln!(o, "  }},").unwrap();
+    writeln!(o).unwrap();
+
     writeln!(o, "  users = {{").unwrap();
-    for u in &cfg.users {
-        writeln!(
-            o,
-            "    {{ name = {}, password_hash = {}, groups = {}, shell = {} }},",
-            lua_str(&u.name),
-            lua_str(&u.password_hash),
-            list(&u.groups),
-            lua_str(&u.shell)
-        )
-        .unwrap();
+    for u in &a.users {
+        writeln!(o, "    {{ name = {}, password_hash = {}, groups = {}, shell = {} }},", lua_str(&u.name), lua_str(&u.password_hash), list(&u.groups), lua_str(&u.shell)).unwrap();
     }
     writeln!(o, "  }},").unwrap();
     writeln!(o).unwrap();
 
-    writeln!(o, "  services = {},", list(&cfg.services)).unwrap();
-    writeln!(o, "  kernel_params = {},", list(&cfg.kernel_params)).unwrap();
-
-    if !cfg.user_files.is_empty() {
-        writeln!(o, "  user_files = {{").unwrap();
-        for f in &cfg.user_files {
-            writeln!(o, "    {{ url = {}, dest = {} }},", lua_str(&f.url), lua_str(&f.dest)).unwrap();
+    writeln!(o, "  first_boot = {{").unwrap();
+    writeln!(o, "    services = {},", list(&a.first_boot.services)).unwrap();
+    writeln!(o, "    kernel_params = {},", list(&a.first_boot.kernel_params)).unwrap();
+    if !a.first_boot.user_files.is_empty() {
+        writeln!(o, "    user_files = {{").unwrap();
+        for f in &a.first_boot.user_files {
+            writeln!(o, "      {{ url = {}, dest = {} }},", lua_str(&f.url), lua_str(&f.dest)).unwrap();
         }
-        writeln!(o, "  }},").unwrap();
+        writeln!(o, "    }},").unwrap();
     }
-    if !cfg.user_archives.is_empty() {
-        writeln!(o, "  user_archives = {{").unwrap();
-        for a in &cfg.user_archives {
-            writeln!(o, "    {{ url = {} }},", lua_str(&a.url)).unwrap();
+    if !a.first_boot.user_archives.is_empty() {
+        writeln!(o, "    user_archives = {{").unwrap();
+        for f in &a.first_boot.user_archives {
+            writeln!(o, "      {{ url = {} }},", lua_str(&f.url)).unwrap();
         }
-        writeln!(o, "  }},").unwrap();
+        writeln!(o, "    }},").unwrap();
     }
-    if !cfg.scripts.is_empty() {
-        writeln!(o, "  -- Run as root at the end of the first boot, in this order.").unwrap();
-        writeln!(o, "  scripts = {{").unwrap();
-        for s in &cfg.scripts {
+    if !a.first_boot.scripts.is_empty() {
+        writeln!(o, "    -- Run as root at the end of the first boot, in this order.").unwrap();
+        writeln!(o, "    scripts = {{").unwrap();
+        for s in &a.first_boot.scripts {
             let mut f = vec![format!("id = {}", lua_str(&s.id))];
             if !s.args.is_empty() {
                 f.push(format!("args = {}", list(&s.args)));
@@ -160,15 +171,26 @@ pub fn to_lua(cfg: &Config, host: &HostConfig) -> String {
             f.extend(opt("file", &s.file));
             f.extend(opt("url", &s.url));
             f.extend(opt("sha256", &s.sha256));
-            writeln!(o, "    {{ {} }},", f.join(", ")).unwrap();
+            writeln!(o, "      {{ {} }},", f.join(", ")).unwrap();
         }
-        writeln!(o, "  }},").unwrap();
+        writeln!(o, "    }},").unwrap();
     }
-    o.push_str(&aur_block(&cfg.aur));
-    if cfg.dry_run {
-        writeln!(o, "  dry_run = true,").unwrap();
+    writeln!(o, "  }},").unwrap();
+    writeln!(o).unwrap();
+
+    writeln!(o, "  -- Build-host settings (not part of what the installer receives).").unwrap();
+    writeln!(o, "  build = {{").unwrap();
+    if let Some(p) = &a.build.profile {
+        writeln!(o, "    profile = {},", lua_str(p)).unwrap();
     }
+    writeln!(o, "    tethering = {},", a.build.tethering).unwrap();
+    if let Some(d) = &a.build.installer_drivers {
+        writeln!(o, "    installer_drivers = {},", list(d)).unwrap();
+    }
+    writeln!(o, "  }},").unwrap();
     writeln!(o, "}}").unwrap();
+    writeln!(o).unwrap();
+    writeln!(o, "return {{ as = as }}").unwrap();
     o
 }
 

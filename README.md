@@ -12,7 +12,7 @@ the installed system.
 The installer is unattended by design. There is no interactive UI: the config decides everything, and the
 disk to erase is chosen either by serial number or, if you opt in, simply as the largest one.
 
-> **Warning.** With `disk.auto_largest = true` (the setting in `presets/` and in `examples/config.lua`),
+> **Warning.** With `disk.auto_largest = true` (the setting in the presets and in `configs/config.lua`),
 > booting the ISO **erases the largest disk in the machine without asking.** Only boot these ISOs on
 > hardware or VMs where that is what you want.
 
@@ -29,7 +29,7 @@ OVMF (`/usr/share/edk2/x64`). `rust-toolchain.toml` selects the toolchain.
 cargo xtask build --debug    # verbose driver/network tracing (always on for the tester preset)
 cargo xtask aur-pin NAME [--commit C]   # review an AUR package and print the `aur_packages` entry that pins it (see docs/aur.md)
 cargo xtask presets          # one ISO per preset -> target/isos/archstaler-<preset>.iso (with USB tethering; --no-tethering leaves it out)
-cargo xtask build            # a single ISO from examples/config.lua -> target/archstaler.iso
+cargo xtask build            # a single ISO from configs/config.lua -> target/archstaler.iso
 cargo xtask build --profile large   # regular release build, panic messages kept (the default profile is `super-small`; or set `build.profile` in the config)
 cargo run -p archstaler-gui         # desktop app: start from a preset or a blank config, edit, check it, build the ISO, copy it to a Ventoy stick
 cargo xtask build --config path/to/my.lua --out my.iso
@@ -44,12 +44,13 @@ cargo xtask build --config path/to/my.lua --out my.iso
 | `archstaler-i3.iso` | Xorg + i3, NetworkManager, PipeWire, Firefox | ~1.0 GiB | 10 GiB+ |
 | `archstaler-hyprland.iso` | Hyprland (Wayland) with kitty, rofi, waybar, quickshell, hyprlock/hypridle, Neovim (LazyVim) and Nerd fonts (FantasqueSansM, JetBrains Mono, Iosevka), plus the downloaded config zip | ~1.4 GiB | 15 GiB+ |
 | `archstaler-plasma.iso` | KDE Plasma (Wayland session), same extras | ~1.3 GiB | 20 GiB+ |
+| `archstaler-omarchy.iso` | Hyprland with the application set of Omarchy v4.0.4, official-repository packages only (not Omarchy itself: no Omarchy scripts, themes or dotfiles; the omitted packages are listed in `configs/omarchy.lua`) | ~2.4 GiB | 20 GiB+ |
 
 Every preset installs the `ly` login manager (`ly@tty2.service`) and creates the user `passwd_is_passwd`
 with the password `passwd` in group `wheel` (sudo works; root is locked). **Change that password** before
 the machine is reachable from a network, especially with the server preset, which enables SSH. On the
 console-only presets (minimal, server) `ly` lists both `shell` and `xinitrc` sessions; pick `shell`,
-because `xinitrc` needs X and `xauth`. The shared defaults live in `presets/common.lua`; `cargo xtask
+because `xinitrc` needs X and `xauth`. The shared defaults live in `configs/common.lua`; `cargo xtask
 check-presets` resolves every preset against your local pacman sync databases and reports package counts,
 download sizes and provider choices. All presets install the wired-NIC firmware
 (`linux-firmware-intel`, `linux-firmware-realtek`) and the AMD GPU firmware (`linux-firmware-amdgpu`,
@@ -58,7 +59,7 @@ builds the initramfs without the `kms` hook, so a GPU that cannot initialise (mi
 chip) does not stop the boot before the root file system is mounted.
 
 The Hyprland preset also pulls a Hyprland config from a server during installation: `FRIEND_CONFIG` at the
-top of `presets/hyprland.lua` is the `https://` URL of a zip whose contents are laid out relative to the
+top of `configs/hyprland.lua` is the `https://` URL of a zip whose contents are laid out relative to the
 home directory (`.config/hypr/hyprland.lua`, `.config/hypr/modules/...`). It is extracted into every user's
 home on first boot, as that user. Set it to an empty string to skip it. If the server is down, or does not
 answer with a zip, the archive is skipped with a warning and Hyprland keeps its defaults. **Only point it at a
@@ -69,7 +70,7 @@ and the three Nerd fonts). Things the config refers to that are **not** installe
 quickshell config, `zen-browser` and the `macOS` cursor theme (AUR only; Firefox is installed instead),
 `code`, `kitty-themes`, the wallpaper `~/Images/Wallpapers/special.jpg` and `~/.local/bin/satty-screenshot`.
 
-`presets/tester.lua` is not an installer: it is a read-only hardware test (`archstaler-tester.iso`). It probes the
+`configs/tester.lua` is not an installer: it is a read-only hardware test (`archstaler-tester.iso`). It probes the
 machine, brings up the network, downloads the package databases, pings the gateway and 1.1.1.1, runs a download speed
 test, prints PASS/FAIL with full debug output, and reboots. It never writes a disk. Use it to check whether a machine's
 NIC, tethering phone or dongle works before installing.
@@ -84,7 +85,7 @@ cargo xtask run --bios --headless          # or --uefi; adds a scratch disk with
 cargo xtask run --uefi --disk nvme --nic e1000e
 ```
 
-`xtask run` builds the ISO from `examples/config.lua` and attaches `target/test-disk.img`. Options:
+`xtask run` builds the ISO from `configs/config.lua` and attaches `target/test-disk.img`. Options:
 `--disk virtio|ahci|nvme`, `--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none`, `--config FILE`, `--headless`.
 
 ### Virtual machines and USB sticks
@@ -151,28 +152,60 @@ reads FAT32 and exFAT alike), other Ventoy modes and Ventoy's Secure Boot mode.
 
 ## Configuration
 
-Configs are Lua files evaluated on the **build host**; the result is serialized into the ISO. See
-`examples/config.lua` for a documented example and `presets/*.lua` for real ones (presets share code via
-`dofile(CONFIG_DIR .. "/common.lua")`).
+Configs are Lua files evaluated on the **build host**; the result is serialized into the ISO. A config
+returns one table with a single namespace, `as` (`return { as = as }`). `configs/config.lua` is a documented
+example, `configs/e2e.lua` is the config of `xtask e2e`, and `configs/*.lua` marked
+`-- archstaler: kind=preset` on their first line are the presets (`configs/common.lua` holds their shared
+code and is not one). Modules beside a config load with `require("common")`.
+
+All Lua files live flat in `configs/`. The Lua Language Server types (`configs/archstaler.lua`, generated from
+the Rust schema by `cargo xtask gen-luals`; `--check` fails when it is stale) and the root `.luarc.json` give
+completion and diagnostics for the `as` table in VS Code and Neovim/LazyVim (point `lua_ls` at the repository
+root; it reads `.luarc.json`). The editor only helps while typing: the build rejects unknown keys and wrong
+value types with the full path, for example `as.system.hostname: invalid type: integer 5, expected a string`
+(list positions count from 1).
+
+Editor setup (the Lua Language Server, `lua-language-server`, 3.x; `.luarc.json` at the repository root already
+holds the settings, so open the repository root as the workspace):
+
+- **VS Code:** install the "Lua" extension (sumneko.lua). Nothing else to configure.
+- **Neovim / LazyVim:** install `lua-language-server` (Arch: `pacman -S lua-language-server`) and enable the
+  standard `lua_ls` server (LazyVim: add `lua_ls` through the `lang.lua` extra, or `opts.servers.lua_ls = {}`
+  in an `nvim-lspconfig` spec). It must start with the repository root as `root_dir`: lspconfig picks the
+  directory holding `.luarc.json` on its own. If the server does not pick the file up, set
+  `settings = { Lua = { workspace = { library = { "configs" } }, runtime = { version = "Lua 5.4" } } }`.
+  No custom plugin is needed.
+- **Without an editor:** `lua-language-server --check . --configpath .luarc.json` prints the same diagnostics
+  for every file (wrong value types, missing required fields, values outside `"super-small"|"large"` or the
+  driver ids). A misspelled key shows up as the missing required field it should have been.
+
+Diagnostics and completion come from the generated `configs/archstaler.lua`; they are hints, and the build is
+what accepts or rejects a config. Package names cannot be a closed list, so they are not completed.
+
+The old flat layout (`return { hostname = ..., disk = ... }`) is still read, with a warning, for one migration
+window; files written by the GUI always use the `as` layout. A table that mixes `as` with flat keys is refused.
 
 | Field | Meaning |
 |---|---|
-| `hostname`, `timezone`, `locale`, `keymap` | system identity and localization |
-| `disk.auto_largest` | opt in: erase and install onto the largest disk; a tie is refused |
-| `disk.confirm_serial`, `disk.model` | the safe mode: the selector must match exactly one disk and its serial must equal `confirm_serial`, otherwise nothing is written |
-| `disk.esp_mib` | size of the FAT32 EFI system partition, mounted at `/boot` |
-| `mirrors` | base URLs; `$repo` and `$arch` are substituted |
-| `packages` | package or group names installed explicitly |
-| `providers` | `{ {dep, package}, ... }`: which package provides an ambiguous dependency |
-| `users` | `{ name, password_hash, groups, shell }`; hashes are SHA-512 crypt (`openssl passwd -6`), never plaintext |
-| `root_password_hash` | optional; root is locked if absent |
-| `user_files` | `{ { url, dest }, ... }`: `https://` files (max 1 MiB) downloaded by the installer and copied on first boot to `~/<dest>` of every configured user, owned by that user. A server that is down, a non-200 answer or an oversized file only prints a warning; the installation continues without that file |
-| `user_archives` | `{ { url }, ... }`: `https://` zip archives (max 16 MiB) downloaded by the installer and extracted on first boot into the home directory of every configured user (paths inside the zip are relative to the home, e.g. `.config/hypr/hyprland.lua`), as that user. Same failure handling as `user_files`; an answer that is not a zip is skipped too |
-| `services` | units enabled on first boot |
-| `kernel_params` | appended to the kernel command line |
-| `scripts` | `{ { id, args?, file? \| url?+sha256? }, ... }`: run as root, in order, at the end of the first boot. An `id` alone is a built-in script (`enable-sshd`, `enable-fstrim`); `file` is a local script embedded at build time (max 64 KiB); `url` must be `https://` and pinned by `sha256` (the installer fails on a mismatch). A failing script only logs a warning |
-| `build.profile`, `build.tethering` | host-only: `super-small` (default) or `large` installer build; include USB tethering. `extra-large` is reserved |
-| `installer_drivers` | host-only: installer drivers to include (`virtio-blk ahci ata nvme virtio-net vmxnet3 e1000 igb r8169 rtl8139 alx`); all if absent, at least one storage and one network driver (or `build.tethering`) otherwise |
+| `as.schema` | must be `1` |
+| `as.system.hostname`, `timezone`, `locale`, `keymap` | system identity and localization |
+| `as.system.root_password_hash` | optional; root is locked if absent |
+| `as.install.disk.auto_largest` | opt in: erase and install onto the largest disk; a tie is refused |
+| `as.install.disk.confirm_serial`, `model` | the safe mode: the selector must match exactly one disk and its serial must equal `confirm_serial`, otherwise nothing is written |
+| `as.install.disk.esp_mib` | size of the FAT32 EFI system partition, mounted at `/boot` |
+| `as.install.mirrors` | base URLs; `$repo` and `$arch` are substituted |
+| `as.install.dry_run` | hardware test mode (no disk is written) |
+| `as.packages.explicit` | package or group names installed explicitly |
+| `as.packages.providers` | `{ dep = "package", ... }`: which package provides an ambiguous dependency (written sorted by name) |
+| `as.packages.aur` | pinned AUR recipes built on the installed system's first boot, see `docs/aur.md` |
+| `as.users` | `{ { name, password_hash, groups, shell }, ... }`; hashes are SHA-512 crypt (`openssl passwd -6`), never plaintext |
+| `as.first_boot.user_files` | `{ { url, dest }, ... }`: `https://` files (max 1 MiB) downloaded by the installer and copied on first boot to `~/<dest>` of every configured user, owned by that user. A server that is down, a non-200 answer or an oversized file only prints a warning; the installation continues without that file |
+| `as.first_boot.user_archives` | `{ { url }, ... }`: `https://` zip archives (max 16 MiB) downloaded by the installer and extracted on first boot into the home directory of every configured user (paths inside the zip are relative to the home, e.g. `.config/hypr/hyprland.lua`), as that user. Same failure handling as `user_files`; an answer that is not a zip is skipped too |
+| `as.first_boot.services` | units enabled on first boot |
+| `as.first_boot.kernel_params` | appended to the kernel command line |
+| `as.first_boot.scripts` | `{ { id, args?, file? \| url?+sha256? }, ... }`: run as root, in order, at the end of the first boot. An `id` alone is a built-in script (`enable-sshd`, `enable-fstrim`); `file` is a local script embedded at build time (max 64 KiB); `url` must be `https://` and pinned by `sha256` (the installer fails on a mismatch). A failing script only logs a warning |
+| `as.build.profile`, `as.build.tethering` | host-only: `super-small` (default) or `large` installer build; include USB tethering. `extra-large` is reserved |
+| `as.build.installer_drivers` | host-only: installer drivers to include (`virtio-blk ahci ata nvme virtio-net vmxnet3 e1000 igb r8169 rtl8139 alx`); all if absent, at least one storage and one network driver (or `build.tethering`) otherwise |
 
 Config values end up in shell-read data files, unit files and boot loader configuration, so `xtask`
 validates them strictly at build time and rejects anything with unexpected characters.
@@ -242,7 +275,7 @@ validates them strictly at build time and rejects anything with unexpected chara
 | `crates/aurbuild` | host-only AUR support: search, review, pin and plan (the packages are built on the installed system, see `docs/aur.md`) |
 | `crates/hostcfg` | host-only config model shared by `xtask` and the GUI: Lua loading, build profiles, driver and script catalogues, Lua writer, package resolution preview, build progress events |
 | `gui/` | `archstaler-gui`, the desktop app (egui): config editor, ISO build, Ventoy copy |
-| `presets/`, `examples/` | Lua configs |
+| `configs/` | Lua configs: example, e2e, presets, shared modules, generated LuaLS types |
 
 ## Testing
 
@@ -250,8 +283,8 @@ validates them strictly at build time and rejects anything with unexpected chara
 cargo test --release -p pgp-lite --features std -p pkg -p ext4w -p disk -p initrd -p hostcfg -p archstaler-gui -p loadcore
 cargo xtask linux-test                       # boots the host kernel with our initramfs and an ext4w root
 cargo xtask e2e [--uefi] [--disk ahci|nvme|ide --nic e1000]   # install onto a blank disk, then boot twice
-cargo xtask e2e --config presets/i3.lua      # the same for a preset
-cargo xtask e2e --config examples/e2e-aur.lua   # plus one AUR package, built and installed on the second boot
+cargo xtask e2e --config configs/i3.lua      # the same for a preset
+cargo xtask e2e --config configs/e2e-aur.lua   # plus one AUR package, built and installed on the second boot
 cargo xtask run --usb --headless            # xHCI smoke test: qemu-xhci + usb-storage, SCSI INQUIRY
 cargo xtask run --selftest --headless --nic usb-rndis   # DHCP + HTTPS + 1 MB over an emulated Android RNDIS adapter
 cargo xtask size [--profile large] [--limit BYTES]   # ISO contents and size limit check
