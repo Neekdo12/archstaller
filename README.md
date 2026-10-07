@@ -1,79 +1,126 @@
 # archstaler
 
-An Arch Linux installer written in Rust that does **not** run on top of Linux.
+## Overview
 
-The ISO boots through a small boot loader of its own (`boot/`, BIOS and UEFI, a few tens of KiB) into a small
-`no_std` kernel of its own: one CPU core, polling drivers, no device interrupts (the only interrupt is a 1 kHz timer tick that lets idle loops halt the CPU instead of spinning). That
-kernel reads a configuration that was baked into the ISO, downloads packages from an Arch mirror over
-HTTPS, verifies them, lays down GPT + FAT32 + ext4 and writes the system to disk. Anything that needs a
-running Linux (pacman scriptlets, alpm hooks, `mkinitcpio`, user creation) is deferred to the first boot of
-the installed system.
+An Arch Linux installer written in Rust that does not run on top of Linux.
 
-The installer is unattended by design. There is no interactive UI: the config decides everything, and the
-disk to erase is chosen either by serial number or, if you opt in, simply as the largest one.
+### How it works
+
+- The ISO boots through a small boot loader of its own (`boot/`, BIOS and UEFI, a few tens of KiB) into a small `no_std` kernel of its own.
+- It runs on a single CPU core, uses polling drivers, and has no device interrupts. The only interrupt is a 1 kHz timer tick that lets idle loops halt the CPU instead of spinning.
+- That kernel reads a configuration baked into the ISO, downloads packages from an Arch mirror over HTTPS, verifies them, lays down GPT + FAT32 + ext4, and writes the system to disk.
+- Anything that needs a running Linux, such as `pacman` scriptlets, ALPM hooks, `mkinitcpio`, and user creation, is deferred to the first boot of the installed system.
+
+### Design goals
+
+- The installer is unattended by design.
+- There is no interactive UI: the config decides everything.
+- The disk to erase is chosen either by serial number or, if you opt in, simply as the largest one.
 
 > **Warning.** With `disk.auto_largest = true` (the setting in the presets and in `configs/config.lua`),
 > booting the ISO **erases the largest disk in the machine without asking.** Only boot these ISOs on
 > hardware or VMs where that is what you want.
 
 This is a proof of concept for people who reinstall Arch often and want it automated. It has no prompts,
-countdowns or abort keys on purpose.
+countdowns, or abort keys on purpose.
 
 ## Quick start
 
-Prerequisites on the build host: a nightly Rust toolchain with `rust-src`, the `x86_64-unknown-none` target,
-`cc`, `xorriso`, `mtools`, `gpg`, `curl`, `tar` with zstd support, and for testing `qemu-system-x86_64` with
-OVMF (`/usr/share/edk2/x64`). `rust-toolchain.toml` selects the toolchain.
+### Build host prerequisites
+
+On the build host, you need:
+
+- a nightly Rust toolchain with `rust-src`
+- the `x86_64-unknown-none` target
+- `cc`
+- `xorriso`
+- `mtools`
+- `gpg`
+- `curl`
+- `tar` with zstd support
+- `qemu-system-x86_64` with OVMF (`/usr/share/edk2/x64`) for testing
+
+`rust-toolchain.toml` selects the toolchain.
+
+### Useful commands
 
 ```sh
-cargo xtask build --debug    # verbose driver/network tracing (always on for the tester preset)
-cargo xtask aur-pin NAME [--commit C]   # review an AUR package and print the `aur_packages` entry that pins it (see docs/aur.md)
-cargo xtask presets          # one ISO per preset -> target/isos/archstaler-<preset>.iso (with USB tethering; --no-tethering leaves it out)
-cargo xtask build            # a single ISO from configs/config.lua -> target/archstaler.iso
-cargo xtask build --profile large   # regular release build, panic messages kept (the default profile is `super-small`; or set `build.profile` in the config)
-cargo run -p archstaler-gui         # GTK4 desktop app (Linux; needs gtk4 and gtksourceview5, see "The desktop app"): start from a preset or a blank config, edit, check it, build the ISO, copy it to a Ventoy stick
+# Build a debug ISO with verbose driver/network tracing
+cargo xtask build --debug
+
+# Review an AUR package and print the pinned aur_packages entry
+cargo xtask aur-pin NAME [--commit C]
+
+# Build one ISO per preset
+cargo xtask presets
+
+# Build a single ISO from configs/config.lua
+cargo xtask build
+
+# Regular release build; panic messages kept
+cargo xtask build --profile large
+
+# Start the GTK app
+cargo run -p archstaler-gui
+
+# Build an ISO from a custom Lua config
 cargo xtask build --config path/to/my.lua --out my.iso
 ```
 
 ### The desktop app
 
 `archstaler-gui` is a GTK 4 app for Linux (Windows and macOS are not supported). It needs the `gtk4` and
-`gtksourceview5` libraries at run time (Arch: `pacman -S gtk4 gtksourceview5`) and their development files plus
+`gtksourceview5` libraries at runtime (Arch: `pacman -S gtk4 gtksourceview5`) and their development files plus
 `pkg-config` to build it. Run it from inside the checkout, or set `ARCHSTALER_ROOT`; it finds the presets and
-builds the ISO through `cargo xtask`. With a prebuilt binary: `cargo build --profile gui -p archstaler-gui`, then
-`target/gui/archstaler-gui`, and rebuild after every code change.
+builds the ISO through `cargo xtask`.
+
+With a prebuilt binary:
+
+```sh
+cargo build --profile gui -p archstaler-gui
+target/gui/archstaler-gui
+```
+
+Rebuild after every code change.
+
+#### Features
 
 - **Pages:** System, Disk, Mirrors & packages (with a resolve preview and the AUR group), Users, Services & kernel,
-  Build & drivers, Scripts, Lua source, Build ISO. A red dot in the sidebar marks a page with a validation problem;
-  the bar at the bottom shows the first one with a button that goes there. The checks are the command line's.
-- **Menus and keys:** File menu, From preset, Tools. `Ctrl+N` new, `Ctrl+O` open, `Ctrl+S` save, `Ctrl+Shift+S` save as,
-  `Ctrl+K` (or `/` outside a text field) the command launcher, which lists the same actions plus every page and preset.
-- **Presets** open as an unsaved config and say so when they erase the largest disk.
-- **Lua source:** shows the generated Lua with syntax highlighting. "Edit source" switches to source mode: the form
-  pages are unavailable, you edit the text (undo, search with `Ctrl+F`, `Ctrl+Space` suggestions for field names,
-  driver ids, built-in scripts, profile names, package and service names), and the diagnostics line shows the
-  loader's answer, with Go to line when the message names one. "Return to the forms" works when the text is
-  well formed and passes the loader's shape and type checks (an incomplete config, such as one with no disk
-  chosen, comes back and the problem bar says what is missing); a file the GUI did not write opens in source mode and is replaced by form output only
-  after you confirm. Suggestions are hints: the loader decides what a config means.
-- **Build ISO:** builds from the saved file (an unsaved config is saved first, or built from a temporary copy when
-  the target is a Ventoy drive), shows the stages and the log, can cancel, and copies the finished ISO onto a
-  mounted Ventoy volume as a file with a SHA-256 read-back check. It never flashes a raw device.
-- **Theme and size:** the window is dark by default, whatever the system theme says (`ARCHSTALER_THEME=system`
-  follows the system, `ARCHSTALER_THEME=light` forces light). Its default size is 90% of the screen at most, a
-  window narrower than 760 px hides the sidebar (the header's toggle brings it back), and long labels wrap, so it
-  works in a tiling-window-manager tile or a small laptop screen; the narrowest tested width was 600 px. A second
-  copy can be started next to the first.
-- **AUR packages:** one compact card: search, a result row with Review, then the recipe with its automatic checks
-  folded behind a count, risky lines highlighted and one acknowledgement before "Pin and add".
+  Build & drivers, Scripts, Lua source, Build ISO. A red dot in the sidebar marks a page with a validation
+  problem; the bar at the bottom shows the first one with a button that goes there. The checks are the command
+  line's.
+- **Menus and keys:** File menu, From preset, Tools. `Ctrl+N` new, `Ctrl+O` open, `Ctrl+S` save,
+  `Ctrl+Shift+S` save as, `Ctrl+K` (or `/` outside a text field) opens the command launcher, which lists the
+  same actions plus every page and preset.
+- **Presets:** open as an unsaved config and say so when they erase the largest disk.
+- **Lua source:** shows the generated Lua with syntax highlighting. "Edit source" switches to source mode:
+  the form pages are unavailable, you edit the text (undo, search with `Ctrl+F`, `Ctrl+Space` suggestions for
+  field names, driver IDs, built-in scripts, profile names, package and service names), and the diagnostics line
+  shows the loader's answer, with "Go to line" when the message names one. "Return to the forms" works when
+  the text is well formed and passes the loader's shape and type checks. An incomplete config, such as one with
+  no disk chosen, comes back and the problem bar says what is missing. A file the GUI did not write opens in
+  source mode and is replaced by form output only after you confirm. Suggestions are hints: the loader decides
+  what a config means.
+- **Build ISO:** builds from the saved file (an unsaved config is saved first, or built from a temporary copy
+  when the target is a Ventoy drive), shows the stages and the log, can cancel, and copies the finished ISO
+  onto a mounted Ventoy volume as a file with a SHA-256 read-back check. It never flashes a raw device.
+- **Theme and size:** the window is dark by default, whatever the system theme says
+  (`ARCHSTALER_THEME=system` follows the system, `ARCHSTALER_THEME=light` forces light). Its default size is
+  90% of the screen at most. A window narrower than 760 px hides the sidebar (the header's toggle brings it
+  back), and long labels wrap, so it works in a tiling-window-manager tile or a small laptop screen; the
+  narrowest tested width was 600 px. A second copy can be started next to the first.
+- **AUR packages:** one compact card: search, a result row with Review, then the recipe with its automatic
+  checks folded behind a count, risky lines highlighted, and one acknowledgement before "Pin and add".
 - `ARCHSTALER_PAGE=<id>` (`system disk packages users services build scripts lua iso`) opens the window on a page.
 
+#### Manual smoke test
+
 Manual check (no display server in the tests): start the app; open a preset from the menu and see the warning;
-change the hostname and save, reopen the file; open Lua source, Edit source, break the text and see the error and
-its line, fix it and Return to the forms; resolve dependencies; build an ISO from a preset and see the stages
-finish; press `Ctrl+K` and run a command. The text widgets, the launcher and the builds were checked this way on
-GTK 4.22 with GtkSourceView 5.20 in a dark theme (a light theme was looked at on one page); keyboard-only use with a
-screen reader and other desktops were not.
+change the hostname and save, reopen the file; open Lua source, choose "Edit source", break the text and see
+the error and its line, fix it and return to the forms; resolve dependencies; build an ISO from a preset and
+see the stages finish; press `Ctrl+K` and run a command. The text widgets, the launcher and the builds were
+checked this way on GTK 4.22 with GtkSourceView 5.20 in a dark theme (a light theme was looked at on one
+page); keyboard-only use with a screen reader and other desktops was not.
 
 ### Presets
 
