@@ -59,14 +59,21 @@ builds the ISO through `cargo xtask`. With a prebuilt binary: `cargo build --pro
 - **Build ISO:** builds from the saved file (an unsaved config is saved first, or built from a temporary copy when
   the target is a Ventoy drive), shows the stages and the log, can cancel, and copies the finished ISO onto a
   mounted Ventoy volume as a file with a SHA-256 read-back check. It never flashes a raw device.
+- **Theme and size:** the window is dark by default, whatever the system theme says (`ARCHSTALER_THEME=system`
+  follows the system, `ARCHSTALER_THEME=light` forces light). Its default size is 90% of the screen at most, a
+  window narrower than 760 px hides the sidebar (the header's toggle brings it back), and long labels wrap, so it
+  works in a tiling-window-manager tile or a small laptop screen; the narrowest tested width was 600 px. A second
+  copy can be started next to the first.
+- **AUR packages:** one compact card: search, a result row with Review, then the recipe with its automatic checks
+  folded behind a count, risky lines highlighted and one acknowledgement before "Pin and add".
 - `ARCHSTALER_PAGE=<id>` (`system disk packages users services build scripts lua iso`) opens the window on a page.
 
 Manual check (no display server in the tests): start the app; open a preset from the menu and see the warning;
 change the hostname and save, reopen the file; open Lua source, Edit source, break the text and see the error and
 its line, fix it and Return to the forms; resolve dependencies; build an ISO from a preset and see the stages
 finish; press `Ctrl+K` and run a command. The text widgets, the launcher and the builds were checked this way on
-GTK 4.22 with GtkSourceView 5.20 in a dark theme; a light theme, keyboard-only use with a screen reader and
-other desktops were not.
+GTK 4.22 with GtkSourceView 5.20 in a dark theme (a light theme was looked at on one page); keyboard-only use with a
+screen reader and other desktops were not.
 
 ### Presets
 

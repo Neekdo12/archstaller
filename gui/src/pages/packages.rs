@@ -100,14 +100,14 @@ fn resolution_card(app: &Rc<App>, d: &gtk::Box) {
 
 fn aur_card(app: &Rc<App>, d: &gtk::Box) {
     let c = ui::card(d, Some("AUR packages"));
-    let (used, trust, services, packages) = {
+    let (used, trust, services) = {
         let st = app.st.borrow();
-        (!st.model.cfg.aur.is_empty(), st.aur.trust_ack, st.model.cfg.services.clone(), st.model.cfg.packages.clone())
+        (!st.model.cfg.aur.is_empty(), st.aur.trust_ack, st.model.cfg.services.clone())
     };
     if !used && !trust {
-        ui::hint(&c, "Packages from the Arch User Repository are not part of the official repositories.");
+        ui::hint(&c, "Packages from the Arch User Repository. They are built on the installed machine from a recipe you review first.");
         let a = app.clone();
-        c.append(&ui::button("Use AUR packages…", move || {
+        let b = ui::button("Add an AUR package…", move || {
             let a = a.clone();
             glib::spawn_future_local(async move {
                 if dialogs::confirm(a.win.upcast_ref(), "Use AUR packages?", "AUR packages are built on the installed machine during its first boot, from recipes nobody at Arch reviewed. The build runs as an unprivileged user but it still executes the recipe's code there, and the result is not signed by Arch. You review and pin every recipe yourself. Continue?", "Yes, continue").await {
@@ -119,28 +119,32 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
                     a.refresh_page(Page::Packages);
                 }
             });
-        }));
+        });
+        b.set_halign(gtk::Align::Start);
+        c.append(&b);
         return;
     }
-    ui::note(&c, Kind::Warn, "AUR recipes are not reviewed by Arch. The installed system builds each one at its first boot, as an unprivileged user, from the exact recipe you review here; the build still runs code from that recipe on that machine, and the result is not signed by Arch.");
+    ui::hint(&c, "Built on the installed machine at its second boot, from the exact recipe you review. Not signed by Arch.");
     if !aur::has_network_service(&services) {
-        ui::note(&c, Kind::Bad, "The build needs a network on the installed system: enable NetworkManager.service (or another network service).");
+        let r = ui::hbox(10);
+        let l = gtk::Label::builder().label("The build needs a network on the installed system.").xalign(0.0).hexpand(true).wrap(true).css_classes(["note-warn"]).build();
+        r.append(&l);
         let a = app.clone();
-        c.append(&ui::button("Add NetworkManager", move || {
+        r.append(&ui::button("Add NetworkManager", move || {
             a.edit(|m| {
                 if !m.cfg.packages.iter().any(|p| p == "networkmanager") {
                     m.cfg.packages.push("networkmanager".into());
                 }
                 m.cfg.services.push("NetworkManager.service".into());
             });
-            // The list editors above show the old lists; rebuild the whole page.
+            // The list editors above show the old lists; rebuild the pages that hold them.
             a.rebuild(Page::Packages);
             a.rebuild(Page::Services);
         }));
+        c.append(&r);
     }
-    let _ = packages;
 
-    // Pinned packages.
+    // Pinned packages: one compact row each.
     let pinned = app.st.borrow().model.cfg.aur.clone();
     let units = app.st.borrow().lists.services.clone();
     for (i, p) in pinned.iter().enumerate() {
@@ -153,9 +157,18 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
         if p.vcs {
             r.append(&ui::chip("VCS, not pinned", "chip-warn"));
         }
-        let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        spacer.set_hexpand(true);
-        r.append(&spacer);
+        let a = app.clone();
+        let units_entry = ui::suggest(&p.services.join(", "), units.clone(), true, move |t| {
+            let v: Vec<String> = t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+            a.edit(move |m| {
+                if let Some(x) = m.cfg.aur.get_mut(i) {
+                    x.services = v;
+                }
+            });
+        });
+        units_entry.set_placeholder_text(Some("units to enable"));
+        units_entry.set_tooltip_text(Some("systemd units to enable once this package is installed, comma separated"));
+        r.append(&units_entry);
         let a = app.clone();
         r.append(&ui::button("Remove", move || {
             {
@@ -168,29 +181,20 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
             a.refresh_page(Page::Packages);
         }));
         c.append(&r);
-        let a = app.clone();
-        ui::row(&c, "Enable units", &ui::suggest(&p.services.join(", "), units.clone(), true, move |t| {
-            let v: Vec<String> = t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
-            a.edit(move |m| {
-                if let Some(x) = m.cfg.aur.get_mut(i) {
-                    x.services = v;
-                }
-            });
-        }));
     }
 
-    // Search.
-    let (search, busy, results, message) = {
+    // Search: one row, with the busy state beside it.
+    let (search, busy, results, message, fetching, pinning) = {
         let st = app.st.borrow();
-        let results = st.aur.results.clone();
-        (st.aur.search.clone(), st.aur.busy(), results, st.aur.message.clone())
+        (st.aur.search.clone(), st.aur.busy(), st.aur.results.clone(), st.aur.message.clone(), st.aur.fetching.clone(), st.aur.pin_rx.is_some())
     };
     let sr = ui::hbox(8);
     let entry = ui::entry(&search, {
         let a = app.clone();
         move |t| a.st.borrow_mut().aur.search = t.to_string()
     });
-    let go = ui::button("Search", || {});
+    entry.set_placeholder_text(Some("Search the AUR by name"));
+    let go = ui::primary("Search", || {});
     go.set_sensitive(!busy && search.trim().len() >= 2);
     {
         let (a, e) = (app.clone(), entry.clone());
@@ -206,12 +210,11 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
     }
     sr.append(&entry);
     sr.append(&go);
-    ui::row(&c, "Search the AUR", &sr);
     if busy {
-        let st = app.st.borrow();
-        let what = if st.aur.pin_rx.is_some() { "pinning (re-checking pins, resolving dependencies)…".to_string() } else if let Some(n) = &st.aur.fetching { format!("fetching the recipe of {n}…") } else { "searching…".to_string() };
-        c.append(&ui::spinner_row(&what).0);
+        let what = if pinning { "pinning…".to_string() } else if let Some(n) = fetching { format!("fetching {n}…") } else { "searching…".to_string() };
+        sr.append(&ui::spinner_row(&what).0);
     }
+    c.append(&sr);
     match results {
         Some(Err(e)) => {
             ui::note(&c, Kind::Bad, &e);
@@ -231,20 +234,19 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
                 });
                 rv.set_sensitive(!busy);
                 r.append(&rv);
-                r.append(&ui::strong(&info.name));
-                r.append(&ui::dim(&info.version));
-                r.append(&ui::dim(&format!("{} votes", info.votes)));
-                match &info.maintainer {
-                    Some(m) => r.append(&ui::dim(&format!("by {m}"))),
-                    None => r.append(&ui::chip("orphaned", "chip-warn")),
+                let name = ui::strong(&info.name);
+                if let Some(desc) = &info.description {
+                    name.set_tooltip_text(Some(desc));
+                }
+                r.append(&name);
+                r.append(&ui::dim(&format!("{}  ·  {} votes", info.version, info.votes)));
+                if info.maintainer.is_none() {
+                    r.append(&ui::chip("orphaned", "chip-warn"));
                 }
                 if info.out_of_date.is_some() {
                     r.append(&ui::chip("out of date", "chip-warn"));
                 }
                 c.append(&r);
-                if let Some(desc) = &info.description {
-                    ui::hint(&c, desc);
-                }
             }
         }
         None => {}
@@ -261,7 +263,8 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
     }
 }
 
-/// The recipe viewer: what was fetched, what looks risky, and the acknowledgements before the pin.
+/// The recipe viewer. The checks are folded away behind a count, so what needs attention is the recipe
+/// itself (risky lines are highlighted) and one acknowledgement.
 fn review(app: &Rc<App>, c: &gtk::Box, busy: bool) {
     let Some((rev, file, ack_rev, ack_vcs)) = ({
         let st = app.st.borrow();
@@ -269,69 +272,98 @@ fn review(app: &Rc<App>, c: &gtk::Box, busy: bool) {
     }) else {
         return;
     };
-    c.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-    c.append(&ui::strong(&format!("Review: {} {} at commit {}", rev.name, rev.srcinfo.version(), &rev.commit[..12])));
-    ui::hint(c, &format!("pkgbase {}   tree digest {}", rev.pkgbase, &rev.tree_sha256[..16]));
-    for w in &rev.warnings {
-        ui::note(c, Kind::Warn, w);
-    }
+    let p = ui::vbox(8);
+    p.add_css_class("card-box");
+    c.append(&p);
+    let head = ui::hbox(8);
+    head.append(&ui::strong(&format!("Review {} {}", rev.name, rev.srcinfo.version())));
+    head.append(&ui::dim(&format!("commit {}", &rev.commit[..12])));
+    p.append(&head);
+
+    // Checks, folded.
     let deps = rev.srcinfo.depends(&rev.name);
+    let risky = aurbuild::plan::risky_lines(&rev.files);
+    let n = rev.warnings.len();
+    let label = if n == 0 { "Automatic checks: nothing to report".to_string() } else { format!("Automatic checks: {n} thing{} to look at", if n == 1 { "" } else { "s" }) };
+    let exp = gtk::Expander::builder().label(label).build();
+    let inner = ui::vbox(4);
+    inner.set_margin_top(4);
+    for w in &rev.warnings {
+        let l = gtk::Label::builder().label(format!("• {w}")).xalign(0.0).wrap(true).css_classes(["note-warn"]).build();
+        inner.append(&l);
+    }
     if !deps.is_empty() {
-        ui::hint(c, &format!("depends: {}", deps.join(", ")));
+        ui::hint(&inner, &format!("depends: {}", deps.join(", ")));
     }
     if !rev.srcinfo.makedepends().is_empty() {
-        ui::hint(c, &format!("makedepends: {}", rev.srcinfo.makedepends().join(", ")));
+        ui::hint(&inner, &format!("makedepends: {}", rev.srcinfo.makedepends().join(", ")));
     }
-    let risky = aurbuild::plan::risky_lines(&rev.files);
-    let files = ui::hbox(6);
-    let mut group: Option<gtk::ToggleButton> = None;
-    for f in rev.files.keys() {
-        let b = gtk::ToggleButton::with_label(f);
-        b.set_active(*f == file);
-        if let Some(g) = &group {
-            b.set_group(Some(g));
-        } else {
-            group = Some(b.clone());
-        }
-        let (a, name) = (app.clone(), f.clone());
-        b.connect_toggled(move |b| {
-            if b.is_active() && a.st.borrow().aur.file != name {
-                a.st.borrow_mut().aur.file = name.clone();
-                a.refresh_page(Page::Packages);
+    ui::hint(&inner, &format!("pkgbase {}   tree digest {}", rev.pkgbase, &rev.tree_sha256[..16]));
+    exp.set_child(Some(&inner));
+    p.append(&exp);
+
+    // Recipe: file picker and the text.
+    let names: Vec<&str> = rev.files.keys().map(|s| s.as_str()).collect();
+    if names.len() > 1 {
+        let dd = gtk::DropDown::from_strings(&names);
+        dd.set_selected(names.iter().position(|n| *n == file).unwrap_or(0) as u32);
+        let a = app.clone();
+        let list: Vec<String> = names.iter().map(|s| s.to_string()).collect();
+        dd.connect_selected_notify(move |d| {
+            if let Some(name) = list.get(d.selected() as usize) {
+                if a.st.borrow().aur.file != *name {
+                    a.st.borrow_mut().aur.file = name.clone();
+                    a.refresh_page(Page::Packages);
+                }
             }
         });
-        files.append(&b);
+        let r = ui::hbox(8);
+        r.append(&ui::dim("File"));
+        r.append(&dd);
+        p.append(&r);
     }
-    c.append(&gtk::ScrolledWindow::builder().child(&files).vscrollbar_policy(gtk::PolicyType::Never).build());
     if let Some(data) = rev.files.get(&file) {
         let view = gtk::TextView::builder().editable(false).cursor_visible(false).monospace(true).left_margin(8).top_margin(6).bottom_margin(6).wrap_mode(gtk::WrapMode::None).build();
         let buf = view.buffer();
         let warn_tag = buf.create_tag(Some("risky"), &[("background", &"rgba(245,194,17,0.25)")]).unwrap();
         let text = String::from_utf8_lossy(data).into_owned();
+        let mut any_risky = false;
         for (n, line) in text.lines().enumerate() {
             let mut end = buf.end_iter();
             let start = end.offset();
             buf.insert(&mut end, &format!("{:>4}  {line}\n", n + 1));
             if risky.iter().any(|(f, l, _)| *f == file && *l == n + 1) {
+                any_risky = true;
                 let (s, e) = (buf.iter_at_offset(start), buf.end_iter());
                 buf.apply_tag(&warn_tag, &s, &e);
             }
         }
-        c.append(&gtk::ScrolledWindow::builder().min_content_height(280).max_content_height(320).has_frame(true).child(&view).build());
+        p.append(&gtk::ScrolledWindow::builder().min_content_height(240).max_content_height(300).has_frame(true).child(&view).build());
+        if any_risky {
+            ui::hint(&p, "Highlighted lines use commands worth a second look (curl, sudo, eval, ...).");
+        }
     }
+
+    // One acknowledgement (two when the recipe builds from unpinned VCS sources), then the pin.
     let a = app.clone();
-    c.append(&ui::check("I reviewed this recipe at this commit and accept that it will be built and installed", ack_rev, move |on| {
+    p.append(&ui::check("I reviewed this recipe and accept that it is built and installed", ack_rev, move |on| {
         a.st.borrow_mut().aur.ack_reviewed = on;
         a.refresh_page(Page::Packages);
     }));
     if rev.vcs {
         let a = app.clone();
-        c.append(&ui::check("I understand its VCS sources are not pinned by the commit: the build fetches whatever they point to then", ack_vcs, move |on| {
+        p.append(&ui::check("Its VCS sources are not pinned by the commit: the build fetches whatever they point to then", ack_vcs, move |on| {
             a.st.borrow_mut().aur.ack_vcs = on;
             a.refresh_page(Page::Packages);
         }));
     }
     let r = ui::hbox(8);
+    r.set_halign(gtk::Align::End);
+    let a = app.clone();
+    r.append(&ui::button("Cancel", move || {
+        a.st.borrow_mut().aur.review = None;
+        a.refresh_page(Page::Packages);
+    }));
     let ok = ack_rev && (!rev.vcs || ack_vcs) && !busy;
     let pin = ui::primary("Pin and add", {
         let (a, rev) = (app.clone(), rev.clone());
@@ -347,10 +379,5 @@ fn review(app: &Rc<App>, c: &gtk::Box, busy: bool) {
     });
     pin.set_sensitive(ok);
     r.append(&pin);
-    let a = app.clone();
-    r.append(&ui::button("Close", move || {
-        a.st.borrow_mut().aur.review = None;
-        a.refresh_page(Page::Packages);
-    }));
-    c.append(&r);
+    p.append(&r);
 }

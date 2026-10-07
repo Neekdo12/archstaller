@@ -16,8 +16,17 @@ mod ui;
 use gtk::prelude::*;
 
 fn main() -> gtk::glib::ExitCode {
-    let gapp = gtk::Application::builder().application_id("org.archstaler.Gui").build();
+    let gapp = gtk::Application::builder().application_id("org.archstaler.Gui").flags(gtk::gio::ApplicationFlags::NON_UNIQUE).build();
     gapp.connect_activate(|gapp| {
+        // Dark by default, whatever the system says. `ARCHSTALER_THEME=system` follows the system's
+        // choice and `ARCHSTALER_THEME=light` forces the light one.
+        if let Some(settings) = gtk::Settings::default() {
+            match std::env::var("ARCHSTALER_THEME").as_deref() {
+                Ok("system") => {}
+                Ok("light") => settings.set_gtk_application_prefer_dark_theme(false),
+                _ => settings.set_gtk_application_prefer_dark_theme(true),
+            }
+        }
         let app = app::App::new(gapp);
         // The status colours follow the theme's lightness; the theme itself is the system's.
         let css = gtk::CssProvider::new();

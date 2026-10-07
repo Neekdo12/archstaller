@@ -14,7 +14,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     warn.set_visible(cfg.disk.auto_largest);
     let selectors = ui::vbox(8);
 
-    let auto = gtk::CheckButton::with_label("Erase and install onto the largest disk, without asking");
+    let auto = ui::check_button("Erase and install onto the largest disk, without asking");
     auto.set_active(cfg.disk.auto_largest);
     c.insert_child_after(&auto, c.first_child().as_ref());
     {

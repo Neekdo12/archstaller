@@ -92,8 +92,8 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     if vv.is_empty() {
         ui::hint(&c, "No Ventoy drive found: the ISO is saved as a file. Plug one in and press Refresh drives.");
     } else {
-        let r_stick = gtk::CheckButton::with_label("Build straight onto the Ventoy drive (nothing is kept on this computer)");
-        let r_file = gtk::CheckButton::with_label("Save the ISO as a file instead");
+        let r_stick = ui::check_button("Build straight onto the Ventoy drive (nothing is kept on this computer)");
+        let r_file = ui::check_button("Save the ISO as a file instead");
         r_file.set_group(Some(&r_stick));
         r_stick.set_active(to_stick);
         r_file.set_active(!to_stick);
@@ -115,7 +115,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
                 let r = ui::hbox(10);
                 let place = if v.mounted { v.mount.display().to_string() } else { "not mounted".to_string() };
                 let free = if v.mounted { format!("{} GiB free", v.available >> 30) } else { String::new() };
-                let rb = gtk::CheckButton::with_label(&format!("{}  {}  {}", label_of(&v), place, free));
+                let rb = ui::check_button(&format!("{}  {}  {}", label_of(&v), place, free));
                 rb.set_margin_start(24);
                 if let Some(f) = &first {
                     rb.set_group(Some(f));
@@ -245,7 +245,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         let r = ui::hbox(10);
         let name = label_of(v);
         let text = if v.mounted { format!("{name}  {}", v.mount.display()) } else { format!("{name}  (not mounted)") };
-        let rb = gtk::CheckButton::with_label(&text);
+        let rb = ui::check_button(&text);
         if let Some(g) = &group {
             rb.set_group(Some(g));
         } else {

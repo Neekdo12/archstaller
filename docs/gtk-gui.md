@@ -5,6 +5,10 @@ is gone. Decisions and differences from the text below:
 
 - **Platform:** Linux only. Windows and macOS support of the old GUI was dropped on purpose (the Lua editor and
   the volume handling use `lsblk`, `udisksctl` and GtkSourceView).
+- **Dark by default** (`ARCHSTALER_THEME=system|light` overrides), check and radio indicators are pinned to 16 px so a
+  theme or scale cannot blow them up, and no page widens the window: long labels wrap and the stack is not
+  homogeneous. The AUR group was reduced to one search row, compact result rows and a review panel with the
+  automatic checks folded behind a count.
 - **No libadwaita:** plain GTK 4 only (`HeaderBar`, `ListBox` sidebar, `Stack`); the theme is the system's and the
   status colours follow its lightness. Narrow windows hide the sidebar (a header toggle brings it back).
 - **Phases 1-5 are done**, including the Ctrl+K / `/` launcher, the source and form modes, completion, diagnostics
@@ -12,7 +16,7 @@ is gone. Decisions and differences from the text below:
   as they were.
 - **Verification:** `cargo test -p archstaler-gui` covers the model (including source mode and line lookup) and the
   completion logic without a display. The windows, the launcher, the editor and a real ISO build from a preset were
-  exercised by hand under X11 with a dark theme; see "Manual check" in `README.md`. Not exercised: a light theme,
+  exercised by hand under X11 with a dark theme; see "Manual check" in `README.md`. Not exercised: a light theme beyond one page,
   Wayland, a screen reader, high-contrast mode, and a build onto a real Ventoy stick.
 - **Not done:** a separate controller layer (the pages write through `App::edit`), completion while typing (only on
   Ctrl+Space), package-name suggestions beyond the last resolution (no sync database is kept loaded), raw flashing.

@@ -26,6 +26,8 @@ pub fn css(dark: bool) -> String {
 .risky {{ color: {warn}; }}
 .problem-bar {{ background: alpha(currentColor, 0.06); padding: 4px 10px; }}
 .sidebar-list row {{ padding: 4px 6px; }}
+/* Check and radio indicators keep one size on every theme and scale. */
+check, radio {{ min-width: 16px; min-height: 16px; -gtk-icon-size: 16px; }}
 "
     )
 }
@@ -145,8 +147,16 @@ pub fn primary(label: &str, on_click: impl Fn() + 'static) -> gtk::Button {
     b
 }
 
+/// A check button (or radio, in a group) whose label wraps instead of widening the window.
+pub fn check_button(label: &str) -> gtk::CheckButton {
+    let c = gtk::CheckButton::new();
+    let l = gtk::Label::builder().label(label).wrap(true).xalign(0.0).build();
+    c.set_child(Some(&l));
+    c
+}
+
 pub fn check(label: &str, active: bool, on_toggle: impl Fn(bool) + 'static) -> gtk::CheckButton {
-    let c = gtk::CheckButton::with_label(label);
+    let c = check_button(label);
     c.set_active(active);
     c.connect_toggled(move |c| on_toggle(c.is_active()));
     c

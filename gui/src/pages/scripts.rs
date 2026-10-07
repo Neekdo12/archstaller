@@ -70,7 +70,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     ui::row(&c, "SHA-256", &sha);
     let digest = ui::dim("");
     c.append(&digest);
-    let ack = gtk::CheckButton::with_label("I understand a custom script runs as root on the installed system");
+    let ack = ui::check_button("I understand a custom script runs as root on the installed system");
     let add = ui::primary("Add custom script", || {});
     add.set_sensitive(false);
     let update = {

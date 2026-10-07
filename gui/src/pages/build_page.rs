@@ -13,9 +13,9 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
 
     let c = ui::card(content, Some("Build profile"));
     let current = host.build.profile.clone().unwrap_or_else(|| "super-small".into());
-    let small = gtk::CheckButton::with_label("super-small");
-    let large = gtk::CheckButton::with_label("large");
-    let xl = gtk::CheckButton::with_label("extra-large");
+    let small = ui::check_button("super-small");
+    let large = ui::check_button("large");
+    let xl = ui::check_button("extra-large");
     large.set_group(Some(&small));
     xl.set_group(Some(&small));
     xl.set_sensitive(false);

@@ -62,7 +62,14 @@ pub struct App {
 
 impl App {
     pub fn new(gapp: &gtk::Application) -> Rc<App> {
-        let win = gtk::ApplicationWindow::builder().application(gapp).title("Archstaler").default_width(1180).default_height(780).build();
+        // A default size that fits the screen: laptops are smaller than 1180x780.
+        let (mut w, mut h) = (1100, 740);
+        if let Some(m) = gtk::gdk::Display::default().and_then(|d| d.monitors().item(0)).and_then(|m| m.downcast::<gtk::gdk::Monitor>().ok()) {
+            let g = m.geometry();
+            w = w.min(g.width() * 9 / 10);
+            h = h.min(g.height() * 85 / 100);
+        }
+        let win = gtk::ApplicationWindow::builder().application(gapp).title("Archstaler").default_width(w).default_height(h).build();
 
         // Header bar: file and tools menus, the sidebar toggle, the document name.
         let header = gtk::HeaderBar::new();
@@ -109,10 +116,11 @@ impl App {
             nav.append(&r);
             nav_marks.push(mark);
         }
-        let side = gtk::ScrolledWindow::builder().child(&nav).hscrollbar_policy(gtk::PolicyType::Never).width_request(190).vexpand(true).build();
+        let side = gtk::ScrolledWindow::builder().child(&nav).hscrollbar_policy(gtk::PolicyType::Never).width_request(170).vexpand(true).build();
 
         // Pages.
-        let stack = gtk::Stack::builder().hexpand(true).vexpand(true).transition_type(gtk::StackTransitionType::None).build();
+        // Not homogeneous: the window may be as narrow as the visible page, not the widest page.
+        let stack = gtk::Stack::builder().hexpand(true).vexpand(true).hhomogeneous(false).vhomogeneous(false).transition_type(gtk::StackTransitionType::None).build();
         let mut boxes = HashMap::new();
         for (page, id, _, _) in PAGES {
             let (scroll, content) = ui::page_shell();
