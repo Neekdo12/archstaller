@@ -102,12 +102,12 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
     let default_cfg = root().join("configs/config.lua");
     // A preset can be tested with --config; otherwise use the serial-locked e2e config.
     let config = if opts.config != default_cfg { opts.config.clone() } else { root().join("configs/e2e.lua") };
-    let o = Options { config: config.clone(), fault_test: false, selftest: false, profile: opts.profile, legacy_small: opts.legacy_small, limit: opts.limit, out: Some(dir.join("e2e.iso")), extra_kernel_params: vec!["console=ttyS0,115200".into()], uefi: opts.uefi, headless: true, disk: opts.disk.clone(), nic: opts.nic.clone(), usb: false, tethering: false, debug: opts.debug, progress: false, workdir: None };
+    let o = Options { config: config.clone(), fault_test: false, selftest: false, profile: opts.profile, legacy_small: opts.legacy_small, limit: opts.limit, out: Some(dir.join("e2e.iso")), extra_kernel_params: vec!["console=ttyS0,115200".into()], uefi: opts.uefi, headless: true, disk: opts.disk.clone(), nic: opts.nic.clone(), usb: false, tethering: false, debug: opts.debug, progress: false, workdir: None, disk_gib: opts.disk_gib };
     let iso_path = iso::build(&o)?;
 
     let disk = dir.join(format!("disk-{mode}.img"));
     let _ = std::fs::remove_file(&disk);
-    std::fs::File::create(&disk)?.set_len(16 << 30)?;
+    std::fs::File::create(&disk)?.set_len(opts.disk_gib << 30)?;
     let _ = std::fs::remove_file(dir.join("ovmf_vars.fd"));
 
     println!("== [{mode}] installing (downloads packages from the mirror)");

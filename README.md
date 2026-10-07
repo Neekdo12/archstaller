@@ -31,9 +31,42 @@ cargo xtask aur-pin NAME [--commit C]   # review an AUR package and print the `a
 cargo xtask presets          # one ISO per preset -> target/isos/archstaler-<preset>.iso (with USB tethering; --no-tethering leaves it out)
 cargo xtask build            # a single ISO from configs/config.lua -> target/archstaler.iso
 cargo xtask build --profile large   # regular release build, panic messages kept (the default profile is `super-small`; or set `build.profile` in the config)
-cargo run -p archstaler-gui         # desktop app: start from a preset or a blank config, edit, check it, build the ISO, copy it to a Ventoy stick
+cargo run -p archstaler-gui         # GTK4 desktop app (Linux; needs gtk4 and gtksourceview5, see "The desktop app"): start from a preset or a blank config, edit, check it, build the ISO, copy it to a Ventoy stick
 cargo xtask build --config path/to/my.lua --out my.iso
 ```
+
+### The desktop app
+
+`archstaler-gui` is a GTK 4 app for Linux (Windows and macOS are not supported). It needs the `gtk4` and
+`gtksourceview5` libraries at run time (Arch: `pacman -S gtk4 gtksourceview5`) and their development files plus
+`pkg-config` to build it. Run it from inside the checkout, or set `ARCHSTALER_ROOT`; it finds the presets and
+builds the ISO through `cargo xtask`. With a prebuilt binary: `cargo build --profile gui -p archstaler-gui`, then
+`target/gui/archstaler-gui`, and rebuild after every code change.
+
+- **Pages:** System, Disk, Mirrors & packages (with a resolve preview and the AUR group), Users, Services & kernel,
+  Build & drivers, Scripts, Lua source, Build ISO. A red dot in the sidebar marks a page with a validation problem;
+  the bar at the bottom shows the first one with a button that goes there. The checks are the command line's.
+- **Menus and keys:** File menu, From preset, Tools. `Ctrl+N` new, `Ctrl+O` open, `Ctrl+S` save, `Ctrl+Shift+S` save as,
+  `Ctrl+K` (or `/` outside a text field) the command launcher, which lists the same actions plus every page and preset.
+- **Presets** open as an unsaved config and say so when they erase the largest disk.
+- **Lua source:** shows the generated Lua with syntax highlighting. "Edit source" switches to source mode: the form
+  pages are unavailable, you edit the text (undo, search with `Ctrl+F`, `Ctrl+Space` suggestions for field names,
+  driver ids, built-in scripts, profile names, package and service names), and the diagnostics line shows the
+  loader's answer, with Go to line when the message names one. "Return to the forms" works when the text is
+  well formed and passes the loader's shape and type checks (an incomplete config, such as one with no disk
+  chosen, comes back and the problem bar says what is missing); a file the GUI did not write opens in source mode and is replaced by form output only
+  after you confirm. Suggestions are hints: the loader decides what a config means.
+- **Build ISO:** builds from the saved file (an unsaved config is saved first, or built from a temporary copy when
+  the target is a Ventoy drive), shows the stages and the log, can cancel, and copies the finished ISO onto a
+  mounted Ventoy volume as a file with a SHA-256 read-back check. It never flashes a raw device.
+- `ARCHSTALER_PAGE=<id>` (`system disk packages users services build scripts lua iso`) opens the window on a page.
+
+Manual check (no display server in the tests): start the app; open a preset from the menu and see the warning;
+change the hostname and save, reopen the file; open Lua source, Edit source, break the text and see the error and
+its line, fix it and Return to the forms; resolve dependencies; build an ISO from a preset and see the stages
+finish; press `Ctrl+K` and run a command. The text widgets, the launcher and the builds were checked this way on
+GTK 4.22 with GtkSourceView 5.20 in a dark theme; a light theme, keyboard-only use with a screen reader and
+other desktops were not.
 
 ### Presets
 
@@ -44,7 +77,7 @@ cargo xtask build --config path/to/my.lua --out my.iso
 | `archstaler-i3.iso` | Xorg + i3, NetworkManager, PipeWire, Firefox | ~1.0 GiB | 10 GiB+ |
 | `archstaler-hyprland.iso` | Hyprland (Wayland) with kitty, rofi, waybar, quickshell, hyprlock/hypridle, Neovim (LazyVim) and Nerd fonts (FantasqueSansM, JetBrains Mono, Iosevka), plus the downloaded config zip | ~1.4 GiB | 15 GiB+ |
 | `archstaler-plasma.iso` | KDE Plasma (Wayland session), same extras | ~1.3 GiB | 20 GiB+ |
-| `archstaler-omarchy.iso` | Hyprland with the application set of Omarchy v4.0.4, official-repository packages only (not Omarchy itself: no Omarchy scripts, themes or dotfiles; the omitted packages are listed in `configs/omarchy.lua`) | ~2.4 GiB | 20 GiB+ |
+| `archstaler-omarchy.iso` | Hyprland with the application set of Omarchy v4.0.4, official-repository packages only (not Omarchy itself: no Omarchy scripts, themes or dotfiles; the omitted packages are listed in `configs/omarchy.lua`). Installs and boots to the login prompt in QEMU | ~2.4 GiB | 24 GiB+ |
 
 Every preset installs the `ly` login manager (`ly@tty2.service`) and creates the user `passwd_is_passwd`
 with the password `passwd` in group `wheel` (sudo works; root is locked). **Change that password** before
@@ -274,7 +307,7 @@ validates them strictly at build time and rejects anything with unexpected chara
 | `firstboot/` | systemd units and script for the first boot |
 | `crates/aurbuild` | host-only AUR support: search, review, pin and plan (the packages are built on the installed system, see `docs/aur.md`) |
 | `crates/hostcfg` | host-only config model shared by `xtask` and the GUI: Lua loading, build profiles, driver and script catalogues, Lua writer, package resolution preview, build progress events |
-| `gui/` | `archstaler-gui`, the desktop app (egui): config editor, ISO build, Ventoy copy |
+| `gui/` | `archstaler-gui`, the GTK4 desktop app (Linux): config editor, Lua source editor, ISO build, Ventoy copy |
 | `configs/` | Lua configs: example, e2e, presets, shared modules, generated LuaLS types |
 
 ## Testing
@@ -284,11 +317,14 @@ cargo test --release -p pgp-lite --features std -p pkg -p ext4w -p disk -p initr
 cargo xtask linux-test                       # boots the host kernel with our initramfs and an ext4w root
 cargo xtask e2e [--uefi] [--disk ahci|nvme|ide --nic e1000]   # install onto a blank disk, then boot twice
 cargo xtask e2e --config configs/i3.lua      # the same for a preset
+cargo xtask e2e --config configs/omarchy.lua --disk-gib 24   # big presets need a bigger test disk (default 16 GiB)
 cargo xtask e2e --config configs/e2e-aur.lua   # plus one AUR package, built and installed on the second boot
 cargo xtask run --usb --headless            # xHCI smoke test: qemu-xhci + usb-storage, SCSI INQUIRY
 cargo xtask run --selftest --headless --nic usb-rndis   # DHCP + HTTPS + 1 MB over an emulated Android RNDIS adapter
 cargo xtask size [--profile large] [--limit BYTES]   # ISO contents and size limit check
 cargo xtask check-presets                    # resolve every preset against the local pacman databases
+cargo xtask coverage [--era 2010-2019]     # wired-network id coverage of the installer drivers, by entry, popularity weight and estimated hardware era (coverage/*.tsv)
+cargo xtask gen-luals --check                # configs/archstaler.lua matches the Rust schema
 cargo xtask update-keyring                   # move the keyring pin to the newest release
 ```
 

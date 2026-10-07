@@ -121,6 +121,11 @@ fn bit(n: u32) -> u32 {
     1 << n
 }
 
+/// Whether this driver claims the PCI id (`xtask coverage` counts recognized ids with it).
+pub fn recognizes(vendor: u16, device: u16) -> bool {
+    vendor == VENDOR && chip_of(device).is_some()
+}
+
 pub fn probe(dev: &PciDevice, out: &mut Devices) {
     if dev.vendor != VENDOR {
         return;

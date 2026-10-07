@@ -20,6 +20,16 @@ pub const LEGACY_WARNING: &str = "this config uses the legacy flat layout; it is
 
 /// Evaluates a Lua config and validates both halves.
 pub fn load(path: &Path) -> Result<Loaded> {
+    let loaded = load_unvalidated(path)?;
+    loaded.config.validate()?;
+    loaded.host.validate()?;
+    crate::scripts::validate(&loaded.config)?;
+    Ok(loaded)
+}
+
+/// Evaluates a Lua config with the strict shape and type checks but without the domain validation, for an
+/// editor that wants to show an incomplete config and let its forms point at what is missing.
+pub fn load_unvalidated(path: &Path) -> Result<Loaded> {
     let path = path.canonicalize()?;
     let path = path.as_path();
     let src = std::fs::read_to_string(path)?;
@@ -37,7 +47,7 @@ pub fn load(path: &Path) -> Result<Loaded> {
     let old: String = package.get("path")?;
     package.set("path", format!("{dir}/?.lua;{old}"))?;
     lua.globals().set("CONFIG_DIR", dir)?;
-    let value: mlua::Value = lua.load(&src).set_name(path.to_string_lossy()).eval()?;
+    let value: mlua::Value = lua.load(&src).set_name(format!("@{}", path.to_string_lossy())).eval()?;
     let mut warnings = Vec::new();
     let (config, host) = match namespaced(&value)? {
         true => Envelope::from_lua(value)?.as_.into_parts()?,
@@ -48,9 +58,6 @@ pub fn load(path: &Path) -> Result<Loaded> {
             (config, host)
         }
     };
-    config.validate()?;
-    host.validate()?;
-    crate::scripts::validate(&config)?;
     Ok(Loaded { config, host, dir: path.parent().map(Path::to_path_buf).unwrap_or_default(), warnings })
 }
 

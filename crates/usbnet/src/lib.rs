@@ -103,6 +103,30 @@ fn classify(d: &Device) -> Option<Candidate> {
     None
 }
 
+/// The kind of USB Ethernet function a device offers, from its ids and the (class, subclass,
+/// protocol) of its interfaces, without touching hardware (`cargo xtask coverage` counts it). Without
+/// interface data only the vendor-specific id table can match. `probe` also needs bulk endpoints and,
+/// for the class functions, a CDC data interface; descriptors in a corpus do not carry those.
+pub fn recognizes(vendor: u16, product: u16, interfaces: &[(u8, u8, u8)]) -> Option<&'static str> {
+    if vendor == APPLE_VENDOR {
+        return None;
+    }
+    if AX88179_IDS.contains(&(vendor, product)) && (interfaces.is_empty() || interfaces.contains(&(0xff, 0xff, 0x00))) {
+        return Some("ax88179");
+    }
+    interfaces.iter().find_map(|t| {
+        if RNDIS_CLASSES.contains(t) {
+            Some("rndis")
+        } else if *t == ECM_CLASS {
+            Some("cdc-ecm")
+        } else if *t == NCM_CLASS {
+            Some("cdc-ncm")
+        } else {
+            None
+        }
+    })
+}
+
 /// Takes a USB Ethernet function (RNDIS, CDC-ECM, CDC-NCM or an AX88179) from `scan`, switches
 /// it on and returns it as a NIC. A known vendor-specific chip is preferred over the class
 /// functions it may also offer. `Err(Unsupported)` when `scan` holds no such device.

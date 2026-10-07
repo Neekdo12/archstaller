@@ -10,6 +10,8 @@ pub struct Model {
     pub path: Option<PathBuf>,
     /// A file not written by this app: shown and edited as text, never regenerated from the form.
     pub raw: Option<String>,
+    /// `raw` came from a file the GUI did not write: leaving text mode replaces it with form output.
+    pub foreign: bool,
     pub dirty: bool,
 }
 
@@ -80,6 +82,7 @@ impl Model {
             host: HostConfig::default(),
             path: None,
             raw: None,
+            foreign: false,
             dirty: false,
         }
     }
@@ -89,12 +92,13 @@ impl Model {
         let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let generated = text.starts_with(HEADER);
         match hostcfg::lua::load(path) {
-            Ok(l) => Ok(Model { cfg: l.config, host: l.host, path: Some(path.to_path_buf()), raw: (!generated).then_some(text), dirty: false }),
+            Ok(l) => Ok(Model { cfg: l.config, host: l.host, path: Some(path.to_path_buf()), raw: (!generated).then_some(text), foreign: !generated, dirty: false }),
             // An invalid file can still be opened as text to fix it.
             Err(e) if !generated => {
                 let mut m = Model::starter();
                 m.path = Some(path.to_path_buf());
                 m.raw = Some(text);
+                m.foreign = true;
                 m.dirty = false;
                 let _ = e;
                 Ok(m)
@@ -107,7 +111,7 @@ impl Model {
     /// evaluated like the CLI does and then edited as an ordinary form; saving writes plain Lua.
     pub fn from_preset(path: &Path) -> Result<Model, String> {
         let l = hostcfg::lua::load(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        Ok(Model { cfg: l.config, host: l.host, path: None, raw: None, dirty: true })
+        Ok(Model { cfg: l.config, host: l.host, path: None, raw: None, foreign: false, dirty: true })
     }
 
     /// The Lua text this document stands for.
@@ -138,13 +142,48 @@ impl Model {
         }
     }
 
-    fn check_text(&self, text: &str) -> Result<(), String> {
+    /// Starts source mode for a generated config: the form is serialized once and the text is what
+    /// gets edited from here on.
+    pub fn enter_source(&mut self) {
+        if self.raw.is_none() {
+            self.raw = Some(writer::to_lua(&self.cfg, &self.host));
+            self.foreign = false;
+        }
+    }
+
+    /// Evaluates the source text through the loader the CLI uses (the same syntax, shape and type checks)
+    /// and goes back to the form with what it says. A config that is well formed but incomplete (no disk
+    /// chosen yet, say) comes back too: the forms and the problem bar then point at what is missing. A
+    /// syntax or type error keeps source mode, changes nothing and returns the message.
+    pub fn leave_source(&mut self) -> Result<(), String> {
+        let Some(text) = self.raw.clone() else { return Ok(()) };
+        let l = self.evaluate(&text, false)?;
+        self.cfg = l.config;
+        self.host = l.host;
+        self.raw = None;
+        self.foreign = false;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// The text checked like a file: used for the diagnostics line while editing source.
+    pub fn check_source(&self, text: &str) -> Result<(), String> {
+        self.evaluate(text, true).map(|_| ())
+    }
+
+    fn evaluate(&self, text: &str, validate: bool) -> Result<hostcfg::lua::Loaded, String> {
         let dir = self.path.as_deref().and_then(Path::parent).map(Path::to_path_buf).unwrap_or_else(std::env::temp_dir);
         let tmp = dir.join(format!(".archstaler-check-{}.lua", std::process::id()));
         std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
-        let r = hostcfg::lua::load(&tmp).map(|_| ()).map_err(|e| e.to_string());
+        // The messages name the temporary file; the user knows it as the text in the editor.
+        let r = if validate { hostcfg::lua::load(&tmp) } else { hostcfg::lua::load_unvalidated(&tmp) };
+        let r = r.map_err(|e| e.to_string().replace(tmp.to_string_lossy().as_ref(), "source.lua"));
         let _ = std::fs::remove_file(&tmp);
         r
+    }
+
+    fn check_text(&self, text: &str) -> Result<(), String> {
+        self.check_source(text)
     }
 
     /// The config that will be built: the saved file, so CLI and GUI build the same thing.
@@ -159,6 +198,24 @@ impl Model {
 }
 
 pub use hostcfg::configs::Preset;
+
+/// The 1-based line a Lua error message points at (`chunk.lua:12: ...`), if it names one. Messages
+/// from the config validation carry no line and give `None`: none is invented.
+pub fn located(msg: &str) -> Option<usize> {
+    // Lua names the chunk after the file (`path.lua:12:`) or, for an unnamed chunk, `[string "..."]:12:`.
+    for marker in [".lua:", "]:"] {
+        let mut rest = msg;
+        while let Some(i) = rest.find(marker) {
+            let after = &rest[i + marker.len()..];
+            let digits: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if !digits.is_empty() && after[digits.len()..].starts_with(':') {
+                return digits.parse().ok();
+            }
+            rest = after;
+        }
+    }
+    None
+}
 
 /// The presets under `<root>/configs` (files marked `-- archstaler: kind=preset`), by name.
 pub fn presets(root: &Path) -> Vec<Preset> {
@@ -249,6 +306,44 @@ mod tests {
             assert_eq!(back.host, m.host, "{}", p.name);
             let _ = std::fs::remove_dir_all(&dir);
         }
+    }
+
+    #[test]
+    fn error_lines_are_found_only_when_the_message_has_one() {
+        assert_eq!(located("syntax error: /tmp/c.lua:12: unexpected symbol near '}'"), Some(12));
+        assert_eq!(located("runtime error: /home/x/.archstaler-check-1.lua:3: boom\nstack traceback:"), Some(3));
+        assert_eq!(located("as.system.hostname: invalid type: integer `5`, expected a string"), None);
+        assert_eq!(located("invalid hostname: \"x\""), None);
+        assert_eq!(located("file.lua:abc: nope"), None);
+    }
+
+    #[test]
+    fn source_mode_round_trips_and_refuses_bad_text() {
+        let mut m = Model::starter();
+        m.cfg.disk.confirm_serial = "SER1".into();
+        m.enter_source();
+        let text = m.raw.clone().unwrap();
+        assert!(text.starts_with(HEADER) && !m.foreign);
+        // Edit the text: change the hostname and leave source mode.
+        m.raw = Some(text.replace("hostname = \"archbox\"", "hostname = \"edited\""));
+        m.leave_source().unwrap();
+        assert!(m.raw.is_none() && m.dirty);
+        assert_eq!(m.cfg.hostname, "edited");
+        // A syntax error keeps the text and the old values.
+        m.enter_source();
+        m.raw = Some("return { as = ".into());
+        let e = m.leave_source().unwrap_err();
+        assert!(m.raw.is_some() && m.cfg.hostname == "edited");
+        assert!(located(&e).is_some(), "{e}");
+        // A shape error (a missing section) has a path but no line, and keeps source mode too.
+        m.raw = Some(m.raw.clone().unwrap().replace("return { as = ", "return { as = { schema = 1 } } --"));
+        let e = m.leave_source().unwrap_err();
+        assert!(m.raw.is_some() && e.contains("missing field"), "{e}");
+        // A well formed but incomplete config (no disk chosen) returns to the forms, which then show the problem.
+        let mut m = Model::starter();
+        m.enter_source();
+        m.leave_source().unwrap();
+        assert!(m.raw.is_none() && m.problems().len() == 1);
     }
 
     #[test]

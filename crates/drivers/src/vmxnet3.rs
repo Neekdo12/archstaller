@@ -49,6 +49,11 @@ const TXCF_GEN: u32 = 0x8000_0000;
 const RXF_GEN: u32 = 0x8000_0000;
 const RXCF_GEN: u32 = 0x8000_0000;
 
+/// Whether this driver claims the PCI id (`xtask coverage` counts recognized ids with it).
+pub fn recognizes(vendor: u16, device: u16) -> bool {
+    vendor == VENDOR && device == DEVICE
+}
+
 pub fn probe(dev: &PciDevice, out: &mut Devices) {
     if dev.vendor != VENDOR || dev.device != DEVICE {
         return;

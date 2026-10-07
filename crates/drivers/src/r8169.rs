@@ -57,6 +57,11 @@ fn supported(vendor: u16, device: u16) -> bool {
     }
 }
 
+/// Whether this driver claims the PCI id (`xtask coverage` counts recognized ids with it).
+pub fn recognizes(vendor: u16, device: u16) -> bool {
+    supported(vendor, device)
+}
+
 pub fn probe(dev: &PciDevice, out: &mut Devices) {
     if !supported(dev.vendor, dev.device) {
         return;

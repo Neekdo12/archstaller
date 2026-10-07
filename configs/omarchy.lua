@@ -15,7 +15,8 @@
 --     omacalc, omacut, omarchy-nvim, omawrite, tensaku, tobi-try, ttf-ia-writer,
 --     ttf-jetbrains-mono-nerd-basic, ttfx, tzupdate, ufw-docker, yaru-icon-theme, yay
 -- Services are enabled only for NetworkManager, Bluetooth and power profiles; Docker, CUPS, ufw and the rest are
--- installed but not enabled. 20 GiB+ disk, a GPU with working KMS, a large download.
+-- installed but not enabled. 24 GiB+ disk (first boot needs the installed size free on top of the package cache and
+-- the extracted system), a GPU with working KMS, a large download.
 -- SECURITY: the default login is passwd_is_passwd / passwd (see common.lua); change it before connecting to a network.
 local common = require("common")
 

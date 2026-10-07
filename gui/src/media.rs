@@ -20,31 +20,11 @@ pub struct Volume {
     pub removable: bool,
 }
 
-/// Every volume with a file system, mounted or not. Linux asks `lsblk`, so unmounted sticks show up
-/// too; elsewhere only mounted volumes are known (sysinfo).
+/// Every volume with a file system, mounted or not, from `lsblk` (so unmounted sticks show up too).
 pub fn volumes() -> Vec<Volume> {
-    #[cfg(target_os = "linux")]
-    if let Some(v) = lsblk_volumes() {
-        return v;
-    }
-    let disks = sysinfo::Disks::new_with_refreshed_list();
-    disks
-        .list()
-        .iter()
-        .map(|d| Volume {
-            name: d.name().to_string_lossy().into_owned(),
-            label: String::new(),
-            mount: d.mount_point().to_path_buf(),
-            mounted: true,
-            fs: d.file_system().to_string_lossy().into_owned(),
-            total: d.total_space(),
-            available: d.available_space(),
-            removable: d.is_removable(),
-        })
-        .collect()
+    lsblk_volumes().unwrap_or_default()
 }
 
-#[cfg(target_os = "linux")]
 fn lsblk_volumes() -> Option<Vec<Volume>> {
     let out = std::process::Command::new("lsblk").args(["-J", "-b", "-o", "PATH,LABEL,FSTYPE,SIZE,MOUNTPOINT,FSAVAIL,RM,HOTPLUG,TYPE"]).output().ok()?;
     if !out.status.success() {
@@ -209,16 +189,10 @@ pub fn free_name(dir: &Path, iso_name: &str) -> String {
 }
 
 /// The folder a file manager makes for deleted files on a volume: `.Trash-<uid>` in its top directory.
-#[cfg(unix)]
 fn trash_dir(root: &Path) -> Option<PathBuf> {
     use std::os::unix::fs::MetadataExt;
     let uid = std::fs::metadata("/proc/self").ok()?.uid();
     Some(root.join(format!(".Trash-{uid}")))
-}
-
-#[cfg(not(unix))]
-fn trash_dir(_root: &Path) -> Option<PathBuf> {
-    None
 }
 
 /// Deletes `file` for good and then the volume's trash folder, so a deleted ISO does not keep using space.

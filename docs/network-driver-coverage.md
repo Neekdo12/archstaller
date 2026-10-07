@@ -5,6 +5,37 @@ Targets are **at least 95% coverage of a documented x86_64 PCI Ethernet hardware
 70% coverage of a documented USB Ethernet/tethering cohort**. These percentages are goals to measure,
 not claims about every computer or network adapter made from 2000 to the present.
 
+**Status.** The measuring half exists: `cargo xtask coverage` reads `coverage/pci.tsv` and `coverage/usb.tsv` and
+prints total, recognized, initialized, link-tested, network-tested and e2e-tested entries separately, by entry and,
+where the corpus has weights, by weight (so a model that many people own counts for more than a rare one). It names
+the driver that recognizes each id (`drivers::net_driver_for`, `usbnet::recognizes`, the same id tables as the
+`probe` functions) and lists the largest and the most used unrecognized groups and ids. A row's `test` column holds
+the highest validation level that really passed; the tool refuses a row that claims testing for an id no driver
+recognizes.
+
+- **PCI corpus:** 910 ids. 370 come with probe counts from [linuxhw/DevicePopulation](https://github.com/linuxhw/DevicePopulation)
+  ("Net/ethernet (PCI)", built from hw-probe uploads to linux-hardware.org, CC-BY-4.0, last updated 2023-03-12,
+  139384 probes); the rest are Ethernet-looking `pci.ids` names with weight 0. The weights are a sample of Linux
+  users' machines: biased toward Linux desktops, laptops and servers, older than the newest NICs, and an owner who
+  uploads twice counts twice.
+- **USB corpus:** 98 ids from `usb.ids`, no weights (no public popularity data for USB adapters was found), no
+  interface data, so class-compliant CDC and RNDIS adapters are undercounted.
+- **Result when written:** PCI 24.0% of ids but 85.5% of probes recognized (target 95%: not reached); tested 0.8% of
+  ids but 51.4% of probes, 50% of it the single id `10ec:8168`, which covers many RTL8111/8168 revisions of which one
+  has been tried, so the weighted tested figure is an upper bound. USB 5.1% of ids recognized (target 70%: not
+  reached). These support neither "95% achieved" nor "70% achieved".
+- **Biggest weighted gaps:** Broadcom NetXtreme/NetLink (BCM57xx, 9138 probes), Marvell Yukon (3781), NVIDIA nForce
+  MCP (1689), Qualcomm Atheros AR81xx/AR8121 (1617, `alx` covers other ids), VIA and JMicron.
+- **Era:** each PCI row carries a `FIRST-LAST` year range, a hand estimate (my knowledge of chip-family launches, not a
+  source; good to a year or two) of when systems with that NIC were commonly built. 99% of the weight has one.
+  `cargo xtask coverage --era 2010-2019` reports overlap (in use during the era), launched in the era, and wholly inside
+  it. Long-lived chips make "overlap" nearly everything (the RTL8111/8168, half the weight, spans 2007-2023). For
+  2010-2019, by weight: in use 86.8% recognized, launched in the era 94.1%, wholly inside 93.4%; the era subsets have
+  no e2e-tested id except the RTL8168 in the overlap set. The corpus has no CPU data, so 32-bit machines are not
+  filtered; the installer is x86_64 only and NICs do not tie to a CPU generation.
+- **Not done:** a sourced era, a more current or broader weighted source, USB interface descriptors and weights, any new
+  driver, EHCI/OHCI, hub support.
+
 ## Scope and honest coverage claims
 
 The installer targets `x86_64-unknown-none` only. This is not multi-architecture support. Most PCs

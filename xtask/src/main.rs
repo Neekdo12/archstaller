@@ -3,6 +3,7 @@ mod bios;
 mod e2e;
 mod iso;
 mod keyring;
+mod coverage;
 mod presets;
 mod linux_test;
 mod lua;
@@ -57,6 +58,8 @@ pub struct Options {
     pub progress: bool,
     /// `--workdir DIR`: scratch directory of this build (default `target/`); the GUI gives every build its own.
     pub workdir: Option<PathBuf>,
+    /// `--disk-gib N`: size of the e2e test disk in GiB (default 16; the Omarchy preset needs about 24).
+    pub disk_gib: u64,
 }
 
 fn parse(args: &[String]) -> Result<Options> {
@@ -78,6 +81,7 @@ fn parse(args: &[String]) -> Result<Options> {
         debug: false,
         progress: false,
         workdir: None,
+        disk_gib: 16,
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -102,6 +106,7 @@ fn parse(args: &[String]) -> Result<Options> {
                 Some("json") => o.progress = true,
                 _ => return Err("--progress needs the value json".into()),
             },
+            "--disk-gib" => o.disk_gib = it.next().ok_or("--disk-gib needs a number")?.parse()?,
             "--workdir" => o.workdir = Some(it.next().ok_or("--workdir needs a path")?.into()),
             other => return Err(format!("unknown option {other}").into()),
         }
@@ -127,9 +132,12 @@ fn luals(check: bool) -> Result<()> {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|gen-luals|aur-pin|keyring|update-keyring> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme|ide] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--profile super-small|large] [--progress json] [--workdir DIR] [--limit BYTES]")?;
+    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|gen-luals|coverage|aur-pin|keyring|update-keyring> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme|ide] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--profile super-small|large] [--progress json] [--workdir DIR] [--disk-gib N (e2e)] [--limit BYTES]")?;
     if cmd == "aur-pin" {
         return aur::pin(rest);
+    }
+    if cmd == "coverage" {
+        return coverage::run(rest);
     }
     if cmd == "gen-luals" {
         return luals(rest.iter().any(|a| a == "--check"));

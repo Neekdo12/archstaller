@@ -1,25 +1,25 @@
-# Omarchy and CachyOS support
+# Omarchy support
 
 **Status:** the Omarchy preset exists (`configs/omarchy.lua`, derived from Omarchy v4.0.4) and resolves with
 `cargo xtask check-presets` (896 packages, about 2.4 GiB). It is the official-repository subset of Omarchy's package
 list, with `ly` instead of `sddm`, and without Omarchy's own scripts, themes and dotfiles, because those come from
-Omarchy's repository or the AUR, which the installer does not use for presets. The QEMU install-and-boot test has
-not been run. CachyOS support is not started.
+Omarchy's repository or the AUR, which the installer does not use for presets. `cargo xtask e2e --config configs/omarchy.lua --disk-gib 24`
+passes in QEMU (BIOS, virtio): install, first boot (`pacman -U` of all 906 packages) and a second boot to the
+`omarchy login:` prompt. It does not start Hyprland or log in, and the default 16 GiB test disk is too small for it.
+Use a disk of 24 GiB or more.
 
-This document describes how to extend Archstaler to other Arch-derived systems. Only Arch-based
-distributions are in scope. The installer kernel remains Archstaler's own, while package selection and
+This document describes how to support Arch-based systems that ship only a different package selection
+and configuration, such as Omarchy. Distributions with their own repositories or keys are out of scope. The installer kernel remains Archstaler's own, while package selection and
 system configuration vary by preset.
 
 ## Decide what "same kernel" means
 
 Keep the **Archstaler installer kernel** the same for every preset. It is the `no_std` kernel built for
-`x86_64-unknown-none`; it does not become an Arch, CachyOS, or Omarchy kernel. The installed system
+`x86_64-unknown-none`; it does not become an Arch or Omarchy kernel. The installed system
 still needs its own bootable Linux kernel and matching initramfs.
 
 Omarchy is an Arch-based system and should start as a normal Archstaler preset: same installer kernel,
-Arch package pipeline, different package selection and system configuration. CachyOS is also
-Arch-compatible in package format, but has its own repositories, signing keys, and kernel choices; it
-needs explicit repository and trust support before it can be called supported.
+Arch package pipeline, different package selection and system configuration.
 
 ## Current boundary
 
@@ -63,35 +63,6 @@ Implement Omarchy first, reusing the Arch backend and adding no new kernel code.
 Omarchy support is a preset, not a claim that Archstaler reproduces every step of the upstream Omarchy
 installer. Document omissions and the upstream release used to derive the package/configuration set.
 
-## CachyOS backend support
-
-Treat CachyOS as a distinct Arch-compatible package source, not as an Arch preset with an arbitrary
-mirror override. First establish that the repository database and package archives use formats the
-existing parser and extractor correctly handle.
-
-1. Add explicit host-side source configuration for the selected CachyOS repositories and mirrors. Keep
-   source selection typed and validated; do not infer trust from a URL or allow a preset to replace the
-   Arch keyring.
-2. Extend the shared config contract and host validation only for the source information the installer
-   needs. Keep host-only build settings in `crates/hostcfg`; keep values needed by the kernel in
-   `config/src/lib.rs`, and update serialization, validation, and deserialization together.
-3. Add a pinned CachyOS signing-key source and verification path. Verify sync database authenticity if
-   provided by the repository, and verify package signatures before extraction. Define how Arch and
-   CachyOS keys are distinguished and rotated; do not trust every key in an unreviewed keyring.
-4. Generalize repository database fetching/resolution in `kernel/src/install.rs` without changing the
-   default Arch behavior. Preserve repository priority and provider selection, and ensure package URLs
-   are derived only from validated configured sources.
-5. Keep the installed package manager state consistent with the chosen repositories and signing keys so
-   later `pacman` operations do not silently switch to an unrelated Arch configuration.
-6. Add a CachyOS preset with a coherent kernel, firmware, initramfs, and bootloader package set. Make the
-   chosen CachyOS kernel path explicit; the current GRUB generation assumes `/vmlinuz-linux` and
-   `/initramfs-linux.img` and must not be reused unchanged if CachyOS uses different filenames.
-7. Add host tests for source validation and repository resolution, signature tests using pinned public
-   fixtures, plus a QEMU end-to-end install that confirms the target boots with the selected kernel.
-
-Do not mix Arch and CachyOS repositories by default. If mixed repositories are ever supported, define
-repository priority, package replacement/conflict rules, and signing policy explicitly and test them.
-
 ## Shared completion criteria
 
 - `OVERVIEW.md` and the user-facing preset documentation state which backend each target uses and what
@@ -101,5 +72,4 @@ repository priority, package replacement/conflict rules, and signing policy expl
   installed kernel and initramfs path, and a repeatable boot test.
 - Run `cargo xtask check-presets` for package-based presets. Run `cargo xtask size` if the ISO payload,
   kernel, or bundled data changes.
-- Never imply that Omarchy preset coverage or CachyOS repository support is complete until the
-   corresponding install-and-boot test passes.
+- Never imply that Omarchy preset coverage is complete until the corresponding install-and-boot test passes.

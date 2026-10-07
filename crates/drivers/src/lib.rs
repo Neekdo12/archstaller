@@ -40,6 +40,41 @@ pub struct Devices {
     pub net: Vec<Box<dyn NetDevice>>,
 }
 
+/// The driver that claims a PCI network controller id, without touching hardware. This is what
+/// `cargo xtask coverage` counts, so it must list exactly the ids the `probe` functions accept.
+pub fn net_driver_for(vendor: u16, device: u16) -> Option<&'static str> {
+    #[cfg(feature = "virtio-net")]
+    if vendor == 0x1af4 && matches!(device, 0x1000 | 0x1041) {
+        return Some("virtio-net");
+    }
+    #[cfg(feature = "e1000")]
+    if e1000::recognizes(vendor, device) {
+        return Some("e1000");
+    }
+    #[cfg(feature = "igb")]
+    if igb::recognizes(vendor, device) {
+        return Some("igb");
+    }
+    #[cfg(feature = "r8169")]
+    if r8169::recognizes(vendor, device) {
+        return Some("r8169");
+    }
+    #[cfg(feature = "rtl8139")]
+    if rtl8139::recognizes(vendor, device) {
+        return Some("rtl8139");
+    }
+    #[cfg(feature = "alx")]
+    if alx::recognizes(vendor, device) {
+        return Some("alx");
+    }
+    #[cfg(feature = "vmxnet3")]
+    if vmxnet3::recognizes(vendor, device) {
+        return Some("vmxnet3");
+    }
+    let _ = (vendor, device);
+    None
+}
+
 /// Enumerates PCI and initializes every supported device.
 pub fn probe_all() -> Devices {
     let mut devs = Devices::default();

@@ -14,3 +14,5 @@ pgp-lite = { path = "../crates/pgp-lite", features = ["std"] }
 ext4w = { path = "../crates/ext4w" }
 initrd = { path = "../crates/initrd" }
 pkg = { path = "../crates/pkg" }
+drivers = { version = "0.1.0", path = "../crates/drivers" }
+usbnet = { version = "0.1.0", path = "../crates/usbnet" }

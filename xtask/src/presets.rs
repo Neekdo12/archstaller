@@ -58,6 +58,7 @@ pub fn build_all(opts: &Options) -> Result<()> {
             debug: opts.debug,
             progress: false,
             workdir: None,
+            disk_gib: opts.disk_gib,
         };
         let iso = iso::build(&o)?;
         println!("{name}: {} ({} bytes)", iso.display(), std::fs::metadata(&iso)?.len());

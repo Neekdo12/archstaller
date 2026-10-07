@@ -1,5 +1,22 @@
 # GTK desktop GUI implementation
 
+**Status: implemented.** `gui/` is a GTK 4 application with a GtkSourceView 5 Lua editor; the egui front end
+is gone. Decisions and differences from the text below:
+
+- **Platform:** Linux only. Windows and macOS support of the old GUI was dropped on purpose (the Lua editor and
+  the volume handling use `lsblk`, `udisksctl` and GtkSourceView).
+- **No libadwaita:** plain GTK 4 only (`HeaderBar`, `ListBox` sidebar, `Stack`); the theme is the system's and the
+  status colours follow its lightness. Narrow windows hide the sidebar (a header toggle brings it back).
+- **Phases 1-5 are done**, including the Ctrl+K / `/` launcher, the source and form modes, completion, diagnostics
+  and the verified Ventoy copy. The AUR group, the home-directory zip and the first-boot script pages were ported
+  as they were.
+- **Verification:** `cargo test -p archstaler-gui` covers the model (including source mode and line lookup) and the
+  completion logic without a display. The windows, the launcher, the editor and a real ISO build from a preset were
+  exercised by hand under X11 with a dark theme; see "Manual check" in `README.md`. Not exercised: a light theme,
+  Wayland, a screen reader, high-contrast mode, and a build onto a real Ventoy stick.
+- **Not done:** a separate controller layer (the pages write through `App::edit`), completion while typing (only on
+  Ctrl+Space), package-name suggestions beyond the last resolution (no sync database is kept loaded), raw flashing.
+
 This is the implementation spec for replacing the current egui desktop frontend with a GTK application.
 The GUI remains a host-side tool for editing Archstaler configs, validating them, building installer
 ISOs, and copying an ISO file to a Ventoy data volume. It is not an installer UI and does not flash raw

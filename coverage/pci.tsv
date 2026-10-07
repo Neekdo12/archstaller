@@ -1,0 +1,918 @@
+# PCI Ethernet corpus. Two sources, merged by (vendor, device):
+#  1. weight > 0: probe counts of Net/ethernet PCI devices from linuxhw/DevicePopulation (https://github.com/linuxhw/DevicePopulation, CC-BY-4.0, built
+#     from hw-probe uploads to linux-hardware.org; the data was last updated 2023-03-12, 139384 probes). Real class-checked ids with real popularity,
+#     but a sample of Linux desktops/laptops/servers whose owners ran hw-probe: biased toward them, older than the newest NICs, and a repeat uploader counts twice.
+#  2. weight 0: other Ethernet-looking device names for common NIC vendors from pci.ids 2026.09.03 (hwdata); they exist but no popularity is known.
+# era = "FIRST-LAST" year range in which systems with this NIC were commonly built: a hand estimate from the chip family's launch and last common use (my knowledge, not a source; accurate to a year or two, and a long-lived chip such as the RTL8168 spans 2007-2023). - = unknown.
+# `weight` is a probe count (0 = unknown). `test` is the highest validation level that actually passed; everything else is `none`. era is unknown (-).
+vendor	device	name	family	era	source	confidence	test	weight	notes
+000c	0000	unnamed in pci.ids	unknown vendor	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+0014	7a03	2K1000/2000 / 7A1000 Chipset Gigabit Ethernet Controller	Loongson Technology LLC	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+0014	7a13	2K2000 / 7A2000 Chipset Gigabit Ethernet Controller	Loongson Technology LLC	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+100b	0020	DP83815 (MacPhyter) Ethernet Controller	National Semiconductor Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	13	
+100b	0022	DP83820 10/100/1000 Ethernet Controller	National Semiconductor	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+100b	0035	DP83065 [Saturn] 10/100/1000 Ethernet Controller	National Semiconductor	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1011	0009	DECchip 21140 [FasterNet]	Digital Equipment Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+1022	1458	XGMAC 10GbE Controller	AMD	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1022	1459	XGMAC 10GbE Controller	AMD	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1022	1641	Renoir 10GbE Controller Port 0 (XGBE0/1)	AMD	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1022	2000	79C97x [PCnet32 LANCE]	Advanced Micro Devices, Inc. [AMD]	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	6	
+1022	2001	Am79C978 PCnet Home (HomePNA) 1/10 PCI Ethernet Adapter [Am79C971 PHY]	AMD	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1022	7462	AMD-8111 Ethernet	AMD	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1039	0190	190 Ethernet Adapter	Silicon Integrated Systems [SiS]	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	8	
+1039	0191	191 Gigabit Ethernet Adapter	Silicon Integrated Systems [SiS]	2008-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	332	
+1039	0900	SiS900 PCI Fast Ethernet	Silicon Integrated Systems [SiS]	1999-2007	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	100	
+1039	7016	SiS7016 PCI Fast Ethernet Adapter	SiS	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+105a	7203	unnamed in pci.ids	Promise Technology, Inc.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+106c	8169	unnamed in pci.ids	Hynix Semiconductor	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1077	16a1	BCM57840 NetXtreme II 10 Gigabit Ethernet	QLogic	2006-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1077	16ab	NetXtreme II BCM57840 10/20 Gigabit Ethernet Multi Function	QLogic	2006-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1077	3022	ISP4022-based Ethernet NIC	QLogic Corp.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1077	3032	ISP4032-based Ethernet IPv6 NIC	QLogic Corp.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1077	8000	10GbE Converged Network Adapter (TCP/IP Networking)	QLogic	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1077	8001	10GbE Converged Network Adapter (FCoE)	QLogic	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1077	8020	cLOM8214 1/10GbE Controller	QLogic	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1077	8021	8200 Series 10GbE Converged Network Adapter (FCoE)	QLogic	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1077	8030	ISP8324 1/10GbE Converged Network Controller	QLogic	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1077	8031	8300 Series 10GbE Converged Network Adapter (FCoE)	QLogic	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1077	8070	FastLinQ QL41000 Series 10/25/40/50GbE Controller	QLogic Corp.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	3	
+1077	8432	ISP2432M-based 10GbE Converged Network Adapter (CNA)	QLogic	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b3	9200	unnamed in pci.ids	Databook Inc	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+10b7	0001	3c985 1000BaseSX (SX/TX)	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	0013	AR5212 802.11abg NIC (3CRDAG675)	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	1201	3c982-TXM 10/100baseTX Dual Port A [Hydra]	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	1202	3c982-TXM 10/100baseTX Dual Port B [Hydra]	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	1700	3c940 10/100/1000Base-T [Marvell]	3Com Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	18	
+10b7	5057	3c575 Megahertz 10/100 LAN CardBus [Boomerang]	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	5157	3cCFE575BT Megahertz 10/100 LAN CardBus [Cyclone]	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	5257	3cCFE575CT CardBus [Cyclone]	3Com Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+10b7	5950	3c595 100BaseTX [Vortex]	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	5951	3c595 100BaseT4 [Vortex]	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	5952	3c595 100Base-MII [Vortex]	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	5b57	3c595 Megahertz 10/100 LAN CardBus [Boomerang]	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	6561	3cCFEM656 10/100 LAN+56K Modem CardBus	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	6562	3cCFEM656B 10/100 LAN+Winmodem CardBus [Cyclone]	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	6563	3cCFEM656B 10/100 LAN+56K Modem CardBus	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	6564	3cXFEM656C 10/100 LAN+Winmodem CardBus [Tornado]	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	80eb	3c940B 10/100/1000Base-T	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	9001	3c900 10Mbps Combo [Boomerang]	3Com Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+10b7	9005	3c900B-Combo Etherlink XL [Cyclone]	3Com Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+10b7	9050	3c905 100BaseTX [Boomerang]	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	9051	3c905 100BaseT4 [Boomerang]	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	9054	3C905B-TX Fast Etherlink XL PCI	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	9055	3c905B 100BaseTX [Cyclone]	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	9056	3c905B-T4 Fast EtherLink XL [Cyclone]	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	905a	3c905B-FX Fast Etherlink XL FX 100baseFx [Cyclone]	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	9201	3C920B-EMB Integrated Fast Ethernet Controller [Tornado]	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	9202	3Com 3C920B-EMB-WNM Integrated Fast Ethernet Controller	3Com Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	4	
+10b7	9210	3C920B-EMB-WNM Integrated Fast Ethernet Controller	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	9800	3c980-TX Fast Etherlink XL Server Adapter [Cyclone]	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b7	9805	3c980-C 10/100baseTX NIC [Python-T]	3Com	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b8	0005	83c170 EPIC/100 Fast Ethernet Adapter	Standard Microsystems Corp [SMC]	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+10b9	5261	M5261 Ethernet Controller	ALi	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10b9	5263	ULi 1689,1573 integrated ethernet.	ULi Electronics Inc.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	17	
+10de	0037	MCP04 Ethernet Controller	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	0038	MCP04 Ethernet Controller	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	0056	CK804 Ethernet Controller	NVIDIA	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	0057	CK804 Ethernet Controller	NVIDIA	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	0066	nForce2 Ethernet Controller	NVIDIA Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	18	
+10de	0086	MCP2A Ethernet Controller	NVIDIA	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	008c	MCP2A Ethernet Controller	NVIDIA	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	00d6	nForce3 Ethernet	NVIDIA Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+10de	00df	CK8S Ethernet Controller	NVIDIA	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	00e6	CK8S Ethernet Controller	NVIDIA	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	01c3	nForce Ethernet Controller	NVIDIA	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	0268	MCP51 Ethernet Controller	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	0269	MCP51 Ethernet Controller	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	0372	MCP55 Ethernet	NVIDIA Corporation	2006-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	3	
+10de	0373	MCP55 Ethernet	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	03e5	MCP61 Ethernet	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	03e6	MCP61 Ethernet	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	03ee	MCP61 Ethernet	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	03ef	MCP61 Ethernet	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	0450	MCP65 Ethernet	NVIDIA Corporation	2006-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	62	
+10de	0451	MCP65 Ethernet	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	0452	MCP65 Ethernet	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	0453	MCP65 Ethernet	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	054c	MCP67 Ethernet	NVIDIA Corporation	2006-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	188	
+10de	054d	MCP67 Ethernet	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	054e	MCP67 Ethernet	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	054f	MCP67 Ethernet	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	0760	MCP77 Ethernet	NVIDIA Corporation	2006-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	344	
+10de	0761	MCP77 Ethernet	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	0762	MCP77 Ethernet	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	0763	MCP77 Ethernet	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	07dc	MCP73 Ethernet	NVIDIA Corporation	2006-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	147	
+10de	07dd	MCP73 Ethernet	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	07de	MCP73 Ethernet	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	07df	MCP73 Ethernet	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	0ab0	MCP79 Ethernet	NVIDIA Corporation	2006-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	884	
+10de	0ab1	MCP79 Ethernet	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	0ab2	MCP79 Ethernet	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	0ab3	MCP79 Ethernet	NVIDIA	2006-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10de	0d7d	MCP89 Ethernet	NVIDIA Corporation	2006-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	42	
+10ec	0139	RTL-8139/8139C/8139C+ Ethernet Controller	Realtek Semiconductor Co., Ltd.	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+10ec	2502	unnamed in pci.ids	Realtek Semiconductor Co., Ltd.	2007-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	103	
+10ec	2600	Killer E2600 GbE Controller	Realtek Semiconductor Co., Ltd.	2018-2021	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	390	
+10ec	3000	Killer E3000 2.5GbE Controller	Realtek Semiconductor Co., Ltd.	2019-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	216	
+10ec	8119	unnamed in pci.ids	Realtek Semiconductor Co., Ltd.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+10ec	8125	RTL8125 2.5GbE Controller	Realtek	2007-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10ec	8126	RTL8126 5GbE Controller	Realtek	2007-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10ec	8127	RTL8127 10GbE Controller	Realtek	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10ec	8129	RTL-8129	Realtek Semiconductor Co., Ltd.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	4	
+10ec	8131	unnamed in pci.ids	Realtek Semiconductor Co., Ltd.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+10ec	8136	RTL810xE PCI Express Fast Ethernet controller	Realtek Semiconductor Co., Ltd.	2007-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	14054	
+10ec	8137	RTL8104E PCIe Fast Ethernet Controller	Realtek	2007-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10ec	8138	RT8139 (B/C) Cardbus Fast Ethernet Adapter	Realtek Semiconductor Co., Ltd.	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+10ec	8139	RTL-8100/8101L/8139 PCI Fast Ethernet Adapter	Realtek Semiconductor Co., Ltd.	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	high	network	1908	QEMU rtl8139: network tests and the start of a real installation (README.md)
+10ec	8161	RTL8111/8168/8411 PCI Express Gigabit Ethernet Controller	Realtek Semiconductor Co., Ltd.	2007-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	107	
+10ec	8162	unnamed in pci.ids	Realtek Semiconductor Co., Ltd.	2007-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	58	
+10ec	8167	RTL-8110SC/8169SC Gigabit Ethernet	Realtek Semiconductor Co., Ltd.	2002-2012	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	321	
+10ec	8168	RTL8111/8168/8211/8411 PCI Express Gigabit Ethernet Controller	Realtek Semiconductor Co., Ltd.	2007-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	high	e2e	69627	RTL8168evl xid 0x2c9 on a Gigabyte GA-F2A88XM-D3H: DHCP, package downloads, full install and first boot (README.md, HANDOFF.md); the id covers every RTL8111/8168 revision, only that one was tried
+10ec	8169	RTL8169 PCI Gigabit Ethernet Controller	Realtek Semiconductor Co., Ltd.	2002-2012	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	486	
+10ec	816a	RTL8111xP UART #1	Realtek	2007-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10ec	816b	RTL8111xP UART #2	Realtek	2007-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10ec	816c	RTL8111xP IPMI interface	Realtek	2007-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10ec	816d	RTL811x EHCI host controller	Realtek	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10ec	8180	RTL8180L 802.11b MAC	Realtek	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+10ec	8184	unnamed in pci.ids	Realtek Semiconductor Co., Ltd.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1106	0102	Embedded VIA Ethernet Controller	VIA	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1106	2106	VIA Rhine Family Fast Ethernet Adapter (VT6105)	VIA Technologies, Inc.	2001-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1106	3043	VT86C100A [Rhine]	VIA Technologies, Inc.	2001-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	5	
+1106	3065	VT6102/VT6103 [Rhine-II]	VIA Technologies, Inc.	2001-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	359	
+1106	3106	VT6105/VT6106S [Rhine-III]	VIA Technologies, Inc.	2001-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	289	
+1106	3119	VT6120/VT6121/VT6122/VT6130 Gigabit Ethernet Adapter	VIA Technologies, Inc.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	12	
+1113	1211	SMC2-1211TX	Accton Technology Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	16	
+1113	1216	EN-1216 Ethernet Adapter	Accton Technology Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	6	
+1137	0043	VIC Ethernet NIC	Cisco Systems Inc	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1137	0044	VIC Ethernet NIC Dynamic	Cisco Systems Inc	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1137	00cf	VIC Userspace NIC	Cisco	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1148	4300	SK-9872 Gigabit Ethernet Server Adapter (SK-NET GE-ZX dual link)	SysKonnect	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1148	4320	SK-98xx V2.0 Gigabit Ethernet Adapter [Marvell 88E8001]	SysKonnect	2000-2007	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	5	
+1148	4400	SK-9Dxx Gigabit Ethernet Adapter	SysKonnect	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1148	4500	SK-9Mxx Gigabit Ethernet Adapter	SysKonnect	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1148	9000	SK-9Sxx Gigabit Ethernet Server Adapter PCI-X [Marvell 88E8022]	SysKonnect	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1148	9843	[Fujitsu] Gigabit Ethernet	SysKonnect	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1148	9e00	SK-9E21D 10/100/1000Base-T Adapter, Copper RJ-45	SysKonnect	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1148	9e01	SK-9E21M 10/100/1000Base-T Adapter	SysKonnect	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1186	1002	DL10050 Sundance Ethernet	D-Link System Inc	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	3	
+1186	1300	RTL8139 Ethernet	D-Link System Inc	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	50	
+1186	3300	DWL-510 / DWL-610 802.11b [Realtek RTL8180L]	D-Link	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1186	4000	DL2000-based Gigabit Ethernet	D-Link System Inc	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1186	4001	DGE-550SX PCI-X Gigabit Ethernet Adapter	D-Link	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1186	4200	DFE-520TX Fast Ethernet PCI Adapter	D-Link System Inc	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	4	
+1186	4300	DGE-528T Gigabit Ethernet Adapter	D-Link System Inc	2004-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	167	
+1186	4302	DGE-530T Gigabit Ethernet Adapter (rev.C1) [Realtek RTL8169]	D-Link System Inc	2002-2012	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+1186	4b00	DGE-560T PCI Express Gigabit Ethernet Adapter	D-Link System Inc	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1186	4b01	DGE-530T Gigabit Ethernet Adapter (rev 11)	D-Link System Inc	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	38	
+1186	4b02	DGE-560SX PCI Express Gigabit Ethernet Adapter	D-Link	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1186	4b03	DGE-550T Gigabit Ethernet Adapter V.B1	D-Link	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1186	4c00	Gigabit Ethernet Adapter	D-Link System Inc	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	8	
+11ab	0f53	88E6318 Link Street network controller	Marvell	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+11ab	4320	88E8001 Gigabit Ethernet Controller	Marvell Technology Group Ltd.	2000-2007	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	236	
+11ab	4340	88E8021 PCI-X IPMI Gigabit Ethernet Controller	Marvell	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+11ab	4341	88E8022 PCI-X IPMI Gigabit Ethernet Controller	Marvell	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+11ab	4342	88E8061 PCI-E IPMI Gigabit Ethernet Controller	Marvell	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+11ab	4343	88E8062 PCI-E IPMI Gigabit Ethernet Controller	Marvell Technology Group Ltd.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+11ab	4344	88E8021 PCI-X IPMI Gigabit Ethernet Controller	Marvell	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+11ab	4345	88E8022 PCI-X IPMI Gigabit Ethernet Controller	Marvell	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+11ab	4346	88E8061 PCI-E IPMI Gigabit Ethernet Controller	Marvell	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+11ab	4347	88E8062 PCI-E IPMI Gigabit Ethernet Controller	Marvell	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+11ab	4350	88E8035 PCI-E Fast Ethernet Controller	Marvell	2006-2013	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+11ab	4351	88E8036 PCI-E Fast Ethernet Controller	Marvell Technology Group Ltd.	2006-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	101	
+11ab	4352	88E8038 PCI-E Fast Ethernet Controller	Marvell Technology Group Ltd.	2006-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	28	
+11ab	4353	88E8039 PCI-E Fast Ethernet Controller	Marvell Technology Group Ltd.	2006-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	136	
+11ab	4354	88E8040 PCI-E Fast Ethernet Controller	Marvell Technology Group Ltd.	2006-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	756	
+11ab	4355	88E8040T PCI-E Fast Ethernet Controller	Marvell Technology Group Ltd.	2006-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	66	
+11ab	4356	88EC033 PCI-E Fast Ethernet Controller	Marvell	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+11ab	4357	88E8042 PCI-E Fast Ethernet Controller	Marvell Technology Group Ltd.	2006-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	74	
+11ab	435a	88E8048 PCI-E Fast Ethernet Controller	Marvell	2006-2013	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+11ab	4360	88E8052 PCI-E ASF Gigabit Ethernet Controller	Marvell Technology Group Ltd.	2006-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	12	
+11ab	4361	88E8050 PCI-E ASF Gigabit Ethernet Controller	Marvell Technology Group Ltd.	2006-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	7	
+11ab	4362	88E8053 PCI-E Gigabit Ethernet Controller	Marvell Technology Group Ltd.	2006-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	293	
+11ab	4363	88E8055 PCI-E Gigabit Ethernet Controller	Marvell Technology Group Ltd.	2006-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	421	
+11ab	4364	88E8056 PCI-E Gigabit Ethernet Controller	Marvell Technology Group Ltd.	2006-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	541	
+11ab	4365	88E8070 based Ethernet Controller	Marvell Technology Group Ltd.	2006-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	10	
+11ab	4366	88EC036 PCI-E Gigabit Ethernet Controller	Marvell	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+11ab	4367	88EC032 Ethernet Controller	Marvell	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+11ab	4368	88EC034 Ethernet Controller	Marvell	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+11ab	4369	88EC042 Ethernet Controller	Marvell	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+11ab	436a	88E8058 PCI-E Gigabit Ethernet Controller	Marvell Technology Group Ltd.	2006-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	304	
+11ab	436b	88E8071 PCI-E Gigabit Ethernet Controller	Marvell Technology Group Ltd.	2006-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	131	
+11ab	436c	88E8072 PCI-E Gigabit Ethernet Controller	Marvell Technology Group Ltd.	2006-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	115	
+11ab	436d	88E8055 PCI-E Gigabit Ethernet Controller	Marvell	2006-2013	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+11ab	4370	88E8075 PCI-E Gigabit Ethernet Controller	Marvell Technology Group Ltd.	2006-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	3	
+11ab	4380	88E8057 PCI-E Gigabit Ethernet Controller	Marvell Technology Group Ltd.	2006-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	225	
+11ab	4381	Yukon Optima 88E8059 [PCIe Gigabit Ethernet Controller with AVB]	Marvell Technology Group Ltd.	2010-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	320	
+11ab	5005	Belkin F5D5005 Gigabit Desktop Network PCI Card	Marvell	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+11ab	d40f	Bobcat3 Ethernet Switch	Marvell	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+11c1	ed00	ET-131x PCI-E Ethernet Controller	LSI Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	10	
+1259	2560	AT-2560 Fast Ethernet Adapter (i82557B)	Allied Telesis	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1259	a117	RTL81xx Fast Ethernet	Allied Telesis	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1259	a11e	RTL81xx Fast Ethernet	Allied Telesis	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1259	a120	21x4x DEC-Tulip compatible 10/100 Ethernet	Allied Telesis	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1282	9009	DM9009 Ethernet Controller	Davicom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1282	9100	21x4x DEC-Tulip compatible 10/100 Ethernet	Davicom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1282	9102	DM9102 Fast Ethernet Controller	Davicom Semiconductor, Inc.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	11	
+1282	9132	Ethernet 100/10 MBit	Davicom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+12ae	0003	unnamed in pci.ids	Alteon Networks Inc.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1317	0185	unnamed in pci.ids	ADMtek	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1317	0981	21x4x DEC-Tulip compatible 10/100 Ethernet	ADMtek	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1317	0985	NC100 Network Everywhere Fast Ethernet 10/100	ADMtek	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	26	
+1317	1985	21x4x DEC-Tulip compatible 10/100 Ethernet	ADMtek	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1317	9511	21x4x DEC-Tulip compatible 10/100 Ethernet	ADMtek	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1374	0038	Silicom Quad port Copper Ethernet PCI-E Intel based Bypass Server Adapter	Silicom Ltd.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+13f0	0200	IC Plus IP100A Integrated 10/100 Ethernet MAC + PHY	Sundance Technology Inc / IC Plus Corp	2003-2009	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	101	
+13f0	1023	IP1000 Family Gigabit Ethernet	Sundance Technology Inc / IC Plus Corp	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	8	
+1425	0000	unnamed in pci.ids	Chelsio Communications Inc	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+1425	0035	S310-CR 10GbE Single Port Adapter	Chelsio Communications Inc	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+1425	0036	S320-LP-CR 10GbE Dual Port Adapter	Chelsio Communications Inc	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1425	4007	T420-SO Unified Wire Ethernet Controller	Chelsio Communications Inc	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1425	4009	T420-BT Unified Wire Ethernet Controller	Chelsio Communications Inc	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1425	4407	T420-SO Unified Wire Ethernet Controller	Chelsio Communications Inc	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1425	4409	T420-BT Unified Wire Ethernet Controller	Chelsio Communications Inc	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1425	5010	T580-LP-CR Unified Wire Ethernet Controller	Chelsio Communications Inc	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1425	5410	T580-LP-CR Unified Wire Ethernet Controller	Chelsio Communications Inc	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1425	6007	T62100-LP-CR Unified Wire Ethernet Controller	Chelsio Communications Inc	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1425	6407	T62100-LP-CR Unified Wire Ethernet Controller	Chelsio Communications Inc	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+14c1	0008	Myri-10G Dual-Protocol NIC	MYRICOM Inc.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+14e4	0806	Sentry5 Ethernet Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1600	NetXtreme BCM5752 Gigabit Ethernet PCI Express	Broadcom Inc. and subsidiaries	2005-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	170	
+14e4	1601	NetXtreme BCM5752M Gigabit Ethernet PCI Express	Broadcom Inc. and subsidiaries	2005-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	8	
+14e4	1604	BCM5745X NetXtreme-E Ethernet Partition	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1614	BCM57454 NetXtreme-E 10Gb/25Gb/40Gb/50Gb/100Gb Ethernet	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+14e4	1639	NetXtreme II BCM5709 Gigabit Ethernet	Broadcom Inc. and subsidiaries	2007-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	159	
+14e4	163a	NetXtreme II BCM5709S Gigabit Ethernet	Broadcom Inc. and subsidiaries	2007-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+14e4	163b	NetXtreme II BCM5716 Gigabit Ethernet	Broadcom Inc. and subsidiaries	2007-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	60	
+14e4	163c	NetXtreme II BCM5716S Gigabit Ethernet	Broadcom	2007-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	163d	NetXtreme II BCM57811 10-Gigabit Ethernet	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	163e	NetXtreme II BCM57811 10 Gigabit Ethernet Multi Function	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1641	NetXtreme BCM57787 Gigabit Ethernet PCIe	Broadcom	2009-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1642	NetXtreme BCM57764 Gigabit Ethernet PCIe	Broadcom	2009-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1643	NetXtreme BCM5725 Gigabit Ethernet PCIe	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1644	NetXtreme BCM5700 Gigabit Ethernet	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+14e4	1645	NetXtreme BCM5701 Gigabit Ethernet	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1646	NetXtreme BCM5702 Gigabit Ethernet	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1647	NetXtreme BCM5703 Gigabit Ethernet	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1648	NetXtreme BCM5704 Gigabit Ethernet	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	3	
+14e4	1649	NetXtreme BCM5704S_2 Gigabit Ethernet	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	164a	NetXtreme II BCM5706 Gigabit Ethernet	Broadcom Inc. and subsidiaries	2007-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	6	
+14e4	164c	NetXtreme II BCM5708 Gigabit Ethernet	Broadcom Inc. and subsidiaries	2007-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	50	
+14e4	164d	NetXtreme BCM5702FE Gigabit Ethernet	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	164e	NetXtreme II BCM57710 10-Gigabit PCIe [Everest]	Broadcom	2009-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	164f	NetXtreme II BCM57711 10-Gigabit PCIe	Broadcom	2009-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1650	NetXtreme II BCM57711E 10-Gigabit PCIe	Broadcom Inc. and subsidiaries	2009-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+14e4	1653	NetXtreme BCM5705 Gigabit Ethernet	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	3	
+14e4	1654	NetXtreme BCM5705_2 Gigabit Ethernet	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	7	
+14e4	1655	NetXtreme BCM5717 Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2011-2018	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	5	
+14e4	1656	NetXtreme BCM5718 Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+14e4	1657	NetXtreme BCM5719 Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2011-2018	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	90	
+14e4	1659	NetXtreme BCM5721 Gigabit Ethernet PCI Express	Broadcom Inc. and subsidiaries	2005-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	43	
+14e4	165a	NetXtreme BCM5722 Gigabit Ethernet PCI Express	Broadcom Inc. and subsidiaries	2005-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	74	
+14e4	165b	NetXtreme BCM5723 Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2005-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	65	
+14e4	165c	NetXtreme BCM5724 Gigabit Ethernet PCIe	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	165d	NetXtreme BCM5705M Gigabit Ethernet	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	10	
+14e4	165e	NetXtreme BCM5705M_2 Gigabit Ethernet	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	9	
+14e4	165f	NetXtreme BCM5720 Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2011-2018	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	199	
+14e4	1662	NetXtreme II BCM57712 10 Gigabit Ethernet	Broadcom Inc. and subsidiaries	2009-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+14e4	1663	NetXtreme II BCM57712 10 Gigabit Ethernet Multi Function	Broadcom	2009-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1665	NetXtreme BCM5717 Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2011-2018	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	5	
+14e4	1668	NetXtreme BCM5714 Gigabit Ethernet	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1669	NetXtreme 5714S Gigabit Ethernet	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	166a	NetXtreme BCM5780 Gigabit Ethernet	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	4	
+14e4	166b	NetXtreme BCM5780S Gigabit Ethernet	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1672	NetXtreme BCM5754M Gigabit Ethernet PCI Express	Broadcom Inc. and subsidiaries	2006-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	8	
+14e4	1673	NetXtreme BCM5755M Gigabit Ethernet PCI Express	Broadcom Inc. and subsidiaries	2006-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	191	
+14e4	1674	NetXtreme BCM5756ME Gigabit Ethernet PCI Express	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	26	
+14e4	1677	NetXtreme BCM5751 Gigabit Ethernet PCI Express	Broadcom Inc. and subsidiaries	2005-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	224	
+14e4	1678	NetXtreme BCM5715 Gigabit Ethernet	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	31	
+14e4	1679	NetXtreme BCM5715S Gigabit Ethernet	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	167a	NetXtreme BCM5754 Gigabit Ethernet PCI Express	Broadcom Inc. and subsidiaries	2006-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	276	
+14e4	167b	NetXtreme BCM5755 Gigabit Ethernet PCI Express	Broadcom Inc. and subsidiaries	2006-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	173	
+14e4	167d	NetXtreme BCM5751M Gigabit Ethernet PCI Express	Broadcom Inc. and subsidiaries	2005-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	56	
+14e4	167e	NetXtreme BCM5751F Fast Ethernet PCI Express	Broadcom Inc. and subsidiaries	2005-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+14e4	167f	NetLink BCM5787F Fast Ethernet PCI Express	Broadcom	2006-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1680	NetXtreme BCM5761e Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2006-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	150	
+14e4	1681	NetXtreme BCM5761 Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2006-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	607	
+14e4	1682	NetXtreme BCM57762 Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2009-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	109	
+14e4	1683	NetXtreme BCM57767 Gigabit Ethernet PCIe	Broadcom	2009-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1684	NetXtreme BCM5764M Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2006-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	581	
+14e4	1685	NetXtreme II BCM57500S Gigabit Ethernet	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1686	NetXtreme BCM57766 Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2009-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	470	
+14e4	1687	NetXtreme BCM5762 Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2013-2019	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	99	
+14e4	1688	NetXtreme BCM5761 10/100/1000BASE-T Ethernet	Broadcom	2006-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	168a	NetXtreme II BCM57800 1/10 Gigabit Ethernet	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	10	
+14e4	168d	NetXtreme II BCM57840 10/20 Gigabit Ethernet	Broadcom	2006-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	168e	NetXtreme II BCM57810 10 Gigabit Ethernet	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	41	
+14e4	1690	NetXtreme BCM57760 Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2009-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	37	
+14e4	1691	NetLink BCM57788 Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2009-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	132	
+14e4	1692	NetLink BCM57780 Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2009-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1057	
+14e4	1693	NetLink BCM5787M Gigabit Ethernet PCI Express	Broadcom Inc. and subsidiaries	2006-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	578	
+14e4	1694	NetLink BCM57790 Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2009-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+14e4	1696	NetXtreme BCM5782 Gigabit Ethernet	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	16	
+14e4	1698	NetLink BCM5784M Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2006-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	415	
+14e4	1699	NetLink BCM5785 Gigabit Ethernet	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	169a	NetLink BCM5786 Gigabit Ethernet PCI Express	Broadcom Inc. and subsidiaries	2006-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	31	
+14e4	169b	NetLink BCM5787 Gigabit Ethernet PCI Express	Broadcom Inc. and subsidiaries	2006-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	52	
+14e4	169c	NetXtreme BCM5788 Gigabit Ethernet	Broadcom Inc. and subsidiaries	2005-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	65	
+14e4	169d	NetLink BCM5789 Gigabit Ethernet PCI Express	Broadcom Inc. and subsidiaries	2005-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	28	
+14e4	16a0	NetLink BCM5785 Fast Ethernet	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16a1	BCM57840 NetXtreme II 10 Gigabit Ethernet	Broadcom Inc. and subsidiaries	2006-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	3	
+14e4	16a2	BCM57840 NetXtreme II 10/20-Gigabit Ethernet	Broadcom Inc. and subsidiaries	2006-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+14e4	16a3	NetXtreme BCM57786 Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2009-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	78	
+14e4	16a4	BCM57840 NetXtreme II Ethernet Multi Function	Broadcom	2006-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16a5	NetXtreme II BCM57800 1/10 Gigabit Ethernet Multi Function	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16a6	NetXtreme BCM5702X Gigabit Ethernet	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16a7	NetXtreme BCM5703X Gigabit Ethernet	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	3	
+14e4	16a8	NetXtreme BCM5704S Gigabit Ethernet	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16aa	NetXtreme II BCM5706S Gigabit Ethernet	Broadcom	2007-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16ab	NetXtreme II BCM57840 10/20 Gigabit Ethernet Multi Function	Broadcom	2006-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16ac	NetXtreme II BCM5708S Gigabit Ethernet	Broadcom	2007-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16ae	NetXtreme II BCM57810 10 Gigabit Ethernet Multi Function	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+14e4	16b0	NetXtreme BCM57761 Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2009-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	29	
+14e4	16b1	NetLink BCM57781 Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2009-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	208	
+14e4	16b2	NetLink BCM57791 Gigabit Ethernet PCIe	Broadcom	2009-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16b3	NetXtreme BCM57786 Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2009-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	217	
+14e4	16b4	NetXtreme BCM57765 Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2009-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	746	
+14e4	16b5	NetLink BCM57785 Gigabit Ethernet PCIe	Broadcom Inc. and subsidiaries	2009-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	992	
+14e4	16b6	NetLink BCM57795 Gigabit Ethernet PCIe	Broadcom	2009-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16b7	NetXtreme BCM57782 Gigabit Ethernet PCIe	Broadcom	2009-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16c6	NetXtreme BCM5702A3 Gigabit Ethernet	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16c7	NetXtreme BCM5703 Gigabit Ethernet	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16c8	BCM57301 NetXtreme-C 10Gb Ethernet Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16c9	BCM57302 NetXtreme-C 10Gb/25Gb Ethernet Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16ca	BCM57304 NetXtreme-C 10Gb/25Gb/40Gb/50Gb Ethernet Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16cc	BCM57417 NetXtreme-E Ethernet Partition	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16ce	BCM57311 NetXtreme-C 10Gb RDMA Ethernet Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16cf	BCM57312 NetXtreme-C 10Gb/25Gb RDMA Ethernet Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16d0	BCM57402 NetXtreme-E 10Gb Ethernet Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16d1	BCM57404 NetXtreme-E 10Gb/25Gb Ethernet Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16d2	BCM57406 NetXtreme-E 10GBASE-T Ethernet Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16d4	BCM57402 NetXtreme-E Ethernet Partition	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16d5	BCM57407 NetXtreme-E 10GBase-T Ethernet Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16d6	BCM57412 NetXtreme-E 10Gb RDMA Ethernet Controller	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	8	
+14e4	16d7	BCM57414 NetXtreme-E 10Gb/25Gb RDMA Ethernet Controller	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	4	
+14e4	16d8	BCM57416 NetXtreme-E Dual-Media 10G RDMA Ethernet Controller	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	35	
+14e4	16d9	BCM57417 NetXtreme-E 10GBASE-T RDMA Ethernet Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16dd	NetLink BCM5781 Gigabit Ethernet PCI Express	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16de	BCM57412 NetXtreme-E Ethernet Partition	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16df	BCM57314 NetXtreme-C 10Gb/25Gb/40Gb/50Gb RDMA Ethernet Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16e2	BCM57417 NetXtreme-E 10Gb/25Gb RDMA Ethernet Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16e3	BCM57416 NetXtreme-E 10Gb RDMA Ethernet Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16e7	BCM57404 NetXtreme-E Ethernet Partition	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16e8	BCM57406 NetXtreme-E Ethernet Partition	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16e9	BCM57407 NetXtreme-E 25Gb Ethernet Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16ec	BCM57414 NetXtreme-E Ethernet Partition	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16ee	BCM57416 NetXtreme-E Ethernet Partition	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16f1	BCM57452 NetXtreme-E 10Gb/25Gb/40Gb/50Gb Ethernet	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16f3	NetXtreme BCM5727 Gigabit Ethernet PCIe	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	16f7	NetXtreme BCM5753 Gigabit Ethernet PCI Express	Broadcom Inc. and subsidiaries	2005-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+14e4	16fd	NetXtreme BCM5753M Gigabit Ethernet PCI Express	Broadcom Inc. and subsidiaries	2005-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	41	
+14e4	16fe	NetXtreme BCM5753F Fast Ethernet PCI Express	Broadcom	2005-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	170c	BCM4401-B0 100Base-TX	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	170d	NetXtreme BCM5901 100Base-TX	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	170e	NetXtreme BCM5901 100Base-TX	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1712	NetLink BCM5906 Fast Ethernet PCI Express	Broadcom	2006-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1713	NetLink BCM5906M Fast Ethernet PCI Express	Broadcom Inc. and subsidiaries	2006-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	323	
+14e4	1750	BCM57508 NetXtreme-E 10Gb/25Gb/40Gb/50Gb/100Gb/200Gb Ethernet	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+14e4	1751	BCM57504 NetXtreme-E 10Gb/25Gb/40Gb/50Gb/100Gb Ethernet	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1752	BCM57502 NetXtreme-E 10Gb/25Gb/40Gb/50Gb Ethernet	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1760	BCM57608 25Gb/50Gb/100Gb/200Gb/400Gb Ethernet	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1780	BCM57708 50Gb/100Gb/200Gb/400Gb/800Gb Ethernet	Broadcom	2009-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1800	BCM57502 NetXtreme-E Ethernet Partition	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1801	BCM57504 NetXtreme-E Ethernet Partition	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	1802	BCM57508 NetXtreme-E Ethernet Partition	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	4222	NetXtreme BCM5753M Gigabit Ethernet PCI Express	Broadcom	2005-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	4401	BCM4401 100Base-T	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	4402	BCM4402 Integrated 10/100BaseT	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	4412	BCM4412 10/100BaseT	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	4432	BCM4432 CardBus 10/100BaseT	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	4613	BCM4610 Sentry5 Ethernet Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	4706	BCM4704 Sentry5 Ethernet Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	4713	Sentry5 Ethernet Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	4715	BCM47xx Sentry5 USB / Ethernet Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	52a3	unnamed in pci.ids	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+14e4	5600	BCM5600 StrataSwitch 24+2 Ethernet Switch Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	5605	BCM5605 StrataSwitch 24+2 Ethernet Switch Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	5615	BCM5615 StrataSwitch 24+2 Ethernet Switch Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	5625	BCM5625 StrataSwitch 24+2 Ethernet Switch Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	5645	BCM5645 StrataSwitch 24+2 Ethernet Switch Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	5670	BCM5670 8-Port 10GE Ethernet Switch Fabric	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	5680	BCM5680 G-Switch 8 Port Gigabit Ethernet Switch Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	5690	BCM5690 12-port Multi-Layer Gigabit Ethernet Switch	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	5691	BCM5691 GE/10GE 8+2 Gigabit Ethernet Switch Controller	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	5692	BCM5692 12-port Multi-Layer Gigabit Ethernet Switch	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	5695	BCM5695 12-port + HiGig Multi-Layer Gigabit Ethernet Switch	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	5698	BCM5698 12-port Multi-Layer Gigabit Ethernet Switch	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	73fd	unnamed in pci.ids	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+14e4	8470	unnamed in pci.ids	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+14e4	b844	unnamed in pci.ids	Broadcom Inc. and subsidiaries	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+14e4	d802	BCM58802 Stingray 50Gb Ethernet SoC	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+14e4	d804	BCM58804 Stingray 100Gb Ethernet SoC	Broadcom	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1516	0803	SURECOM EP-320X-S 100/10M Ethernet PCI Adapter	MYSON Technology Inc	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+15ad	0720	VMXNET Ethernet Controller	VMware	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+15ad	07b0	VMXNET3 Ethernet Controller	VMware	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	high	network	0	QEMU vmxnet3: ARP, DHCP, TLS download, 1 MB HTTP (README.md)
+15b3	1004	MT27500/MT27520 Family [ConnectX-3/ConnectX-3 Pro Virtual Function]	Mellanox Technologies	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+15b3	1019	MT28800 Family [ConnectX-5 Ex]	Mellanox Technologies	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+15b3	101d	MT2892 Family [ConnectX-6 Dx]	Mellanox Technologies	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+15b3	a2d2	MT416842 BlueField integrated ConnectX-5 network controller	Mellanox	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+15b3	a2d6	MT42822 BlueField-2 integrated ConnectX-6 Dx network controller	Mellanox	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+15b3	a2d9	MT43162 BlueField-3 Lx integrated ConnectX-7 network controller	Mellanox	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+15b3	a2dc	MT43244 BlueField-3 integrated ConnectX-7 network controller	Mellanox	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+15b3	a2df	BF4 Family integrated network controller [BlueField-4 integrated network controller]	Mellanox	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+168c	abcd	unnamed in pci.ids	Qualcomm Atheros	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	8	
+168c	ff1a	unnamed in pci.ids	Qualcomm Atheros	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+16ec	0116	USR997902 10/100/1000 Mbps PCI Network Card	U.S. Robotics	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+177d	a00d	THUNDERX MIX Network Controller	Cavium	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+177d	a026	THUNDERX BGX (Common Ethernet Interface)	Cavium	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+177d	a029	THUNDERX NCSI (Network Controller Sideband Interface)	Cavium	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1795	0735	unnamed in pci.ids	unknown vendor	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1904	2031	SC92031 PCI Fast Ethernet Adapter	Hangzhou Silan Microelectronics Co., Ltd.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1904	8139	RTL8139D [Realtek] PCI 10/100BaseTX ethernet adaptor	Hangzhou Silan Microelectronics Co., Ltd.	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	5	
+1924	0803	SFC9020 10G Ethernet Controller	AMD Solarflare	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	7	
+1924	0903	SFC9120 10G Ethernet Controller	AMD Solarflare	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+1969	1026	AR8121/AR8113/AR8114 Gigabit or Fast Ethernet	Qualcomm Atheros	2007-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	878	
+1969	1048	Attansic L1 Gigabit Ethernet	Qualcomm Atheros	2006-2009	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	489	
+1969	1062	AR8132 Fast Ethernet	Qualcomm Atheros	2008-2012	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	697	
+1969	1063	AR8131 Gigabit Ethernet	Qualcomm Atheros	2008-2012	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1022	
+1969	1066	Attansic L2c Gigabit Ethernet	Qualcomm Atheros	2007-2009	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1969	1067	Attansic L1c Gigabit Ethernet	Qualcomm Atheros	2006-2009	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1969	1073	AR8151 v1.0 Gigabit Ethernet	Qualcomm Atheros	2009-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	231	
+1969	1083	AR8151 v2.0 Gigabit Ethernet	Qualcomm Atheros	2009-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1967	
+1969	1090	AR8162 Fast Ethernet	Qualcomm Atheros	2012-2016	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	568	
+1969	1091	AR8161 Gigabit Ethernet	Qualcomm Atheros	2012-2016	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1095	
+1969	10a0	QCA8172 Fast Ethernet	Qualcomm Atheros	2013-2016	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	553	
+1969	10a1	QCA8171 Gigabit Ethernet	Qualcomm Atheros	2013-2016	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	784	
+1969	2048	Attansic L2 Fast Ethernet	Qualcomm Atheros	2007-2009	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	250	
+1969	2060	AR8152 v1.1 Fast Ethernet	Qualcomm Atheros	2009-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	291	
+1969	2062	AR8152 v2.0 Fast Ethernet	Qualcomm Atheros	2009-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1114	
+1969	e091	Killer E220x Gigabit Ethernet Controller	Qualcomm Atheros	2013-2017	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	880	
+1969	e0a1	Killer E2400 Gigabit Ethernet Controller	Qualcomm Atheros	2014-2018	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	569	
+1969	e0b1	Killer E2500 Gigabit Ethernet Controller	Qualcomm Atheros	2015-2019	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	587	
+197b	0250	JMC250 PCI Express Gigabit Ethernet Controller	JMicron Technology Corp.	2008-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	532	
+197b	0260	JMC260 PCI Express Fast Ethernet Controller	JMicron Technology Corp.	2008-2013	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	135	
+19a2	0201	BladeEngine 10Gb PCIe Network Adapter	Emulex	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+19a2	0211	BladeEngine2 10Gb Gen2 PCIe Network Adapter	Emulex	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+19a2	0221	BladeEngine3 10Gb Gen2 PCIe Network Adapter	Emulex	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+19a2	0710	OneConnect 10Gb NIC (be3)	Emulex	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+19e5	1822	Hi1822 Family (4*25GE)	Huawei Technologies Co., Ltd.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+19e5	a221	HNS GE/10GE/25GE Network Controller	Huawei Technologies Co., Ltd.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	5	
+19e5	a222	HNS GE/10GE/25GE RDMA Network Controller	Huawei Technologies Co., Ltd.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	9	
+1a47	0003	unnamed in pci.ids	unknown vendor	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	3	
+1af4	1000	Virtio network device	Red Hat virtio	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	high	network	0	QEMU virtio-net: ARP, DHCP, TLS download, 1 MB HTTP (README.md)
+1af4	1041	Virtio 1.0 network device	Red Hat, Inc.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1d6a	0001	AQC107 NBase-T/IEEE 802.3bz Ethernet Controller [AQtion]	Aquantia Corp.	2016-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	4	
+1d6a	00b1	AQtion AQC100 NBase-T/IEEE 802.3an Ethernet Controller [Atlantic 10G]	Aquantia Corp.	2016-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	11	
+1d6a	00c0	Antigua NBase-T/IEEE 802.3an Ethernet Controller - Engineering Sample	Aquantia Corp.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1d6a	04c0	AQtion AQC113 NBase-T/IEEE 802.3an Ethernet Controller [Antigua 10G]	Aquantia	2016-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1d6a	07b1	AQtion AQC107 NBase-T/IEEE 802.3an Ethernet Controller [Atlantic 10G]	Aquantia Corp.	2016-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	192	
+1d6a	08b1	AQC108 NBase-T/IEEE 802.3bz Ethernet Controller [AQtion]	Aquantia Corp.	2016-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+1d6a	11b1	AQC111 NBase-T/IEEE 802.3bz Ethernet Controller [AQtion]	Aquantia Corp.	2016-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	52	
+1d6a	12b1	AQC112 NBase-T/IEEE 802.3bz Ethernet Controller [AQtion]	Aquantia	2016-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1d6a	12c0	AQtion AQC115C NBase-T/IEEE 802.3bz Ethernet Controller [Antigua 2.5G]	Aquantia	2016-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1d6a	14c0	AQC113C NBase-T/IEEE 802.3an Ethernet Controller [Marvell Scalable mGig]	Aquantia Corp.	2016-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	18	
+1d6a	80b1	AQtion AQC100S NBase-T/IEEE 802.3an Ethernet Controller [Atlantic 10G]	Aquantia Corp.	2016-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	7	
+1d6a	87b1	AQtion AQC107S NBase-T/IEEE 802.3an Ethernet Controller [Atlantic 10G]	Aquantia Corp.	2016-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	8	
+1d6a	93c0	AQtion AQC114CS NBase-T/IEEE 802.3bz Ethernet Controller [Antigua 5G]	Aquantia	2016-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+1d6a	94c0	AQtion AQC113CS NBase-T/IEEE 802.3an Ethernet Controller [Antigua 10G]	Aquantia Corp.	2016-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	51	
+1d6a	d107	AQtion AQC107 NBase-T/IEEE 802.3an Ethernet Controller [Atlantic 10G]	Aquantia Corp.	2016-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	71	
+1d6a	d108	AQC108 NBase-T/IEEE 802.3bz Ethernet Controller [AQtion]	Aquantia Corp.	2016-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	14	
+1fc9	4022	TN9310 10GbE SFP+ Ethernet Adapter	Tehuti Networks Ltd.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+1fc9	4027	TN9710P 10GBase-T/NBASE-T Ethernet Adapter	Tehuti Networks Ltd.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	11	
+1fff	8016	unnamed in pci.ids	DENSO Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	3	
+1fff	8027	MCST Gigabit Ethernet MAC controller	DENSO Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+4040	0100	NX3031 Multifunction 1/10-Gigabit Server Adapter	NetXen Incorporated	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	19	
+8086	0000	unnamed in pci.ids	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	263	
+8086	0039	21145 Fast Ethernet	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	0438	DH8900CC Series Gigabit Network Connection	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	043a	DH8900CC Series Gigabit Fiber Network Connection	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	043c	DH8900CC Series Gigabit Backplane Network Connection	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	0440	DH8900CC Series Gigabit SFP Network Connection	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	0937	Quark SoC X1000 10/100 Ethernet MAC	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	0cf8	Ethernet Controller X710 Intel(R) FPGA Programmable Acceleration Card N3000 for Networking	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	0d4c	400 Series Chipset Family GbE Controller (Corporate/vPro)	Intel Corporation	2020-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	223	
+8086	0d4d	400 Series Chipset Family GbE Controller (Consumer)	Intel Corporation	2020-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	195	
+8086	0d4e	400 Series Chipset Family On-Package GbE Controller (Corporate/vPro)	Intel Corporation	2020-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	159	
+8086	0d4f	400 Series Chipset Family On-Package GbE Controller (Consumer)	Intel Corporation	2020-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	507	
+8086	0d53	Ethernet Connection (12) I219-LM	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	0d55	Ethernet Connection (12) I219-V	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	136	
+8086	0d58	Ethernet Controller XXV710 Intel(R) FPGA Programmable Acceleration Card N3000 for Networking	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	0d9f	Ethernet Controller I225-IT	Intel Corporation	2019-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	3	
+8086	0dc5	Ethernet Connection (23) I219-LM	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	0dc6	Ethernet Connection (23) I219-V	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	0dc7	Ethernet Connection I219-LM	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	0dc8	Ethernet Connection I219-V	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	4	
+8086	0dcd	Ethernet Connection C825-X	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	0dd2	Ethernet Network Adapter I710	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	0dda	Ethernet Connection X722 for 10GbE SFP+	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1000	82542 Gigabit Ethernet Controller (Fiber)	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1001	82543GC Gigabit Ethernet Controller (Fiber)	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1002	Pro 100 LAN+Modem 56 Cardbus II	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1004	82543GC Gigabit Ethernet Controller (Copper)	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+8086	1008	82544EI Gigabit Ethernet Controller (Copper)	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	1009	82544EI Gigabit Ethernet Controller (Fiber)	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	100a	82540EM Gigabit Ethernet Controller	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	100c	82544GC Gigabit Ethernet Controller (Copper)	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	100d	82544GC Gigabit Ethernet Controller (LOM)	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	100e	82540EM Gigabit Ethernet Controller	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	high	network	40	QEMU e1000 (82540EM): ARP, DHCP, TLS download, 1 MB HTTP (README.md)
+8086	100f	82545EM Gigabit Ethernet Controller (Copper)	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	1010	82546EB Gigabit Ethernet Controller (Copper)	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	20	
+8086	1011	82545EM Gigabit Ethernet Controller (Fiber)	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1012	82546EB Gigabit Ethernet Controller (Fiber)	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1013	82541EI Gigabit Ethernet Controller	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+8086	1014	82541ER Gigabit Ethernet Controller	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1015	82540EM Gigabit Ethernet Controller (LOM)	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1016	82540EP Gigabit Ethernet Controller (Mobile)	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	1017	82540EP Gigabit Ethernet Controller	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1018	82541EI Gigabit Ethernet Controller	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1019	82547EI Gigabit Ethernet Controller	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	16	
+8086	101a	82547EI Gigabit Ethernet Controller (Mobile)	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	101d	82546EB Gigabit Ethernet Controller	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	101e	82540EP Gigabit Ethernet Controller (Mobile)	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	22	
+8086	101f	Ethernet Controller V710 for 5GBASE-T	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1026	82545GM Gigabit Ethernet Controller	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	8	
+8086	1027	82545GM Gigabit Ethernet Controller	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1028	82545GM Gigabit Ethernet Controller	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1029	82559 Ethernet Controller	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1031	82801CAM (ICH3) PRO/100 VE (LOM) Ethernet Controller	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	10	
+8086	1032	82801CAM (ICH3) PRO/100 VE Ethernet Controller	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1033	82801CAM (ICH3) PRO/100 VM (LOM) Ethernet Controller	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1034	82801CAM (ICH3) PRO/100 VM Ethernet Controller	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1035	82801CAM (ICH3)/82562EH (LOM) Ethernet Controller	Intel	2004-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1036	82801CAM (ICH3) 82562EH Ethernet Controller	Intel	2004-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1037	82801CAM (ICH3) Chipset Ethernet Controller	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1038	82801CAM (ICH3) PRO/100 VM (KM) Ethernet Controller	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1039	82801DB PRO/100 VE (LOM) Ethernet Controller	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	7	
+8086	103a	82801DB PRO/100 VE (CNR) Ethernet Controller	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	103b	82801DB PRO/100 VM (LOM) Ethernet Controller	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	5	
+8086	103c	82801DB PRO/100 VM (CNR) Ethernet Controller	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	103d	82801DB PRO/100 VE (MOB) Ethernet Controller	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	12	
+8086	103e	82801DB PRO/100 VM (MOB) Ethernet Controller	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	1048	82597EX 10GbE Ethernet Controller	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1049	82566MM Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	104a	82566DM Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	104b	82566DC Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	104c	82562V 10/100 Network Connection	Intel	2004-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	104d	82566MC Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	104e	Ethernet Controller X710 for 10 Gigabit SFP+	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	104f	Ethernet Controller X710 for 10 Gigabit backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1050	82562EZ 10/100 Ethernet Controller	Intel Corporation	2004-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	47	
+8086	1051	82801EB/ER (ICH5/ICH5R) integrated LAN Controller	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1052	PRO/100 VM Network Connection	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1053	PRO/100 VM Network Connection	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1054	PRO/100 VE Network Connection	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1055	PRO/100 VM Network Connection	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1056	PRO/100 VE Network Connection	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1057	PRO/100 VE Network Connection	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1059	82551QM Ethernet Controller	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	105b	82546GB Gigabit Ethernet Controller (Copper)	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	105e	82571EB/82571GB Gigabit Ethernet Controller D0/D1 (copper applications)	Intel Corporation	2005-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	104	
+8086	105f	82571EB Gigabit Ethernet Controller	Intel	2005-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1060	82571EB Gigabit Ethernet Controller	Intel	2005-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1064	82562ET/EZ/GT/GZ - PRO/100 VE (LOM) Ethernet Controller	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	35	
+8086	1065	82562ET/EZ/GT/GZ - PRO/100 VE Ethernet Controller	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	1066	82562 EM/EX/GX - PRO/100 VM (LOM) Ethernet Controller	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1067	82562 EM/EX/GX - PRO/100 VM Ethernet Controller	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1068	82562ET/EZ/GT/GZ - PRO/100 VE (LOM) Ethernet Controller Mobile	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	61	
+8086	1069	82562EM/EX/GX - PRO/100 VM (LOM) Ethernet Controller Mobile	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	106a	82562G - PRO/100 VE (LOM) Ethernet Controller	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	106b	82562G - PRO/100 VE Ethernet Controller Mobile	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1075	82547GI Gigabit Ethernet Controller	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	3	
+8086	1076	82541GI Gigabit Ethernet Controller	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	39	
+8086	1077	82541GI Gigabit Ethernet Controller	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	3	
+8086	1078	82541ER Gigabit Ethernet Controller	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1079	82546GB Gigabit Ethernet Controller	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	15	
+8086	107a	82546GB Gigabit Ethernet Controller	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	107b	82546GB Gigabit Ethernet Controller	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	107c	82541PI Gigabit Ethernet Controller	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	73	
+8086	107d	82572EI Gigabit Ethernet Controller (Copper)	Intel Corporation	2005-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	22	
+8086	107e	82572EI Gigabit Ethernet Controller (Fiber)	Intel	2005-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	107f	82572EI Gigabit Ethernet Controller	Intel	2005-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1081	631xESB/632xESB LAN Controller Copper	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1082	631xESB/632xESB LAN Controller fiber	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1083	631xESB/632xESB LAN Controller SERDES	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	108a	82546GB Gigabit Ethernet Controller	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	3	
+8086	108b	82573V Gigabit Ethernet Controller (Copper)	Intel Corporation	2005-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	9	
+8086	108c	82573E Gigabit Ethernet Controller (Copper)	Intel Corporation	2005-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	35	
+8086	1091	PRO/100 VM Network Connection	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1092	PRO/100 VE Network Connection	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1093	PRO/100 VM Network Connection	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1094	PRO/100 VE Network Connection	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1095	PRO/100 VE Network Connection	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1096	80003ES2LAN Gigabit Ethernet Controller (Copper)	Intel Corporation	2005-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	110	
+8086	1097	631xESB/632xESB DPT LAN Controller (Fiber)	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1098	80003ES2LAN Gigabit Ethernet Controller (Serdes)	Intel	2005-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1099	82546GB Gigabit Ethernet Controller (Copper)	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	109a	82573L Gigabit Ethernet Controller	Intel Corporation	2005-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	204	
+8086	109b	82546GB PRO/1000 GF Quad Port Server Adapter	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	109e	82597EX 10GbE Ethernet Controller	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10a0	82571EB PRO/1000 AT Quad Port Bypass Adapter	Intel	2005-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10a1	82571EB PRO/1000 AF Quad Port Bypass Adapter	Intel	2005-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10a4	82571EB Gigabit Ethernet Controller	Intel Corporation	2005-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	4	
+8086	10a5	82571EB Gigabit Ethernet Controller (Fiber)	Intel	2005-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10a6	82599EB 10-Gigabit Dummy Function	Intel	2009-2018	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10a7	82575EB Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10a9	82575EB Gigabit Backplane Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10aa	unnamed in pci.ids	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	10b0	82573L PRO/1000 PL Network Connection	Intel	2005-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10b2	82573V PRO/1000 PM Network Connection	Intel	2005-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10b3	82573E PRO/1000 PM Network Connection	Intel	2005-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10b4	82573L PRO/1000 PL Network Connection	Intel	2005-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10b5	82546GB Gigabit Ethernet Controller (Copper)	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+8086	10b6	82598 10GbE PCI-Express Ethernet Controller	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10b9	82572EI Gigabit Ethernet Controller (Copper)	Intel Corporation	2005-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	16	
+8086	10ba	80003ES2LAN Gigabit Ethernet Controller (Copper)	Intel	2005-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10bb	80003ES2LAN Gigabit Ethernet Controller (Serdes)	Intel	2005-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10bc	82571EB/82571GB Gigabit Ethernet Controller (Copper)	Intel Corporation	2005-2011	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	48	
+8086	10bd	82566DM-2 Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10bf	82567LF Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10c0	82562V-2 10/100 Network Connection	Intel	2004-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10c2	82562G-2 10/100 Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10c3	82562GT-2 10/100 Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10c4	82562GT 10/100 Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10c5	82562G 10/100 Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10c6	82598EB 10-Gigabit AF Dual Port Network Connection	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10c7	82598EB 10-Gigabit AF Network Connection	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10c8	82598EB 10-Gigabit AT Network Connection	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10c9	82576 Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	high	network	0	QEMU igb (82576): network tests and the start of a real installation (README.md)
+8086	10cb	82567V Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10cc	82567LM-2 Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10cd	82567LF-2 Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10ce	82567V-2 Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10d3	82574L Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	high	network	0	QEMU e1000e (82574L): ARP, DHCP, TLS download, 1 MB HTTP (README.md)
+8086	10d5	82571PT Gigabit PT Quad Port Server ExpressModule	Intel	2005-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10d6	82575GB Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10d8	82599EB 10 Gigabit Unprogrammed	Intel	2009-2018	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10d9	82571EB Dual Port Gigabit Mezzanine Adapter	Intel	2005-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10da	82571EB Quad Port Gigabit Mezzanine Adapter	Intel	2005-2011	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10db	82598EB 10-Gigabit Dual Port Network Connection	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10dd	82598EB 10-Gigabit AT CX4 Network Connection	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10de	82567LM-3 Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10df	82567LF-3 Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10e1	82598EB 10-Gigabit AF Dual Port Network Connection	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10e2	82575GB Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10e5	82567LM-4 Gigabit Network Connection	Intel Corporation	2008-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	10e6	82576 Gigabit Network Connection	Intel Corporation	2008-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	10e7	82576 Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10e8	82576 Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10ea	82577LM Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10eb	82577LC Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10ec	82598EB 10-Gigabit AT CX4 Network Connection	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10ed	82599 Ethernet Controller Virtual Function	Intel Corporation	2009-2018	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	4	
+8086	10ef	82578DM Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10f0	82578DC Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10f1	82598EB 10-Gigabit AF Dual Port Network Connection	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10f4	82598EB 10-Gigabit AF Network Connection	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10f5	82567LM Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10f6	82574L Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10f7	10 Gigabit BR KX4 Dual Port Network Connection	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10f8	82599 10 Gigabit Dual Port Backplane Connection	Intel Corporation	2009-2018	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	4	
+8086	10f9	82599 10 Gigabit Dual Port Network Connection	Intel	2009-2018	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10fb	82599ES 10-Gigabit SFI/SFP+ Network Connection	Intel Corporation	2009-2018	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	115	
+8086	10fc	82599 10 Gigabit Dual Port Network Connection	Intel	2009-2018	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	10fe	82552 10/100 Network Connection	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1107	PRO/1000 MF Server Adapter (LX)	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1209	8255xER/82551IT Fast Ethernet Controller	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1229	82557/8/9/0/1 Ethernet Pro 100	Intel Corporation	1998-2010	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	78	
+8086	1248	Ethernet Controller E835-CC for backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1249	Ethernet Controller E835-CC for QSFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	124a	Ethernet Controller E835-CC for SFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	124c	Ethernet Connection E823-L for backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	124d	Ethernet Connection E823-L for SFP	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	124e	Ethernet Connection E823-L/X557-AT 10GBASE-T	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	124f	Ethernet Connection E823-L 1GbE	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	125b	Ethernet Controller I226-LM	Intel	2019-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	125c	Ethernet Controller I226-V	Intel Corporation	2019-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	21	
+8086	125d	Ethernet Controller I226-IT	Intel	2019-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1261	Ethernet Controller E835-C for backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1262	Ethernet Controller E835-C for QSFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1263	Ethernet Controller E835-C for SFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1265	Ethernet Controller E835-L for backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1266	Ethernet Controller E835-L for QSFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1267	Ethernet Controller E835-L for SFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	12d1	Ethernet Controller E830-CC for backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	12d2	Ethernet Controller E830-CC for QSFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	12d3	Ethernet Controller E830-CC for SFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	12d4	Ethernet Controller E830-CC for SFP-DD	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	12d5	Ethernet Controller E830-C for backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	12d8	Ethernet Controller E830-C for QSFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	12da	Ethernet Controller E830-C for SFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	12dc	Ethernet Controller E830-L for backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	12dd	Ethernet Controller E830-L for QSFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	12de	Ethernet Controller E830-L for SFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1501	82567V-3 Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1502	82579LM Gigabit Network Connection (Lewisville)	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1503	82579V Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1507	Ethernet Express Module X520-P2	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1508	82598EB Gigabit BX Network Connection	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1509	82580 Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	150a	82576NS Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	150b	82598EB 10-Gigabit AT2 Server Adapter	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	150c	82583V Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	150d	82576 Gigabit Backplane Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	150e	82580 Gigabit Network Connection	Intel Corporation	2008-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	20	
+8086	150f	82580 Gigabit Fiber Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1510	82580 Gigabit Backplane Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1511	82580 Gigabit SFP Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1514	Ethernet X520 10GbE Dual Port KX4 Mezz	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1515	X540 Ethernet Controller Virtual Function	Intel Corporation	2012-2018	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	1516	82580 Gigabit Network Connection	Intel Corporation	2008-2014	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+8086	1517	82599ES 10 Gigabit Network Connection	Intel	2009-2018	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1518	82576NS SerDes Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	151c	82599 10 Gigabit TN Network Connection	Intel Corporation	2009-2018	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+8086	151d	Ethernet Connection E823-L for QSFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1520	I350 Ethernet Controller Virtual Function	Intel Corporation	2011-2020	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	1521	I350 Gigabit Network Connection	Intel	2011-2020	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1522	I350 Gigabit Fiber Network Connection	Intel	2011-2020	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1523	I350 Gigabit Backplane Connection	Intel	2011-2020	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1524	I350 Gigabit Connection	Intel	2011-2020	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1525	82567V-4 Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1526	82576 Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1527	82580 Gigabit Fiber Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1528	Ethernet Controller 10-Gigabit X540-AT2	Intel Corporation	2012-2018	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	81	
+8086	1529	82599 10 Gigabit Dual Port Network Connection with FCoE	Intel	2009-2018	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	152a	82599 10 Gigabit Dual Port Backplane Connection with FCoE	Intel	2009-2018	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1531	I210 Gigabit Unprogrammed	Intel	2012-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1533	I210 Gigabit Network Connection	Intel	2012-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1536	I210 Gigabit Fiber Network Connection	Intel Corporation	2012-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+8086	1537	I210 Gigabit Backplane Connection	Intel	2012-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1538	I210 Gigabit Network Connection	Intel	2012-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1539	I211 Gigabit Network Connection	Intel	2012-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	153a	Ethernet Connection I217-LM	Intel Corporation	2013-2016	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2225	
+8086	153b	Ethernet Connection I217-V	Intel Corporation	2013-2016	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	985	
+8086	154a	Ethernet Server Adapter X520-4	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	154b	unnamed in pci.ids	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	154c	Ethernet Virtual Function 700 Series	Intel Corporation	2022-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	3	
+8086	154d	Ethernet 10G 2P X520 Adapter	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	10	
+8086	1557	82599 10 Gigabit Network Connection	Intel Corporation	2009-2018	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	19	
+8086	1558	Ethernet Converged Network Adapter X520-Q1	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	1559	Ethernet Connection I218-V	Intel Corporation	2013-2016	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	120	
+8086	155a	Ethernet Connection I218-LM	Intel Corporation	2013-2016	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1013	
+8086	155c	Ethernet Server Bypass Adapter	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	155d	Ethernet Server Bypass Adapter	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1560	Ethernet Controller X540	Intel Corporation	2012-2018	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	1563	Ethernet Controller X550	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	102	
+8086	156f	Ethernet Connection I219-LM	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1021	
+8086	1570	Ethernet Connection I219-V	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	458	
+8086	1572	Ethernet Controller X710 for 10GbE SFP+	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	38	
+8086	1574	Ethernet Controller XL710 Emulation	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	157b	I210 Gigabit Network Connection	Intel	2012-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	157c	I210 Gigabit Backplane Connection	Intel	2012-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1580	Ethernet Controller XL710 for 40GbE backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1581	Ethernet Controller X710 for 10GbE backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1583	Ethernet Controller XL710 for 40GbE QSFP+	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	3	
+8086	1584	Ethernet Controller XL710 for 40GbE QSFP+	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1585	Ethernet Controller X710 for 10GbE QSFP+	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1586	Ethernet Controller X710 for 10GBASE-T	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1587	Ethernet Controller XL710 for 20GbE backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1588	Ethernet Controller XL710 for 20GbE backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1589	Ethernet Controller X710/X557-AT 10GBASE-T	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+8086	158a	Ethernet Controller XXV710 for 25GbE backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	158b	Ethernet Controller XXV710 for 25GbE SFP28	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	7	
+8086	1590	Ethernet Connection E810-C	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1591	Ethernet Controller E810-C for backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1592	Ethernet Controller E810-C for QSFP	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	1593	Ethernet Controller E810-C for SFP	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	1594	Ethernet Controller E810-C/X557-AT 10GBASE-T	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1595	Ethernet Controller E810-C 1GbE	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1598	Ethernet Connection E810-XXV	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1599	Ethernet Controller E810-XXV for backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	159a	Ethernet Controller E810-XXV for QSFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	159b	Ethernet Controller E810-XXV for SFP	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	12	
+8086	159c	Ethernet Controller E810-XXV/X557-AT 10GBASE-T	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	159d	Ethernet Controller E810-XXV 1GbE	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15a0	Ethernet Connection (2) I218-LM	Intel Corporation	2013-2016	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	147	
+8086	15a1	Ethernet Connection (2) I218-V	Intel Corporation	2013-2016	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	804	
+8086	15a2	Ethernet Connection (3) I218-LM	Intel Corporation	2013-2016	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	826	
+8086	15a3	Ethernet Connection (3) I218-V	Intel Corporation	2013-2016	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	181	
+8086	15a4	Ethernet Switch FM10000 Host Interface	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15a5	Ethernet Switch FM10000 Host Virtual Interface	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15a7	unnamed in pci.ids	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	15aa	Ethernet Connection X552 10 GbE Backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15ab	Ethernet Connection X552 10 GbE Backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15ac	Ethernet Connection X552 10 GbE SFP+	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	9	
+8086	15ad	Ethernet Connection X552/X557-AT 10GBASE-T	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	9	
+8086	15ae	Ethernet Connection X552 1000BASE-T	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15b0	Ethernet Connection X552 Backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15b7	Ethernet Connection (2) I219-LM	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1046	
+8086	15b8	Ethernet Connection (2) I219-V	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2550	
+8086	15b9	Ethernet Connection (3) I219-LM	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	69	
+8086	15bb	Ethernet Connection (7) I219-LM	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	726	
+8086	15bc	Ethernet Connection (7) I219-V	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1301	
+8086	15bd	Ethernet Connection (6) I219-LM	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	320	
+8086	15be	Ethernet Connection (6) I219-V	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	756	
+8086	15c2	Ethernet Connection X553 Backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15c3	Ethernet Connection X553 Backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15c4	Ethernet Connection X553 10 GbE SFP+	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	15c6	Ethernet Connection X553 1GbE	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15c7	Ethernet Connection X553 1GbE	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15c8	Ethernet Connection X553/X557-AT 10GBASE-T	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15ce	Ethernet Connection X553 10 GbE SFP+	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15d0	Ethernet SDI Adapter	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15d1	Ethernet Controller 10G X550T	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15d5	Ethernet SDI Adapter FM10420-25GbE-DA2	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15d6	Ethernet Connection (5) I219-V	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	55	
+8086	15d7	Ethernet Connection (4) I219-LM	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1085	
+8086	15d8	Ethernet Connection (4) I219-V	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	830	
+8086	15df	Ethernet Connection (8) I219-LM	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15e0	Ethernet Connection (8) I219-V	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15e1	Ethernet Connection (9) I219-LM	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15e2	Ethernet Connection (9) I219-V	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	15e3	Ethernet Connection (5) I219-LM	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	350	
+8086	15e4	Ethernet Connection X553 1GbE	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	16	
+8086	15e5	Ethernet Connection X553 1GbE	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	6	
+8086	15f2	Ethernet Controller I225-LM	Intel Corporation	2019-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	57	
+8086	15f3	Ethernet Controller I225-V	Intel Corporation	2019-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1287	
+8086	15f4	Ethernet Connection (15) I219-LM	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15f5	Ethernet Connection (15) I219-V	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15f6	I210 Gigabit Ethernet Connection	Intel	2012-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	15f9	500 Series Chipset Family GbE Controller (Corporate/vPro)	Intel Corporation	2021-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	114	
+8086	15fa	500 Series Chipset Family GbE Controller (Consumer)	Intel Corporation	2021-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	257	
+8086	15fb	Ethernet Connection (13) I219-LM	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	136	
+8086	15fc	Ethernet Connection (13) I219-V	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	410	
+8086	15fd	unnamed in pci.ids	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+8086	15ff	Ethernet Controller X710 for 10GBASE-T	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	5	
+8086	1889	Ethernet Adaptive Virtual Function	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	188a	Ethernet Connection E823-C for backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	188b	Ethernet Connection E823-C for QSFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	188c	Ethernet Connection E823-C for SFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	188d	Ethernet Connection E823-C/X557-AT 10GBASE-T	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	188e	Ethernet Connection E823-C 1GbE	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1890	Ethernet Connection E822-C for backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1891	Ethernet Connection E822-C for QSFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1892	Ethernet Connection E822-C for SFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1893	Ethernet Connection E822-C/X557-AT 10GBASE-T	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1894	Ethernet Connection E822-C 1GbE	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1897	Ethernet Connection E822-L for backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1898	Ethernet Connection E822-L for SFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1899	Ethernet Connection E822-L/X557-AT 10GBASE-T	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	189a	Ethernet Connection E822-L 1GbE	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1a1c	Ethernet Connection (17) I219-LM	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	22	
+8086	1a1d	Ethernet Connection (17) I219-V	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	87	
+8086	1a1e	Ethernet Connection (16) I219-LM	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	75	
+8086	1a1f	Ethernet Connection (16) I219-V	Intel Corporation	2015-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	70	
+8086	1a48	82597EX 10GbE Ethernet Controller	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1b48	82597EX 10GbE Ethernet Controller	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1c33	6 Series/C200 Series Chipset Family LAN Controller	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1d33	C600/X79 series chipset LAN Controller	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1e33	7 Series/C210 Series Chipset Family LAN Controller	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1f40	Ethernet Connection I354 1.0 GbE Backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	1f41	Ethernet Connection I354	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	10	
+8086	1f45	Ethernet Connection I354 2.5 GbE Backplane	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	2	
+8086	2449	82801BA/BAM/CA/CAM Ethernet Controller	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	4	
+8086	2459	82801E Ethernet Controller 0	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	245d	82801E Ethernet Controller 1	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	266c	82801FB/FBM/FR/FW/FRW (ICH6 Family) LAN Controller	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	27dc	NM10/ICH7 Family LAN Controller	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	294c	82566DC-2 Gigabit Network Connection	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	3100	unnamed in pci.ids	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	18	
+8086	3101	Killer E3100X 2.5 Gigabit Ethernet Controller	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	45	
+8086	3102	Ethernet Controller I226-K	Intel	2019-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	37cc	Ethernet Connection X722	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	20	
+8086	37cd	Ethernet Virtual Function 700 Series	Intel Corporation	2022-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	37ce	Ethernet Connection X722 for 10GbE backplane	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	10	
+8086	37cf	Ethernet Connection X722 for 10GbE QSFP+	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	37d0	Ethernet Connection X722 for 10GbE SFP+	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	12	
+8086	37d1	Ethernet Connection X722 for 1GbE	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	42	
+8086	37d2	Ethernet Connection X722 for 10GBASE-T	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	48	
+8086	37d3	Ethernet Connection X722 for 10GbE SFP+	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	5	
+8086	37d4	Ethernet Connection X722 for 10GbE QSFP+	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	3a4c	82801JI (ICH10 Family) Gigabit Ethernet Controller	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	3a7c	82801JD/DO (ICH10 Family) Gigabit Ethernet Controller	Intel	2008-2014	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	3b41	5 Series/3400 Series Chipset LAN Controller	Intel	2020-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	43a2	unnamed in pci.ids	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	43ac	unnamed in pci.ids	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+8086	5201	EtherExpress PRO/100 Intelligent Server Fast Ethernet Controller	Intel	1998-2010	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	5502	Ethernet Controller (2) I225-LMvP	Intel Corporation	2019-2023	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	8	
+8086	5503	Ethernet Controller I226-LMvP	Intel	2019-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	550a	Ethernet Connection (18) I219-LM	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	550b	Ethernet Connection (18) I219-LM	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	550e	Ethernet Connection (20) I219-LM	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	550f	Ethernet Connection (20) I219-V	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	5510	Ethernet Connection (21) I219-LM	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	5511	Ethernet Connection (21) I219-V	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	579c	Ethernet Connection E825-C for backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	579d	Ethernet Connection E825-C for QSFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	579e	Ethernet Connection E825-C for SFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	579f	Ethernet Connection E825-C 10GbE	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	57a0	Ethernet Connection (24) I219-LM	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	57a1	Ethernet Connection (24) I219-V	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	57ac	Ethernet Controller E610	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	57ae	Ethernet Controller E610 Backplane	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	57af	Ethernet Controller E610 SFP	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	57b0	Ethernet Controller E610-XT/E610-XT2 10GBASE-T	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	57b1	Ethernet Controller E610-AT2 1000BASE-T	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	57b2	Ethernet Controller E610 SGMII	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	57b3	Ethernet Connection (25) I219-LM	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	57b4	Ethernet Connection (25) I219-V	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	57b5	Ethernet Connection (26) I219-LM	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	57b6	Ethernet Connection (26) I219-V	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	57b7	Ethernet Connection (27) I219-LM	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	57b8	Ethernet Connection (27) I219-V	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	57b9	Ethernet Connection (29) I219-LM	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	57ba	Ethernet Connection (29) I219-V	Intel	2015-2023	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	8c33	8 Series/C220 Series Chipset Family LAN Controller	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	8cb3	9 Series Chipset Family LAN Controller	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	8d33	C610/X99 series chipset LAN Controller	Intel	-	pci.ids 2026.09.03 (hwdata); name filter, no popularity data	low	none	0	
+8086	baad	unnamed in pci.ids	Intel Corporation	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
+aaaa	8168	unnamed in pci.ids	Adnaco Technology Inc.	-	linuxhw/DevicePopulation, Net/ethernet (PCI), data of 2023-03-12, CC-BY-4.0; names from pci.ids 2026.09.03	medium	none	1	
