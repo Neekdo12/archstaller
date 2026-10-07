@@ -69,6 +69,7 @@ that need a running Linux.
 | `docs/` | `wifi.md` (spec for a not-implemented feature), `network-driver-coverage.md` (roadmap and measurable coverage targets for PCI Ethernet and USB networking), `distro-presets.md` (Omarchy support: the preset exists, see the status line there), `gtk-gui.md` (the GTK4 GUI: implemented, see the status block there), `lua-config.md` (the user-facing reference of every config setting, rules, error messages and checked examples, written to be given to a chatbot; a hostcfg test loads its examples and checks its driver, script and preset tables), `lua-config-api.md` (typed, namespaced `as` Lua config API and LuaLS support implementation spec), `aur.md` (AUR packages: pinned recipes built on the target at first boot; implemented, see the status line there), `raw-usb-flash.md` (raw ISO flashing to a USB stick from the GUI when no Ventoy volume is found; implemented, not yet tested on a real stick, see the status line there), `sway-preset.md` (Sway desktop preset: `configs/sway.lua` exists, see the status line there) |
 | `sizes.md` | measured ISO size breakdown and size-reduction options |
 | `PLAN.md` | original design plan/decision log |
+| `TO-TEST.md` | checklist of work that is written but not yet compiled or tested (raw USB flashing, the Sway preset); sections are removed as they pass |
 | `HANDOFF.md` | temporary status notes for a new session (branches, hardware reports, what is unverified); delete when no longer useful |
 
 ## Config (`configs/config.lua` -> `config.bin`)
