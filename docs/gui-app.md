@@ -16,7 +16,7 @@ Rebuild after every code change.
 
 ## Features
 
-- **Pages:** System, Disk, Mirrors & packages (with a resolve preview and the AUR group), Users, Services & kernel,
+- **Pages:** System, Disk, Mirrors & packages (official package search, live total, import, a resolve preview and the AUR group), Users, Services & kernel,
   Build & drivers, Scripts, Lua source, Build ISO. A red dot in the sidebar marks a page with a validation
   problem; the bar at the bottom shows the first one with a button that goes there. The checks are the command
   line's.
@@ -46,6 +46,18 @@ Rebuild after every code change.
   90% of the screen at most. A window narrower than 760 px hides the sidebar (the header's toggle brings it
   back), and long labels wrap, so it works in a tiling-window-manager tile or a small laptop screen; the
   narrowest tested width was 600 px. A second copy can be started next to the first.
+- **Official packages:** the "Find official packages" card searches core and extra on this computer, by name,
+  group and description, and forgives a typo or two (`fierfox` finds `firefox`); exact names come first, then
+  names that start with the text, names that contain it, near misses, groups and descriptions. The databases are
+  downloaded from the first mirror once (the same hourly cache as the resolve preview) when you first type; until
+  then, or when the download fails, the card says so and offers Load now or Retry. Each row shows the version,
+  repository, description, download and installed size; Add appends the name to the package list ("already
+  added" otherwise). Under the list, a live total shows how many packages the installer will resolve and how much
+  it will download, by the installer's own resolver, and the resolver's error when the list does not resolve.
+- **Import from this system:** reads the names of the packages this computer installed explicitly (`pacman -Qqen`)
+  and adds the ones core and extra have; the rest (other repositories such as multilib) are listed as skipped.
+  Packages from outside the repositories (`pacman -Qqem`, mostly AUR) are only listed: pinning one needs its
+  recipe reviewed in the AUR card. Nothing but package names is read.
 - **AUR packages:** one compact card: search, a result row with Review, then the recipe with its automatic
   checks folded behind a count, risky lines highlighted, and one acknowledgement before "Pin and add". NetworkManager is added automatically when no network
   service is enabled, because the build needs one.

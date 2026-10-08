@@ -47,6 +47,18 @@ impl Dep {
     }
 }
 
+/// The first line of the `%SECTION%` of a `desc` entry (`field(text, "DESC")`), the same layout
+/// [`Package::parse`] reads.
+pub fn field<'a>(desc: &'a str, section: &str) -> Option<&'a str> {
+    let mut lines = desc.lines();
+    while let Some(l) = lines.next() {
+        if l.strip_prefix('%').and_then(|l| l.strip_suffix('%')) == Some(section) {
+            return lines.next().filter(|l| !l.is_empty());
+        }
+    }
+    None
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Package {
     pub repo: String,
@@ -118,5 +130,21 @@ impl Package {
                     _ => false,
                 }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn field_reads_the_first_line_of_a_section() {
+        let d = "%NAME%\nfirefox\n\n%DESC%\nFast, Private & Safe Web Browser — ünïcode\n\n%ISIZE%\n1\n\n%EMPTY%\n\n";
+        assert_eq!(field(d, "DESC"), Some("Fast, Private & Safe Web Browser — ünïcode"));
+        assert_eq!(field(d, "NAME"), Some("firefox"));
+        assert_eq!(field(d, "EMPTY"), None);
+        assert_eq!(field(d, "URL"), None);
+        // A value that looks like a section name is not one.
+        assert_eq!(field("%DESC%\n%NAME%\n", "NAME"), None);
     }
 }

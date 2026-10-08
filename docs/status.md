@@ -16,3 +16,9 @@ USB tethering: the iPhone path worked on real hardware (an ASUS ExpertBook with 
 Not supported: Wi-Fi, USB devices other than tethering phones and Ethernet dongles, ARM and Raspberry Pi, and installing onto anything but NVMe, SATA/AHCI, IDE-mode ATA and virtio
 disks. The ISO is about 0.7 MB (`super-small`) to 0.8 MB (`large`); tethering adds about 105 KiB; the design notes in `PLAN.md` describe what was
 aimed at and what remains.
+
+GUI package search (2026-10-08, real core and extra from the mirror, 15,325 packages, X11 under i3): typing
+`fierfox` listed `firefox` first; Add appended it and the live total (321 packages, 702.3 MiB for the default list
+plus Firefox) matched the resolve preview (321 packages, 702 MiB). Importing on an Arch desktop added 151 of
+158 explicitly installed packages (6 were listed, `steam` from multilib was reported as skipped) and listed the
+19 foreign ones without adding them. An empty mirror shows the error with Retry. Not run: a machine without pacman.

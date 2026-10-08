@@ -64,12 +64,34 @@ pub fn local_dbs() -> Result<Vec<Db>> {
         .collect()
 }
 
-/// Downloads `core.db` and `extra.db` from a mirror (a pacman mirrorlist URL with `$repo`/`$arch`),
-/// caching them in `cache` for an hour.
+/// What the GUI's package search reads: the parsed databases and, for every package, its one-line
+/// description (`descriptions[i][j]` belongs to `dbs[i].packages[j]`; empty when the entry has none).
+pub struct Catalog {
+    pub dbs: Vec<Db>,
+    pub descriptions: Vec<Vec<String>>,
+}
+
+/// Parses `(repo, compressed database)` pairs, in priority order, keeping the descriptions.
+pub fn parse_catalog(files: &[(&str, Vec<u8>)]) -> Result<Catalog> {
+    let mut cat = Catalog { dbs: Vec::new(), descriptions: Vec::new() };
+    for (name, data) in files {
+        let mut descs = Vec::new();
+        let db = Db::parse_with(name, data.as_slice(), |_, text| descs.push(pkg::desc::field(text, "DESC").unwrap_or("").to_string())).map_err(|e| format!("{name}.db: {e:?}"))?;
+        cat.dbs.push(db);
+        cat.descriptions.push(descs);
+    }
+    Ok(cat)
+}
+
+/// `core.db` and `extra.db` from a mirror (a pacman mirrorlist URL with `$repo`/`$arch`), cached in
+/// `cache` for an hour.
 #[cfg(feature = "net")]
-pub fn fetch_dbs(mirror: &str, cache: &std::path::Path) -> Result<Vec<Db>> {
+fn download(mirror: &str, cache: &std::path::Path) -> Result<Vec<(&'static str, Vec<u8>)>> {
+    if mirror.trim().is_empty() {
+        return Err("no mirror is configured (add one under Mirrors)".into());
+    }
     std::fs::create_dir_all(cache)?;
-    let mut dbs = Vec::new();
+    let mut out = Vec::new();
     for repo in ["core", "extra"] {
         let file = cache.join(format!("{repo}.db"));
         let fresh = std::fs::metadata(&file).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age.as_secs() < 3600);
@@ -79,7 +101,44 @@ pub fn fetch_dbs(mirror: &str, cache: &std::path::Path) -> Result<Vec<Db>> {
             let data = resp.body_mut().with_config().limit(128 << 20).read_to_vec().map_err(|e| format!("{url}: {e}"))?;
             std::fs::write(&file, data)?;
         }
-        dbs.push(parse_db(repo, &std::fs::read(&file)?)?);
+        out.push((repo, std::fs::read(&file)?));
     }
-    Ok(dbs)
+    Ok(out)
+}
+
+/// Downloads `core.db` and `extra.db` from a mirror and parses them (see [`download`] for the cache).
+#[cfg(feature = "net")]
+pub fn fetch_dbs(mirror: &str, cache: &std::path::Path) -> Result<Vec<Db>> {
+    download(mirror, cache)?.iter().map(|(repo, data)| parse_db(repo, data)).collect()
+}
+
+/// [`fetch_dbs`] with the package descriptions, for the GUI's search.
+#[cfg(feature = "net")]
+pub fn fetch_catalog(mirror: &str, cache: &std::path::Path) -> Result<Catalog> {
+    parse_catalog(&download(mirror, cache)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// On a host with pacman's sync databases: descriptions line up with their packages.
+    #[test]
+    fn catalog_keeps_descriptions_aligned() {
+        let read = |n: &str| std::fs::read(format!("/var/lib/pacman/sync/{n}.db")).ok();
+        let (Some(core), Some(extra)) = (read("core"), read("extra")) else { return };
+        let cat = parse_catalog(&[("core", core), ("extra", extra)]).unwrap();
+        assert_eq!(cat.dbs.len(), 2);
+        for (db, d) in cat.dbs.iter().zip(&cat.descriptions) {
+            assert_eq!(db.packages.len(), d.len(), "{}", db.name);
+        }
+        let i = cat.dbs[0].packages.iter().position(|p| p.name == "pacman").unwrap();
+        assert!(cat.descriptions[0][i].to_lowercase().contains("package manager"), "{}", cat.descriptions[0][i]);
+    }
+
+    #[test]
+    fn a_broken_database_names_itself() {
+        let e = parse_catalog(&[("core", b"not a database".to_vec())]).err().unwrap().to_string();
+        assert!(e.starts_with("core.db"), "{e}");
+    }
 }
