@@ -11,4 +11,4 @@ serde = { version = "1", default-features = false, features = ["derive", "alloc"
 postcard = { version = "1", default-features = false, features = ["alloc"] }
 sha2 = { version = "0.10", default-features = false, features = ["force-soft"] }
 rsa = { version = "0.9", default-features = false, features = ["sha2"] }
-ed25519-dalek = { version = "2", default-features = false, features = ["alloc"] }
+ed25519-dalek = { version = "3", default-features = false, features = ["alloc"] }
