@@ -30,7 +30,7 @@ jobs:
     steps:
       - name: Install git (needed before checkout inside the container)
         run: pacman -Sy --noconfirm --needed git
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
       - uses: ./.github/actions/setup

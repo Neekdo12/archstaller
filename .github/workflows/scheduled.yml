@@ -38,7 +38,7 @@ jobs:
     steps:
       - name: Install git (needed before checkout inside the container)
         run: pacman -Sy --noconfirm --needed git
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - uses: Swatinem/rust-cache@v2
         with:
@@ -70,7 +70,7 @@ jobs:
     steps:
       - name: Install git (needed before checkout inside the container)
         run: pacman -Sy --noconfirm --needed git
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
         with:
           packages: qemu-system-x86 edk2-ovmf
