@@ -9,7 +9,7 @@ hal = { path = "../hal" }
 drivers = { path = "../drivers", default-features = false }
 pgp-lite = { path = "../pgp-lite" }
 rsa = { version = "0.9", default-features = false }
-rand_core = { version = "0.6", default-features = false }
+rand_core = { version = "0.10", default-features = false }
 getrandom = { version = "0.2", features = ["custom"] }
 sha2 = { version = "0.10", default-features = false, features = ["force-soft"] }
 
