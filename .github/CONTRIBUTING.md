@@ -31,6 +31,7 @@ checks, and the preset build.
 ## Checks to run
 
 ```sh
+cargo xtask keyring                # once: builds target/keyring.bin, which the pgp-lite tests read
 cargo test --release -p pgp-lite --features std -p pkg -p ext4w -p disk -p initrd \
     -p hostcfg -p archstaller-gui -p loadcore -p config -p net -p aurbuild -p xtask
 cargo xtask gen-luals --check          # configs/archstaller.lua matches the Rust schema

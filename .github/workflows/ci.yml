@@ -35,6 +35,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: host-tests
+      # pgp-lite's tests verify real package signatures against the keyring blob built from the pinned
+      # archlinux-keyring (needs gpg and the network).
+      - name: Build the keyring blob
+        run: cargo xtask keyring
       - name: Test
         run: >
           cargo test --release
