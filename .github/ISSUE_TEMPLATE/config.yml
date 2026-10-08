@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question about a config or a preset
+    url: https://github.com/Neekdo12/archstaller/blob/master/docs/lua-config.md
+    about: The configuration reference answers most "how do I set X" questions, with checked examples.
+  - name: Will my hardware work?
+    url: https://github.com/Neekdo12/archstaller/blob/master/docs/hardware-and-networking.md
+    about: Supported network cards, USB tethering, boot media and firmware. Read it before erasing a disk.
+  - name: Security problem
+    url: https://github.com/Neekdo12/archstaller/security/advisories/new
+    about: Report vulnerabilities privately, not as a public issue. See SECURITY.md.

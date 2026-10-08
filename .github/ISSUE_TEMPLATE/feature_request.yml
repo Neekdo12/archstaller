@@ -1,0 +1,48 @@
+name: Feature request
+description: A preset, a driver, a config option, a GUI improvement or a tooling change.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Out of scope for now (see `AGENTS.md` and `plans-implement/`): Wi-Fi (there is a spec, `plans-implement/wifi.md`),
+        SMP, Secure Boot, an interactive installer UI, file systems other than ext4, architectures other than x86_64,
+        and USB beyond tethering. Requests for these will be closed unless you want to take the spec on.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - New preset or preset change
+        - Network or storage driver
+        - Config option (Lua)
+        - GTK desktop app
+        - Build tooling (xtask)
+        - First-boot behaviour
+        - Documentation
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The problem first, the solution second.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to see?
+      description: For a config option, show the Lua you would write.
+      render: lua
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      options:
+        - label: I would be willing to work on this.

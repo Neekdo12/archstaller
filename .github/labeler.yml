@@ -1,0 +1,39 @@
+kernel:
+  - changed-files:
+      - any-glob-to-any-file: ["kernel/**"]
+boot:
+  - changed-files:
+      - any-glob-to-any-file: ["boot/**", "crates/bootinfo/**", "crates/loadcore/**"]
+drivers:
+  - changed-files:
+      - any-glob-to-any-file: ["crates/drivers/**", "crates/usb/**", "crates/usbnet/**", "crates/imobiledevice/**", "crates/hal/**"]
+network:
+  - changed-files:
+      - any-glob-to-any-file: ["crates/net/**", "crates/drivers/src/e1000*", "crates/drivers/src/r81*", "coverage/**"]
+installer:
+  - changed-files:
+      - any-glob-to-any-file: ["crates/pkg/**", "crates/ext4w/**", "crates/disk/**", "crates/initrd/**", "crates/pgp-lite/**", "tiny-init/**", "firstboot/**"]
+config:
+  - changed-files:
+      - any-glob-to-any-file: ["config/**", "crates/hostcfg/**", "configs/archstaller.lua", ".luarc.json"]
+presets:
+  - changed-files:
+      - any-glob-to-any-file: ["configs/*.lua", "configs/*.sh"]
+gui:
+  - changed-files:
+      - any-glob-to-any-file: ["gui/**"]
+aur:
+  - changed-files:
+      - any-glob-to-any-file: ["crates/aurbuild/**", "firstboot/archstaller-aur.*"]
+xtask:
+  - changed-files:
+      - any-glob-to-any-file: ["xtask/**"]
+documentation:
+  - changed-files:
+      - any-glob-to-any-file: ["docs/**", "plans-implement/**", "*.md", "!AGENTS.md"]
+ci:
+  - changed-files:
+      - any-glob-to-any-file: [".github/**"]
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file: ["Cargo.lock", "**/Cargo.toml", "rust-toolchain.toml"]

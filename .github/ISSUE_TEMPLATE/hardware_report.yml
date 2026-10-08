@@ -1,0 +1,72 @@
+name: Hardware report
+description: It worked (or did not) on my machine. Reports like this decide which drivers count as tested.
+title: "[hardware] <vendor model> - <NIC or storage>"
+labels: [hardware]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Most drivers were written from the Linux sources and have only run against QEMU's emulated cards, so every
+        real-world result is valuable, **including failures**. The measured status lives in `coverage/pci.tsv` and
+        `coverage/usb.tsv` and is summarised by `cargo xtask coverage`.
+
+        The safest way to get a report: boot **`archstaller-tester.iso`**. It never writes a disk.
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options:
+        - Tester ISO passed (link, DHCP, downloads)
+        - Full install worked
+        - Full install and first boot worked
+        - Link or DHCP failed
+        - Package download failed (TLS, speed, stalls)
+        - Disk not found or install failed
+        - Machine did not boot the ISO
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: machine
+    attributes:
+      label: Machine
+      description: Vendor and model, or the motherboard.
+      placeholder: Gigabyte GA-F2A88XM-D3H
+    validations:
+      required: true
+  - type: textarea
+    id: pci
+    attributes:
+      label: Network adapter and storage controller ids
+      description: >-
+        The installer prints them (for example `pci 02:00.0 10ec:8168 class 020000`). From a running Linux:
+        `lspci -nn | grep -Ei 'ethernet|network|sata|nvme|non-volatile'`.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: usb
+    attributes:
+      label: USB networking (tethering or dongle), if you used it
+      description: Phone model and OS version, or the dongle's `lsusb` line, and what the `usb:` log lines said.
+      render: text
+  - type: dropdown
+    id: firmware
+    attributes:
+      label: Firmware
+      options: [UEFI, BIOS / CSM]
+    validations:
+      required: true
+  - type: dropdown
+    id: preset
+    attributes:
+      label: Preset or config
+      options: [tester, minimal, server, i3, sway, hyprland, plasma, omarchy, custom config]
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes and log
+      description: Anything odd (needed a cable plugged in first, link took 10 s, ...). Paste the tester's PASS/FAIL summary if you have it.
+      render: text

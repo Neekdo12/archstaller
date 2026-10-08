@@ -1,0 +1,31 @@
+name: Set up the build environment
+description: Installs the Arch packages and the pinned nightly Rust toolchain the repository needs (run inside the archlinux container).
+
+inputs:
+  packages:
+    description: Extra pacman packages, space separated.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install packages
+      shell: bash
+      run: |
+        set -euo pipefail
+        pacman -Syu --noconfirm --needed \
+          base-devel git curl gnupg tar zstd xorriso mtools rustup lua \
+          e2fsprogs dosfstools util-linux bubblewrap \
+          gtk4 gtksourceview5 pkgconf ${{ inputs.packages }}
+    - name: Install the Rust toolchain from rust-toolchain.toml
+      shell: bash
+      run: |
+        set -euo pipefail
+        rustup set profile minimal
+        rustup show active-toolchain || rustup toolchain install
+        rustc --version --verbose
+        cargo --version
+    - name: Trust the workspace
+      shell: bash
+      run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
