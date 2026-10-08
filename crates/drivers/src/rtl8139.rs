@@ -33,8 +33,41 @@ const RX_LEN: usize = 8192;
 const RX_ALLOC: usize = RX_LEN + 16 + 2048;
 const TX_SLOT: usize = 2048;
 
+/// Realtek's own id plus the many boards (D-Link, Allied Telesyn, Edimax, SMC, Compaq, ...) built around the same chip,
+/// from Linux's `8139too` table.
+fn supported(vendor: u16, device: u16) -> bool {
+    matches!(
+        (vendor, device),
+        (0x10ec, 0x8139)
+            | (0x10ec, 0x8138)
+            | (0x1113, 0x1211)
+            | (0x1500, 0x1360)
+            | (0x4033, 0x1360)
+            | (0x1186, 0x1300)
+            | (0x1186, 0x1340)
+            | (0x13d1, 0xab06)
+            | (0x1259, 0xa117)
+            | (0x1259, 0xa11e)
+            | (0x14ea, 0xab06)
+            | (0x14ea, 0xab07)
+            | (0x11db, 0x1234)
+            | (0x1432, 0x9130)
+            | (0x02ac, 0x1012)
+            | (0x018a, 0x0106)
+            | (0x126c, 0x1211)
+            | (0x1743, 0x8139)
+            | (0x021b, 0x8139)
+            | (0x16ec, 0xab06)
+    )
+}
+
+/// Whether this driver claims the PCI id (`xtask coverage` counts recognized ids with it).
+pub fn recognizes(vendor: u16, device: u16) -> bool {
+    supported(vendor, device)
+}
+
 pub fn probe(dev: &PciDevice, out: &mut Devices) {
-    if dev.vendor != 0x10ec || dev.device != 0x8139 {
+    if !supported(dev.vendor, dev.device) {
         return;
     }
     // BAR0 is I/O space, BAR1 the same registers in memory space.

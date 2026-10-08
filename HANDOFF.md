@@ -52,7 +52,7 @@ commits and pushes; leave changes uncommitted. (From the agent's shell, `git pus
 ## Boot loader
 
 Our own loader replaced Limine (`boot/`, `crates/loadcore`, `crates/bootinfo`; see `OVERVIEW.md`). The ISO is ~0.77 MiB.
-`--small`/`--super-small` are deprecated overrides of `--profile super-small` (the default profile); `examples/e2e.lua` and `presets/tester.lua` pin `build.profile = "large"`. Verified in QEMU: `cargo xtask e2e` and `e2e --uefi` pass (install, first boot through our loader, second boot through GRUB);
+`--small`/`--super-small` are deprecated overrides of `--profile super-small` (the default profile); `configs/e2e.lua` and `configs/tester.lua` pin `build.profile = "large"`. Verified in QEMU: `cargo xtask e2e` and `e2e --uefi` pass (install, first boot through our loader, second boot through GRUB);
 the BIOS ISO also boots as a CD, an IDE disk and a USB stick (hybrid MBR). Not tested: real hardware, Ventoy. If the kernel image outgrows 4 MiB, raise `bootinfo::KERNEL_MAX`.
 
 ## Debug flag
@@ -64,8 +64,8 @@ the tester preset and any `dry_run = true` config get it automatically). `hal::i
 ## How to build and test
 
 ```sh
-cargo xtask build --tethering --config presets/tester.lua --out NAME.iso   # real-hardware test ISO
-cargo xtask presets                       # all six preset ISOs into target/isos/ (tethering on, tester has full debug)
+cargo xtask build --tethering --config configs/tester.lua --out NAME.iso   # real-hardware test ISO
+cargo xtask presets                       # all eight preset ISOs into target/isos/ (tethering on, tester has full debug)
 cargo xtask run --usb --headless          # xHCI smoke test in QEMU
 cargo xtask run --selftest --headless --nic usb-rndis   # Android RNDIS path in QEMU
 cargo xtask e2e [--uefi] [--disk ahci --nic e1000]      # full install and two boots in QEMU
@@ -75,7 +75,7 @@ QEMU_EXTRA='-trace usb_* -D /tmp/qtrace.log' cargo xtask run ...   # raw QEMU ar
 cargo xtask size [--profile super-small|large]   # ISO ~0.77 MiB; tethering adds ~105 KiB
 ```
 
-`presets/tester.lua` is a read-only dry run: probes hardware, brings up the network (wired, then tethering if no
+`configs/tester.lua` is a read-only dry run: probes hardware, brings up the network (wired, then tethering if no
 wired link), downloads the package databases, pings, runs a speed test, prints PASS/FAIL, reprints driver logs, and
 reboots after 60 s (300 s after a failure). It never writes a disk. ISO files in the repo root are build outputs and
 git-ignored.

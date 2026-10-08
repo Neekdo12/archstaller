@@ -1,0 +1,106 @@
+name: Bug report
+description: The installer, the installed system's first boot, the build tooling or the GUI does something wrong.
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. A good report names **where** it failed: build on the host, boot, network,
+        install, first boot or the GUI. The installer prints a lot, and the last lines usually say why.
+
+        **Never paste passwords, password hashes or private mirror URLs.**
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Where did it go wrong?
+      options:
+        - Building the ISO (cargo xtask / the GUI)
+        - Booting the ISO (boot loader, kernel start)
+        - Disk detection or partitioning
+        - Network (NIC, DHCP, DNS, TLS, USB tethering)
+        - Package resolve, download or verification
+        - First boot of the installed system
+        - The GTK desktop app
+        - The preset's package set or its first-boot scripts
+        - Documentation
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+      placeholder: "The installer stopped at ... instead of ..."
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands, or the GUI pages and buttons. For a config problem attach the Lua file (remove secrets).
+      placeholder: |
+        1. cargo xtask build --config configs/i3.lua
+        2. cargo xtask run --uefi --headless
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit or release
+      description: "`git rev-parse --short HEAD`, or the release tag of the ISO."
+    validations:
+      required: true
+  - type: dropdown
+    id: target
+    attributes:
+      label: Where did the installer run?
+      options:
+        - QEMU (cargo xtask run / e2e)
+        - Another virtual machine (VirtualBox, VMware, libvirt, ...)
+        - Real hardware
+        - Not applicable (build or GUI problem)
+    validations:
+      required: true
+  - type: dropdown
+    id: firmware
+    attributes:
+      label: Firmware
+      options: [UEFI, BIOS / CSM, Not applicable]
+    validations:
+      required: true
+  - type: dropdown
+    id: boot
+    attributes:
+      label: How was the ISO booted?
+      options:
+        - Ventoy (normal mode)
+        - Raw-flashed USB stick (GUI flash or dd)
+        - Virtual CD/DVD
+        - Not applicable
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Hardware (real machine or VM settings)
+      description: Board or laptop model, CPU, disk type (NVMe/SATA/virtio), and the network adapter. If the installer printed `pci 02:00.0 10ec:8136 class 020000`, paste those lines.
+      render: text
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: The last lines of the installer output (a photo or a transcript typed from it is fine), the `cargo xtask` output, or the GUI's build log. For a first-boot failure use `journalctl -b -u 'archstaller-*'` and `journalctl -b -p warning`.
+      render: text
+  - type: textarea
+    id: host
+    attributes:
+      label: Build host (for build and GUI problems)
+      description: Distribution, `rustc --version`, and for the GUI `pacman -Q gtk4 gtksourceview5` and your desktop or window manager.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: Secure Boot is off (it is not supported).
+        - label: I searched the existing issues.
+        - label: This is not a Wi-Fi, ARM or USB-storage-target request; those are out of scope.

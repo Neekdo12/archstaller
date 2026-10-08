@@ -1,147 +1,147 @@
-# archstaler – instalátor Archu v Rustu bez Linux jádra
+# archstaller – an Arch installer in Rust without the Linux kernel
 
-Hybridní ISO (BIOS + UEFI) s Limine, které spustí vlastní `no_std` mini-kernel v Rustu (1 jádro, polling drivery).
-Ten nainstaluje Arch z mirroru na ext4 podle předem připraveného Lua configu. Věci vyžadující běžící Linux
-(pacman scriptlety, alpm hooky, mkinitcpio) se odloží na první boot nainstalovaného systému.
+A hybrid ISO (BIOS + UEFI) with Limine that starts our own `no_std` mini-kernel in Rust (one core, polling drivers).
+It installs Arch from a mirror onto ext4 according to a pre-built Lua config. Everything that needs a running Linux
+(pacman scriptlets, alpm hooks, mkinitcpio) is deferred to the first boot of the installed system.
 
-## Rozhodnutí
+## Decisions
 
-- Balíčky: online z mirroru (oficiální Arch ISO se nepoužívá)
-- Platforma: x86_64, BIOS + UEFI přes Limine, vlastní drivery
-- Config: `config.lua` vyhodnocen při buildu ISO (mlua na hostu) → `config.bin` (postcard) jako Limine modul
+- Packages: online from a mirror (the official Arch ISO is not used)
+- Platform: x86_64, BIOS + UEFI through Limine, own drivers
+- Config: `config.lua` is evaluated when the ISO is built (mlua on the host) → `config.bin` (postcard) as a Limine module
 - Root FS: ext4
-- Hooky/scriptlety: při prvním bootu (`pacman -U` z cache)
-- Secure Boot: nepodporován (ISO ani cíl) – musí být vypnutý
-- Mimo rozsah: Wi-Fi, USB kromě tetheringu telefonů (viz níže), SMP, Secure Boot, interaktivní TUI, jiné FS než ext4, jiné architektury
+- Hooks/scriptlets: at the first boot (`pacman -U` from the cache)
+- Secure Boot: not supported (neither the ISO nor the target); it must be off
+- Out of scope: Wi-Fi, USB other than phone tethering (see below), SMP, Secure Boot, an interactive TUI, file systems other than ext4, other architectures
 
-## Struktura workspace
+## Workspace layout
 
-| Cesta | Popis |
+| Path | Description |
 |---|---|
-| `xtask/` | host: eval Lua, build kernelu + tiny-init, keyring + CA blob, Limine (pinned + sha256), xorriso, QEMU run/test, size report |
-| `kernel/` | `x86_64-unknown-none`, crate `limine`, heap (`talc`), IDT jen výjimky, TSC timer, framebuffer + serial konzole |
-| `config/` | sdílené serde typy configu (xtask + kernel) |
-| `crates/hal` | traity `BlockDevice`, `NetDevice`, `Clock`, `Rng` |
+| `xtask/` | host: Lua evaluation, kernel + tiny-init build, keyring + CA blob, Limine (pinned + sha256), xorriso, QEMU run/test, size report |
+| `kernel/` | `x86_64-unknown-none`, the `limine` crate, heap (`talc`), IDT for exceptions only, TSC timer, framebuffer + serial console |
+| `config/` | shared serde config types (xtask + kernel) |
+| `crates/hal` | the traits `BlockDevice`, `NetDevice`, `Clock`, `Rng` |
 | `crates/drivers` | PCI, virtio-blk/net, AHCI, NVMe, e1000/e1000e, r8169 (polling) |
-| `crates/net` | `smoltcp` (DHCP/DNS/TCP), HTTP/1.1 klient, `rustls` no_std + `rustls-rustcrypto` + `webpki-roots`, RDRAND (na starších CPU bez RDRAND záložní zdroj z kolísání časování, slabší) |
-| `crates/pgp-lite` | ověření v4 podpisů (RSA PKCS#1 v1.5, EdDSA) proti vloženému keyringu |
-| `crates/pkg` | „pacman-lite“: parser db, `vercmp`, resolver, tar/pax, `ruzstd`, `miniz_oxide` |
+| `crates/net` | `smoltcp` (DHCP/DNS/TCP), HTTP/1.1 client, `rustls` no_std + `rustls-rustcrypto` + `webpki-roots`, RDRAND (on older CPUs without RDRAND, a weaker fallback source from timing jitter) |
+| `crates/pgp-lite` | verification of v4 signatures (RSA PKCS#1 v1.5, EdDSA) against the embedded keyring |
+| `crates/pkg` | "pacman-lite": db parser, `vercmp`, resolver, tar/pax, `ruzstd`, `miniz_oxide` |
 | `crates/ext4w` | mkfs + write-once ext4 writer |
-| `crates/disk` | GPT + protective MBR, FAT32 (`fatfs`), port `limine bios-install` |
-| `crates/initrd` | cpio newc, závislosti modulů z ELF `.modinfo`, dekomprese `.ko.zst` |
-| `tiny-init/` | `no_std` statický init: `finit_module`, mount root, `switch_root` |
-| `examples/config.lua` | ukázkový config |
+| `crates/disk` | GPT + protective MBR, FAT32 (`fatfs`), a port of `limine bios-install` |
+| `crates/initrd` | cpio newc, module dependencies from the ELF `.modinfo`, `.ko.zst` decompression |
+| `tiny-init/` | `no_std` static init: `finit_module`, mount root, `switch_root` |
+| `examples/config.lua` | a sample config |
 
-## Fáze
+## Phases
 
-### 1. Kostra a build
-1. Cargo workspace, `xtask`: Lua → `config.bin`, Limine, `xorriso` + `limine bios-install`, `xtask run` (QEMU SeaBIOS i OVMF).
-2. Kernel: heap, IDT pro výjimky, TSC kalibrovaný přes PIT, framebuffer + COM1, čas z Limine boot-time requestu.
+### 1. Skeleton and build
+1. Cargo workspace, `xtask`: Lua → `config.bin`, Limine, `xorriso` + `limine bios-install`, `xtask run` (QEMU SeaBIOS and OVMF).
+2. Kernel: heap, IDT for exceptions, TSC calibrated through the PIT, framebuffer + COM1, time from the Limine boot-time request.
 
-### 2. Drivery (závisí na 1)
-3. `hal` traity.
-4. PCI enumerace, virtio-blk/net, AHCI, NVMe, e1000/e1000e, r8169 – vše polling bez IRQ.
+### 2. Drivers (depends on 1)
+3. `hal` traits.
+4. PCI enumeration, virtio-blk/net, AHCI, NVMe, e1000/e1000e, r8169 – all polling, no IRQs.
 
-### 3. Síť a ověřování (závisí na 2)
+### 3. Network and verification (depends on 2)
 5. `smoltcp` + HTTP/1.1 + TLS (`rustls` no_std).
 6. `pgp-lite` + keyring blob.
 
-### 4. Balíčky a FS (paralelně s 3)
-7. `pkg`: db (gzip/zstd dle magic), `%NAME%/%VERSION%/%FILENAME%/%SHA256SUM%/%PGPSIG%/%DEPENDS%/%PROVIDES%/%CONFLICTS%/%GROUPS%`,
-   `vercmp` port z libalpm, verzové constrainty, soname provides, skupiny, priorita repo (core > extra),
-   výběr providera z configu, kontrola konfliktů, tar/pax včetně `SCHILY.xattr.*`.
-   Neextrahovat `.PKGINFO`, `.MTREE`, `.INSTALL`, `.BUILDINFO`.
-8. `ext4w`: extents, filetype, xattr bloky, fast symlinky, hardlinky; s vnitřním journalem (vytváří se spolu se souborovým systémem), `metadata_csum`, `dir_index`.
-   Metadata v RAM, data streamem na disk. Největší riziko projektu.
-9. `disk`: GPT – BIOS boot 1 MiB, ESP 1 GiB FAT32 (`/boot`), root ext4 zbytek; `limine bios-install` port.
-10. Initramfs: `tiny-init` + moduly (ext4, jbd2, mbcache, crc32c, nvme, ahci, libahci, libata, sd_mod, virtio_blk, …)
-    se závislostmi z `.modinfo` (Arch nedodává `modules.dep`).
+### 4. Packages and file systems (in parallel with 3)
+7. `pkg`: db (gzip/zstd by magic), `%NAME%/%VERSION%/%FILENAME%/%SHA256SUM%/%PGPSIG%/%DEPENDS%/%PROVIDES%/%CONFLICTS%/%GROUPS%`,
+   a `vercmp` port from libalpm, version constraints, soname provides, groups, repo priority (core > extra),
+   provider choice from the config, conflict checks, tar/pax including `SCHILY.xattr.*`.
+   Do not extract `.PKGINFO`, `.MTREE`, `.INSTALL`, `.BUILDINFO`.
+8. `ext4w`: extents, filetype, xattr blocks, fast symlinks, hard links; with an internal journal (created together with the file system), `metadata_csum`, `dir_index`.
+   Metadata in RAM, data streamed to disk. The biggest risk of the project.
+9. `disk`: GPT – BIOS boot 1 MiB, ESP 1 GiB FAT32 (`/boot`), root ext4 for the rest; a `limine bios-install` port.
+10. Initramfs: `tiny-init` + modules (ext4, jbd2, mbcache, crc32c, nvme, ahci, libahci, libata, sd_mod, virtio_blk, …)
+    with dependencies from `.modinfo` (Arch ships no `modules.dep`).
 
-### 5. Instalační flow (závisí na 2–4)
-11. Načíst `config.bin`, enumerovat disky; selektor musí trefit **přesně jeden** disk a jeho serial musí sedět
-    s `confirm_serial`, jinak se nic nezapíše (náhrada za klávesnici).
-12. DHCP → stáhnout `core.db`, `extra.db` → resolve.
-13. Partitioning + formát.
-14. Každý balíček: stáhnout do `/var/cache/pacman/pkg` na ext4, streamově sha256 + PGP hash → ověřit → teprve pak rozbalit.
+### 5. Install flow (depends on 2–4)
+11. Load `config.bin`, enumerate disks; the selector must hit **exactly one** disk and its serial must match
+    `confirm_serial`, otherwise nothing is written (a substitute for a keyboard).
+12. DHCP → download `core.db`, `extra.db` → resolve.
+13. Partitioning + formatting.
+14. For every package: download into `/var/cache/pacman/pkg` on ext4, stream the sha256 + PGP hash → verify → only then extract.
 15. `/etc`: `fstab`, `hostname`, `locale.conf`, `vconsole.conf`, `localtime`, `pacman.d/mirrorlist`.
-16. Initramfs + Limine na ESP, default entry s `systemd.unit=archstaler-firstboot.target` → reboot.
+16. Initramfs + Limine on the ESP, a default entry with `systemd.unit=archstaller-firstboot.target` → reboot.
 
-### 6. První boot (paralelně s 5)
-17. `archstaler-firstboot.target` + `.service`:
+### 6. First boot (in parallel with 5)
+17. `archstaller-firstboot.target` + `.service`:
     `pacman-key --init` / `--populate archlinux`,
-    `pacman -U --overwrite '*'` z cache (explicitní / `--asdeps`) – spustí scriptlety, hooky a zapíše local DB,
-    `locale-gen`, `useradd` s hashi hesel z configu, enable služeb, `tune2fs -j`, `mkinitcpio -P`,
-    `efibootmgr`, přepsat `limine.conf`, reboot.
+    `pacman -U --overwrite '*'` from the cache (explicit / `--asdeps`) – runs scriptlets and hooks and writes the local DB,
+    `locale-gen`, `useradd` with the password hashes from the config, enable services, `tune2fs -j`, `mkinitcpio -P`,
+    `efibootmgr`, rewrite `limine.conf`, reboot.
 
 ## Config (`config.lua`)
 
-Disk selector + `confirm_serial`, mirrory, balíčky, výběr providerů, hostname, timezone, locale, keymap,
-uživatelé s `password_hash` (SHA-512 crypt, nikdy plaintext), root hash, služby, kernel parametry.
+Disk selector + `confirm_serial`, mirrors, packages, provider choices, hostname, timezone, locale, keymap,
+users with `password_hash` (SHA-512 crypt, never plaintext), root hash, services, kernel parameters.
 
-## Keyring a ověřování balíčků
+## Keyring and package verification
 
-**Build (`xtask`):** pinned `archlinux-keyring` (`archlinux.gpg`, `-trusted`, `-revoked`) → `sq`/`gpg` vyhodnotí
-web of trust (≥ 3 podpisy od main keys), vyřadí revoked/expired → kompaktní blob
-`[fingerprint, algoritmus, pubkey (RSA n,e / Ed25519), signing subklíče, expirace]` (~60–100 KB).
+**Build (`xtask`):** the pinned `archlinux-keyring` (`archlinux.gpg`, `-trusted`, `-revoked`) → `sq`/`gpg` evaluates
+the web of trust (≥ 3 signatures from main keys), drops revoked/expired keys → a compact blob
+`[fingerprint, algorithm, pubkey (RSA n,e / Ed25519), signing subkeys, expiry]` (~60–100 KB).
 
-**Runtime:** podpis z `%PGPSIG%` v db (žádné `.sig` stahování), v4, typ 0x00, lookup přes issuer fingerprint
-(subpacket 33) / key ID (16), hash streamově při stahování, verify RSA/EdDSA + expirace, pak extrakce.
+**Runtime:** the signature from `%PGPSIG%` in the db (no `.sig` downloads), v4, type 0x00, lookup by issuer fingerprint
+(subpacket 33) / key ID (16), the hash is computed while downloading, verify RSA/EdDSA + expiry, then extract.
 
-**Omezení:**
-- Nový packager po buildu ISO → neznámý klíč → chyba „přebuildit ISO“ (řešení: pravidelný build v CI).
-- Kořen důvěry je build host.
-- Arch db nejsou podepsané → integritu db drží HTTPS.
-- Pojistka: first-boot `pacman -U` znovu ověří vše plným GnuPG.
+**Limitations:**
+- A new packager after the ISO was built → unknown key → "rebuild the ISO" error (remedy: a regular CI build).
+- The root of trust is the build host.
+- The Arch dbs are not signed → the integrity of the db relies on HTTPS.
+- Safety net: the first-boot `pacman -U` verifies everything again with full GnuPG.
 
-## Velikost ISO
+## ISO size
 
-Odhad: výchozí ~3,5–5 MB, po optimalizacích ~1,5–2 MB, minimální varianta ~0,7–1 MB.
+Estimate: ~3.5–5 MB by default, ~1.5–2 MB after optimizations, a minimal variant ~0.7–1 MB.
 
-| Optimalizace | Úspora |
+| Optimization | Saving |
 |---|---|
-| Kompaktní keyring místo `archlinux.gpg` | ~1,5 MB |
-| HTTP-only (bez TLS) / pinned CA místo `webpki-roots` | ~1–1,3 MB / ~150 KB |
-| Profil: `opt-level="z"`, `lto="fat"`, `codegen-units=1`, `panic="abort"`, `strip`, build-std + `panic_immediate_abort` | 30–50 % kernelu |
-| Komprimovaný kernel + malý stub | ~50 % zbytku |
-| `tiny-init` no_std s raw syscally | ~300 KB → ~10 KB |
-| EFI FAT image jen s `BOOTX64.EFI`; Limine binárky jako moduly, ne `include_bytes!` | stovky KB |
-| xorriso bez `-hfsplus`, `-apm-block-size`, `-J`; `-no-pad` | ~300–500 KB |
-| PSF font, bez `Debug`/`format!` v chybách | ~100–300 KB |
+| A compact keyring instead of `archlinux.gpg` | ~1.5 MB |
+| HTTP-only (no TLS) / a pinned CA instead of `webpki-roots` | ~1–1.3 MB / ~150 KB |
+| Profile: `opt-level="z"`, `lto="fat"`, `codegen-units=1`, `panic="abort"`, `strip`, build-std + `panic_immediate_abort` | 30–50 % of the kernel |
+| A compressed kernel + a small stub | ~50 % of the rest |
+| `tiny-init` as no_std with raw syscalls | ~300 KB → ~10 KB |
+| An EFI FAT image with only `BOOTX64.EFI`; Limine binaries as modules, not `include_bytes!` | hundreds of KB |
+| xorriso without `-hfsplus`, `-apm-block-size`, `-J`; `-no-pad` | ~300–500 KB |
+| A PSF font, no `Debug`/`format!` in errors | ~100–300 KB |
 
-`xtask size` vypíše rozpad (`cargo bloat` + soubory v ISO) a v CI selže nad limitem (např. 2 MB).
+`xtask size` prints the breakdown (`cargo bloat` + the files in the ISO) and fails in CI above a limit (for example 2 MB).
 
-## Ověření
+## Verification
 
-1. Host unit testy: `vercmp` (vektory z libalpm), `pgp-lite` (reálné podpisy), db parser (aktuální `core.db`).
-2. `ext4w`: image z tarballu → `e2fsck -fn` + porovnání s tarem přes `debugfs`.
+1. Host unit tests: `vercmp` (vectors from libalpm), `pgp-lite` (real signatures), the db parser (the current `core.db`).
+2. `ext4w`: an image from a tarball → `e2fsck -fn` + comparison with the tar through `debugfs`.
 3. `disk`: `sgdisk -v`, `fsck.fat -n`.
-4. `xtask test`: QEMU OVMF + SeaBIOS × (virtio-blk | ahci | nvme) × (virtio-net | e1000) → instalace → boot
-   disku oběma režimy → serial log potvrdí dokončení firstbootu a čisté `pacman -Qk`.
-5. Manuálně na reálném stroji s Intel/Realtek NIC.
+4. `xtask test`: QEMU OVMF + SeaBIOS × (virtio-blk | ahci | nvme) × (virtio-net | e1000) → install → boot
+   the disk in both modes → the serial log confirms that the first boot finished and `pacman -Qk` is clean.
+5. Manually on a real machine with an Intel/Realtek NIC.
 
-## Stav implementace (odchylky od plánu)
+## Implementation status (deviations from the plan)
 
-Všechny fáze 1–6 jsou hotové a ověřené v QEMU (BIOS i UEFI). Podrobnosti a pokyny k použití jsou v `README.md`.
-Rozdíly oproti plánu výše:
+All phases 1–6 are done and verified in QEMU (BIOS and UEFI). Details and usage instructions are in `README.md` and `docs/`.
+Differences from the plan above:
 
-- **Ovladače sítě:** k plánovaným e1000/e1000e, r8169 a virtio přibyly igb, igc, RTL8125/8126 a RTL8139. V QEMU
-  proběhly virtio, e1000, e1000e, igb a rtl8139; igc, RTL8168/8169 a RTL8125/8126 nikdy neběžely (QEMU je
-  neemuluje). Wi-Fi, USB Ethernet, `tg3`, `atlantic` a `vmxnet3` chybí.
-- **Výběr disku:** kromě `confirm_serial` je volitelné `disk.auto_largest` (smaže největší disk bez ptaní).
-- **Provider z configu:** nejednoznačná závislost se nevyhodí jako chyba; použije se první kandidát podle priority
-  repozitáře a jména (jako výchozí odpověď pacmanu) a zaloguje se. `providers` v configu ji přepíše.
-- **První boot:** pacman při `-U` ponechá soubory z `backup=()` jako `.pacnew`, proto se konfigurace z `/etc`
-  ukládá i jako overlay a po `pacman -U` se znovu aplikuje. Initramfs obsahuje také `vfat`/`fat`, protože před
-  prvním `depmod` neexistuje `modules.dep`. `tiny-init` používá `init_module` místo `finit_module`.
-- **Keyring:** pin je v `xtask/keyring.pin`, `cargo xtask update-keyring` ho posune na nejnovější balíček.
-- **`.sig` soubory se nepřipravují**, takže `pacman -U` při prvním bootu podpisy znovu neověřuje (bod „pojistka“
-  z části o keyringu není splněn); podpisy ověřuje jen instalátor.
-- **Neimplementováno:** `xtask test` s celou maticí disk × NIC × režim (je `xtask e2e` s volbami a ručně spuštěné
-  kombinace), kontrola čistého `pacman -Qk`, trvalý log instalace, velikostní optimalizace HTTP-only / pinned CA
-  a komprese kernelu, `cargo bloat` v `xtask size`. ISO má ~2,4 MB (2,26 MB s `--small`), cíl 1,5–2 MB nesplněn.
-- **Tethering iPhonu přes USB (volitelný, feature `usb-tethering`, ve výchozím stavu vypnutý):** `crates/usb` (xHCI,
-  ověřeno v QEMU s `usb-storage`) a `crates/imobiledevice` (plist, usbmux protokol zařízení, párování přes
-  lockdownd, tethering rozhraní `ipheth` jako `NetDevice`; na skutečném iPhonu jednou fungoval, párování se
-  neukládá) a `crates/usbnet` (Android a USB Ethernet adaptéry: RNDIS, CDC-ECM, CDC-NCM a ASIX AX88179; ověřeno v QEMU s `usb-net` a na jednom skutečném telefonu, CDC-NCM chybí).
-- **Přidáno navíc:** presety (`presets/`), `user_files` a `user_archives` (stažení souborů/zip do domovů uživatelů),
-  `ly` jako display manager, `xtask e2e`, `xtask check-presets`, `xtask linux-test`, testy se Ventoy (1.1.17).
+- **Network drivers:** on top of the planned e1000/e1000e, r8169 and virtio there are igb, igc, RTL8125/8126 and RTL8139.
+  In QEMU, virtio, e1000, e1000e, igb and rtl8139 were run; igc, RTL8168/8169 and RTL8125/8126 never ran (QEMU does not
+  emulate them). Wi-Fi, USB Ethernet, `tg3`, `atlantic` and `vmxnet3` are missing.
+- **Disk selection:** besides `confirm_serial` there is the optional `disk.auto_largest` (wipes the largest disk without asking).
+- **Provider from the config:** an ambiguous dependency is not an error; the first candidate by repository
+  priority and name is used (like pacman's default answer) and logged. `providers` in the config overrides it.
+- **First boot:** with `-U` pacman keeps files from `backup=()` as `.pacnew`, so the configuration in `/etc`
+  is also stored as an overlay and re-applied after `pacman -U`. The initramfs also contains `vfat`/`fat`, because before
+  the first `depmod` there is no `modules.dep`. `tiny-init` uses `init_module` instead of `finit_module`.
+- **Keyring:** the pin is in `xtask/keyring.pin`; `cargo xtask update-keyring` moves it to the newest package.
+- **`.sig` files are not prepared**, so the first-boot `pacman -U` does not verify signatures again (the "safety net"
+  point of the keyring section is not met); only the installer verifies signatures.
+- **Not implemented:** `xtask test` with the whole disk × NIC × mode matrix (there is `xtask e2e` with options and
+  manually run combinations), the clean `pacman -Qk` check, a persistent install log, the size optimizations HTTP-only / pinned CA
+  and kernel compression, `cargo bloat` in `xtask size`. The ISO is ~2.4 MB (2.26 MB with `--small`); the 1.5–2 MB goal was not met.
+- **iPhone tethering over USB (optional, feature `usb-tethering`, off by default):** `crates/usb` (xHCI,
+  verified in QEMU with `usb-storage`) and `crates/imobiledevice` (plist, the usbmux device protocol, pairing through
+  lockdownd, the `ipheth` tethering interface as a `NetDevice`; it worked once on a real iPhone, the pairing is not
+  stored) and `crates/usbnet` (Android and USB Ethernet adapters: RNDIS, CDC-ECM, CDC-NCM and ASIX AX88179; verified in QEMU with `usb-net` and on one real phone, CDC-NCM is missing).
+- **Added on top:** presets (`presets/`), `user_files` and `user_archives` (downloading files/zips into the users' homes),
+  `ly` as the display manager, `xtask e2e`, `xtask check-presets`, `xtask linux-test`, tests with Ventoy (1.1.17).

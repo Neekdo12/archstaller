@@ -1,0 +1,5 @@
+[Unit]
+Description=archstaller first boot
+Requires=basic.target archstaller-firstboot.service
+After=basic.target archstaller-firstboot.service
+AllowIsolate=yes

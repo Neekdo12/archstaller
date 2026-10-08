@@ -1,0 +1,104 @@
+# USB Ethernet/tethering corpus, seed. Source: usb.ids 2026.06.26 (hwdata), device names matching an Ethernet/tether filter for the listed vendors.
+# Unweighted, not market share. `interfaces` (class/subclass/protocol list, ';'-separated, e.g. 02/06/00;0a/00/00) is empty because usb.ids does not
+# carry it: such rows can only match the vendor-specific id table, so class-compliant CDC-ECM/NCM and RNDIS devices are undercounted.
+# Apple devices (iPhone tethering, crates/imobiledevice) are not counted here. `test` is the highest level that actually passed.
+# `weight` is a popularity count (0 = unknown). No public popularity data for USB network adapters was found, so every row is 0 and USB figures are unweighted.
+vid	pid	name	family	interfaces	source	confidence	test	weight	notes
+0424	7500	LAN7500 Ethernet 10/100/1000 Adapter	SMSC/Microchip	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0424	9904	LAN9512/LAN9514 Ethernet 10/100 Adapter (SAL10)	SMSC/Microchip	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0424	ec00	SMSC9512/9514 Fast Ethernet Adapter	SMSC/Microchip	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0451	6060	RNDIS/BeWAN ADSL2+	Texas Instruments	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0451	6070	RNDIS/BeWAN ADSL2+	Texas Instruments	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+04e8	6863	Galaxy series, misc. (tethering mode)	Samsung	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+04e8	6864	GT-I9070 (network tethering, USB debugging enabled)	Samsung	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+050d	0121	F5D5050 100Mbps Ethernet	Belkin	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+050d	0122	Ethernet Adapter	Belkin	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+050d	5055	F5D5055 Gigabit Network Adapter [AX88xxx]	Belkin	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0557	2002	10Mbps Ethernet [klsi]	ATEN	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0557	2007	UC-110T 100Mbps Ethernet [pegasus]	ATEN	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0557	2009	UC-210T Ethernet	ATEN	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0557	4000	DSB-650 10Mbps Ethernet [klsi]	ATEN	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0846	1001	EA101 10 Mbps 10BASE-T Ethernet [Kawasaki LSI KL5KLUSB101B]	NETGEAR	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0846	1002	Ethernet	NETGEAR	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0846	1020	FA101 Fast Ethernet USB 1.1	NETGEAR	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0846	1040	FA120 Fast Ethernet USB 2.0 [Asix AX88172 / AX8817x]	NETGEAR	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0846	9041	WNA1000M 802.11bgn [Realtek RTL8188CUS]	NETGEAR	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0846	9042	On Networks N150MA 802.11bgn [Realtek RTL8188CUS]	NETGEAR	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0846	9043	WNA1000Mv2 802.11bgn [Realtek RTL8188CUS?]	NETGEAR	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0846	f001	On Networks N300MA 802.11bgn [Realtek RTL8192CU]	NETGEAR	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0930	0a13	AX88179 Gigabit Ethernet [Toshiba]	Toshiba	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0a46	6688	ZT6688 Fast Ethernet Adapter	Davicom	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0a46	8515	ADMtek ADM8515 NIC	Davicom	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0a46	9000	DM9000E Fast Ethernet Adapter	Davicom	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0a46	9601	DM9601 Fast Ethernet Adapter	Davicom	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0b05	172a	802.11n Network Adapter	ASUS	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0b05	172b	802.11n Network Adapter	ASUS	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0b05	1731	802.11n Network Adapter	ASUS	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0b05	1732	802.11n Network Adapter	ASUS	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0b05	1742	802.11n Network Adapter	ASUS	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0b05	1760	802.11n Network Adapter	ASUS	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0b05	1761	USB-N11 802.11n Network Adapter [Ralink RT2870]	ASUS	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0b05	1784	USB-N13 802.11n Network Adapter (rev. A1) [Ralink RT3072]	ASUS	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0b05	1786	USB-N10 802.11n Network Adapter [Realtek RTL8188SU]	ASUS	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0b05	1791	WL-167G v3 802.11n Adapter [Realtek RTL8188SU]	ASUS	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0b05	179d	USB-N53 802.11abgn Network Adapter [Ralink RT3572]	ASUS	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0b05	17ab	USB-N13 802.11n Network Adapter (rev. B1) [Realtek RTL8192CU]	ASUS	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0b05	17ba	N10 Nano 802.11n Network Adapter [Realtek RTL8192CU]	ASUS	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0b05	7774	Zenfone GO (ZB500KL) (RNDIS mode)	ASUS	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0b05	7775	Zenfone GO (ZB500KL) (Debug, RNDIS mode)	ASUS	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0b95	1720	10/100 Ethernet	ASIX	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0b95	1780	AX88178	ASIX	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0b95	1790	AX88179 Gigabit Ethernet	ASIX	-	usb.ids 2026.06.26 (hwdata); name filter	medium	network	0	AX88179 dongle (Axagon ADE-SG): link, DHCP, downloads on real hardware (HANDOFF.md); the ADE-SG's id was not recorded, the ASIX default is assumed
+0b95	7720	AX88772	ASIX	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0b95	772a	AX88772A Fast Ethernet	ASIX	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0b95	772b	AX88772B	ASIX	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0b95	7e2b	AX88772B Fast Ethernet Controller	ASIX	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0bda	8150	RTL8150 Fast Ethernet Adapter	Realtek	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0bda	8151	RTL8151 Adapteon Business Mobile Networks BV	Realtek	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0bda	8152	RTL8152 Fast Ethernet Adapter	Realtek	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0bda	8153	RTL8153 Gigabit Ethernet Adapter	Realtek	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0df6	004c	WL-352 802.11n Adapter [Realtek RTL8191SU]	Sitecom	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0df6	0056	LN-031 10/100/1000 Ethernet Adapter	Sitecom	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0df6	0072	AX88179 Gigabit Ethernet [Sitecom]	Sitecom	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0fe6	8101	DM9601 Fast Ethernet Adapter	Kontron/ICS	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+0fe6	9700	DM9601 Fast Ethernet Adapter	Kontron/ICS	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+13b1	0018	USB200M 10/100 Ethernet Adapter	Linksys	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+13b1	0041	Gigabit Ethernet Adapter	Linksys	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+1737	0039	USB1000 Gigabit Notebook Adapter	Linksys	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+1737	0073	WUSB54GC v2 802.11g Adapter [Realtek RTL8187B]	Linksys	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+17ef	304b	AX88179 Gigabit Ethernet [ThinkPad OneLink GigaLAN]	Lenovo	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+17ef	304f	RTL8153 Gigabit Ethernet [ThinkPad OneLink Pro Dock]	Lenovo	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+17ef	3062	ThinkPad Dock Ethernet [Realtek RTL8153B]	Lenovo	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+17ef	3069	ThinkPad TBT3 LAN	Lenovo	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+17ef	7203	Ethernet adapter [U2L 100P-Y1]	Lenovo	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+17ef	7205	Thinkpad LAN	Lenovo	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+17ef	7704	B8000-H (Yoga Tablet 10) (USB tether)	Lenovo	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+17ef	7705	B8000-H (Yoga Tablet 10) (debug , USB tether)	Lenovo	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+17ef	b001	Ethernet	Lenovo	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+18d1	4e13	Nexus One (tether)	Google	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+18d1	4e24	Nexus S (tether)	Google	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+18d1	4ee3	Nexus/Pixel Device (tether)	Google	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+18d1	4ee4	Nexus/Pixel Device (tether+ debug)	Google	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+1d6b	0103	NCM (Ethernet) Gadget	Linux Foundation	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+2001	1a00	DUB-E100 Fast Ethernet Adapter(rev.A) [ASIX AX88172]	D-Link	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+2001	1a02	DUB-E100 Fast Ethernet Adapter(rev.C1) [ASIX AX88772]	D-Link	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+2001	200c	10/100 Ethernet	D-Link	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+2001	3c05	DUB-E100 Fast Ethernet Adapter(rev.B1) [ASIX AX88772]	D-Link	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+2001	4000	DSB-650C Ethernet [klsi]	D-Link	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+2001	4001	DSB-650TX Ethernet [pegasus]	D-Link	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+2001	4002	DSB-650TX Ethernet [pegasus]	D-Link	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+2001	4003	DSB-650TX-PNA Ethernet [pegasus]	D-Link	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+2001	400b	10/100 Ethernet	D-Link	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+2001	4102	10/100 Ethernet	D-Link	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+2001	4a00	DUB-1312 Gigabit Ethernet Adapter	D-Link	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+2001	5b00	Remote NDIS Network Device	D-Link	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+2001	abc1	DSB-650 Ethernet [pegasus]	D-Link	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+2357	0100	TL-WN8200ND [Realtek RTL8192CU]	TP-Link	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+2357	0107	TL-WN821N v5/v6 [RTL8192EU]	TP-Link	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+2357	0108	TL-WN822N Version 4 RTL8192EU	TP-Link	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+2357	0109	TL-WN823N v2/v3 [Realtek RTL8192EU]	TP-Link	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+2357	010c	TL-WN722N v2/v3 [Realtek RTL8188EUS]	TP-Link	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+2357	0601	UE300 10/100/1000 LAN (ethernet mode) [Realtek RTL8153]	TP-Link	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+9710	7730	MCS7730 10/100 Mbps Ethernet adapter	MosChip	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+9710	7830	MCS7830 10/100 Mbps Ethernet adapter	MosChip	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	
+9710	7832	MCS7832 10/100 Mbps Ethernet adapter	MosChip	-	usb.ids 2026.06.26 (hwdata); name filter	low	none	0	

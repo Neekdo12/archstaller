@@ -57,8 +57,6 @@ pub struct HostConfig {
     pub build: Build,
     /// Installer-kernel drivers to include (ids from [`DRIVERS`]); `None` means all of them.
     pub installer_drivers: Option<Vec<String>>,
-    /// Reserved: AUR packages need a separate host-side pipeline that does not exist yet.
-    pub aur_packages: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,7 +79,10 @@ pub struct Driver {
 pub const DRIVERS: &[Driver] = &[
     Driver { id: "virtio-blk", class: DriverClass::Storage, description: "virtio block device (QEMU, most hypervisors)", status: "tested in QEMU" },
     Driver { id: "ahci", class: DriverClass::Storage, description: "SATA through AHCI", status: "tested in QEMU" },
+    Driver { id: "ata", class: DriverClass::Storage, description: "legacy IDE-mode SATA and parallel ATA disks (PIO, slow)", status: "tested in QEMU" },
     Driver { id: "nvme", class: DriverClass::Storage, description: "NVMe SSDs", status: "tested in QEMU" },
+    Driver { id: "alx", class: DriverClass::Network, description: "Qualcomm Atheros AR8131/8132/8151/8152 (atl1c) and AR8161/8162/8171/8172, Killer E2x00 (alx)", status: "untested (no hardware)" },
+    Driver { id: "vmxnet3", class: DriverClass::Network, description: "VMware vmxnet3 virtual NIC", status: "tested in QEMU" },
     Driver { id: "virtio-net", class: DriverClass::Network, description: "virtio network device", status: "tested in QEMU" },
     Driver { id: "e1000", class: DriverClass::Network, description: "Intel e1000 / e1000e", status: "tested in QEMU" },
     Driver { id: "igb", class: DriverClass::Network, description: "Intel igb / igc", status: "tested in QEMU" },
@@ -126,9 +127,6 @@ impl HostConfig {
             if !has(DriverClass::Network) && !self.build.tethering {
                 return Err("installer_drivers: no network driver selected (and build.tethering is off), the installer could not download anything".into());
             }
-        }
-        if !self.aur_packages.is_empty() {
-            return Err("aur_packages: AUR packages are not supported yet".into());
         }
         Ok(())
     }
@@ -209,11 +207,5 @@ mod tests {
         assert!(with(&["e1000"], false).validate().unwrap_err().contains("no storage driver"));
         assert!(with(&["nvme"], false).validate().unwrap_err().contains("no network driver"));
         assert!(with(&["nvme"], true).validate().is_ok());
-    }
-
-    #[test]
-    fn aur_is_reserved() {
-        let h = HostConfig { aur_packages: vec!["yay".into()], ..Default::default() };
-        assert!(h.validate().unwrap_err().contains("not supported"));
     }
 }

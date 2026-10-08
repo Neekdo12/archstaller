@@ -41,7 +41,7 @@ pub fn run_iso(iso: &Path, opts: &Options) -> Result<()> {
         spawn_test_server()?;
     }
     let mut cmd = Command::new("qemu-system-x86_64");
-    cmd.args(["-machine", "q35", "-m", "512M", "-serial", "stdio", "-no-reboot"]);
+    cmd.args(["-machine", if opts.disk == "ide" { "pc" } else { "q35" }, "-m", "512M", "-serial", "stdio", "-no-reboot"]);
     if Path::new("/dev/kvm").exists() {
         cmd.args(["-enable-kvm", "-cpu", "host"]);
     }
@@ -69,6 +69,7 @@ pub fn run_iso(iso: &Path, opts: &Options) -> Result<()> {
         "virtio" => cmd.args(["-device", "virtio-blk-pci,drive=d0,serial=TESTDISK0"]),
         "ahci" => cmd.args(["-device", "ich9-ahci,id=ahci", "-device", "ide-hd,drive=d0,bus=ahci.0,serial=TESTDISK0"]),
         "nvme" => cmd.args(["-device", "nvme,drive=d0,serial=TESTDISK0"]),
+        "ide" => cmd.args(["-device", "ide-hd,drive=d0,bus=ide.0,serial=TESTDISK0"]),
         other => return Err(format!("unknown disk type {other}").into()),
     };
     cmd.args(["-netdev", "user,id=n0"]);
@@ -82,6 +83,8 @@ pub fn run_iso(iso: &Path, opts: &Options) -> Result<()> {
         // No NIC at all (exercises the installer paths that run when no wired link exists).
         "none" => &mut cmd,
         "usb-rndis" => cmd.args(["-device", "qemu-xhci,id=xhcin", "-device", "usb-net,bus=xhcin.0,netdev=n0"]),
+        // Any other QEMU PCI NIC model (vmxnet3, pcnet, i82559er, ne2k_pci, tulip, ...): `--nic <model>`.
+        model if model.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') => cmd.args(["-device", &format!("{model},netdev=n0")]),
         other => return Err(format!("unknown nic type {other}").into()),
     };
     if opts.usb {

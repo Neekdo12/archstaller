@@ -78,6 +78,11 @@ enum Variant {
     Igc,
 }
 
+/// Whether this driver claims the PCI id (`xtask coverage` counts recognized ids with it).
+pub fn recognizes(vendor: u16, device: u16) -> bool {
+    vendor == 0x8086 && (IGB_IDS.contains(&device) || IGC_IDS.contains(&device))
+}
+
 pub fn probe(dev: &PciDevice, out: &mut Devices) {
     if dev.vendor != 0x8086 || dev.class != 0x02 {
         return;

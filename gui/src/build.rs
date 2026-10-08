@@ -20,10 +20,10 @@ pub struct Build {
     pub log_path: PathBuf,
 }
 
-/// The repository root: `ARCHSTALER_ROOT`, else the nearest parent of the current directory or the
+/// The repository root: `ARCHSTALLER_ROOT`, else the nearest parent of the current directory or the
 /// executable that holds `rust-toolchain.toml` and `xtask/`.
 pub fn find_root() -> Result<PathBuf, String> {
-    if let Ok(r) = std::env::var("ARCHSTALER_ROOT") {
+    if let Ok(r) = std::env::var("ARCHSTALLER_ROOT") {
         return Ok(PathBuf::from(r));
     }
     let starts = [std::env::current_dir().ok(), std::env::current_exe().ok()];
@@ -39,7 +39,7 @@ pub fn find_root() -> Result<PathBuf, String> {
             }
         }
     }
-    Err("cannot find the archstaler checkout (run from inside it or set ARCHSTALER_ROOT)".into())
+    Err("cannot find the archstaller checkout (run from inside it or set ARCHSTALLER_ROOT)".into())
 }
 
 impl Build {
@@ -54,7 +54,7 @@ impl Build {
             .args(["xtask", "build", "--config"])
             .arg(config)
             .arg("--out")
-            .arg(workdir.join("archstaler.iso"))
+            .arg(workdir.join("archstaller.iso"))
             .arg("--workdir")
             .arg(&workdir)
             .args(["--progress", "json"])
@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn usable_checks_size_and_existence() {
-        let p = std::env::temp_dir().join(format!("archstaler-usable-{}", std::process::id()));
+        let p = std::env::temp_dir().join(format!("archstaller-usable-{}", std::process::id()));
         std::fs::write(&p, b"12345").unwrap();
         assert!(usable(&p, 5));
         assert!(!usable(&p, 6));

@@ -1,0 +1,94 @@
+name: Presets and e2e
+
+# Arch moves every day: a package that is renamed or dropped breaks a preset without any change in this
+# repository. These runs find that early. e2e installs Arch into QEMU and downloads several hundred MiB.
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"   # presets, Mondays 04:17 UTC
+    - cron: "43 3 1 * *"   # e2e, the 1st of the month
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Which job to run
+        type: choice
+        options: [presets, e2e, both]
+        default: presets
+      preset:
+        description: "e2e: config to install (a file in configs/)"
+        type: string
+        default: e2e.lua
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  presets:
+    name: Resolve and build every preset
+    if: >
+      github.event_name == 'workflow_dispatch' && inputs.job != 'e2e' ||
+      github.event_name == 'schedule' && github.event.schedule == '17 4 * * 1'
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    timeout-minutes: 90
+    steps:
+      - name: Install git (needed before checkout inside the container)
+        run: pacman -Sy --noconfirm --needed git
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: presets
+      - name: Sync the package databases
+        run: pacman -Sy --noconfirm
+      - name: Resolve every preset against the current repositories
+        run: cargo xtask check-presets
+      - name: Build every preset ISO
+        run: cargo xtask presets
+      - name: Checksums
+        run: cd target/isos && sha256sum *.iso | tee SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: archstaller-presets
+          path: target/isos/
+          retention-days: 14
+
+  e2e:
+    name: e2e install in QEMU
+    if: >
+      github.event_name == 'workflow_dispatch' && inputs.job != 'presets' ||
+      github.event_name == 'schedule' && github.event.schedule == '43 3 1 * *'
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+      options: --device /dev/kvm
+    timeout-minutes: 120
+    steps:
+      - name: Install git (needed before checkout inside the container)
+        run: pacman -Sy --noconfirm --needed git
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          packages: qemu-system-x86 edk2-ovmf
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: e2e
+      - name: KVM
+        run: |
+          ls -l /dev/kvm || echo "::warning::no /dev/kvm, QEMU falls back to software emulation and will be slow"
+      - name: Install onto a blank disk, then boot twice (BIOS)
+        run: cargo xtask e2e --config "configs/${{ inputs.preset || 'e2e.lua' }}"
+      - name: Install onto a blank disk, then boot twice (UEFI)
+        run: cargo xtask e2e --uefi --config "configs/${{ inputs.preset || 'e2e.lua' }}"
+      - name: Serial logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: target/e2e/
+          retention-days: 14
+          if-no-files-found: ignore

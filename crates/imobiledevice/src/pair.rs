@@ -83,9 +83,9 @@ pub fn generate_pair_record(
 
     let root_spki = cert::spki_from_rsa(&root_pub).map_err(|_| Error::Io)?;
     let root_der = cert::build_cert(
-        "archstaler-root",
+        "archstaller-root",
         &root_key,
-        "archstaler-root",
+        "archstaller-root",
         &root_spki,
         true,
         &serial,
@@ -97,9 +97,9 @@ pub fn generate_pair_record(
     let host_spki = cert::spki_from_rsa(&host_pub).map_err(|_| Error::Io)?;
     serial[7] = serial[7].wrapping_add(1);
     let host_der = cert::build_cert(
-        "archstaler-root",
+        "archstaller-root",
         &root_key,
-        "archstaler-host",
+        "archstaller-host",
         &host_spki,
         false,
         &serial,
@@ -111,9 +111,9 @@ pub fn generate_pair_record(
     let device_spki = cert::spki_from_pem(device_pubkey_pem).map_err(|_| Error::Io)?;
     serial[7] = serial[7].wrapping_add(1);
     let device_der = cert::build_cert(
-        "archstaler-root",
+        "archstaller-root",
         &root_key,
-        "archstaler-device",
+        "archstaller-device",
         &device_spki,
         false,
         &serial,

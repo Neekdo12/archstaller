@@ -76,11 +76,11 @@ impl Report {
 
 pub fn run(cfg: &Config, devs: Devices, keyring: Option<&Keyring>) {
     let mut r = Report::default();
-    println!("\n=============== archstaler hardware test (READ-ONLY, no disk is written) ===============");
+    println!("\n=============== archstaller hardware test (READ-ONLY, no disk is written) ===============");
     test(cfg, devs, keyring, &mut r);
     println!("=========================================================================================");
     println!("RESULT: {}   ({} ok, {} warnings, {} failed)", if r.fail == 0 { "PASS" } else { "FAIL" }, r.pass, r.warn, r.fail);
-    println!("archstaler-hwtest: done");
+    println!("archstaller-hwtest: done");
     println!("--- driver and device log (repeated here so it stays on screen) ---");
     crate::digest::print_all();
     // After a failure stay up longer, so the screen can be read or photographed.
@@ -131,7 +131,7 @@ fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Repo
 
     println!("--- disks (read only) ---");
     if devs.block.is_empty() {
-        r.warn("no supported disk found (NVMe, AHCI and virtio only)");
+        r.warn("no supported disk found (NVMe, AHCI, IDE-mode ATA and virtio only)");
     }
     let disks: Vec<Box<dyn BlockDevice>> = devs.block.drain(..).map(|d| Box::new(ReadOnly(d)) as Box<dyn BlockDevice>).collect();
     for mut d in disks {

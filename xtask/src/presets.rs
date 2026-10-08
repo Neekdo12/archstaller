@@ -1,15 +1,9 @@
-//! Preset configs in presets/*.lua: dependency check and one ISO per preset.
+//! Preset configs in configs/ (files marked `-- archstaller: kind=preset`): dependency check and one ISO per preset.
 use crate::{iso, lua, root, Options, Result};
 use std::path::PathBuf;
 
 fn preset_files() -> Result<Vec<PathBuf>> {
-    let mut files: Vec<PathBuf> = std::fs::read_dir(root().join("presets"))?
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "lua") && p.file_stem().is_some_and(|s| s != "common"))
-        .collect();
-    files.sort();
-    Ok(files)
+    Ok(hostcfg::configs::presets(&root().join(hostcfg::configs::DIR)).into_iter().map(|p| p.path).collect())
 }
 
 fn stem(p: &std::path::Path) -> String {
@@ -41,14 +35,14 @@ pub fn check() -> Result<()> {
     Ok(())
 }
 
-/// Builds target/isos/archstaler-<preset>.iso for every preset.
+/// Builds target/isos/archstaller-<preset>.iso for every preset.
 pub fn build_all(opts: &Options) -> Result<()> {
     let dir = root().join("target/isos");
     for f in preset_files()? {
         let name = stem(&f);
         let o = Options {
             config: f.clone(),
-            out: Some(dir.join(format!("archstaler-{name}.iso"))),
+            out: Some(dir.join(format!("archstaller-{name}.iso"))),
             fault_test: false,
             selftest: false,
             profile: opts.profile,
@@ -64,6 +58,7 @@ pub fn build_all(opts: &Options) -> Result<()> {
             debug: opts.debug,
             progress: false,
             workdir: None,
+            disk_gib: opts.disk_gib,
         };
         let iso = iso::build(&o)?;
         println!("{name}: {} ({} bytes)", iso.display(), std::fs::metadata(&iso)?.len());

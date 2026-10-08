@@ -1,19 +1,21 @@
-//! The egui front end. All decisions live in `model`, `build`, `media` and `hostcfg`; this only draws them.
-use crate::build::{self, Build, Msg};
-use crate::media::{self, FolderCopy, MediaTarget, Phase, Volume};
-use crate::model::{self, Area, Model, Preset};
-use eframe::egui;
-use hostcfg::host::{DriverClass, DRIVERS};
-use hostcfg::progress::{Event, State};
-use hostcfg::resolve::Resolution;
+//! The window: header bar, navigation sidebar, the pages, the problem bar, the actions that menus,
+//! shortcuts and the command launcher share, and the timer that moves background work into the UI.
+//! All decisions live in `model`, `build`, `media` and `hostcfg`; this only shows them.
+use crate::dialogs;
+use crate::model::{Area, Model};
+use crate::pages;
+use crate::state::State;
+use crate::ui;
+use gtk::gio;
+use gtk::glib;
+use gtk::prelude::*;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, Receiver};
-use std::sync::Arc;
+use std::rc::Rc;
+use std::time::Duration;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Tab {
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Page {
     System,
     Disk,
     Packages,
@@ -21,863 +23,575 @@ enum Tab {
     Services,
     Build,
     Scripts,
-    Preview,
+    Lua,
     Iso,
 }
 
-const TABS: &[(Tab, &str, Option<Area>)] = &[
-    (Tab::System, "System", Some(Area::System)),
-    (Tab::Disk, "Disk", Some(Area::Disk)),
-    (Tab::Packages, "Mirrors & packages", Some(Area::Packages)),
-    (Tab::Users, "Users", Some(Area::Users)),
-    (Tab::Services, "Services & kernel", Some(Area::Services)),
-    (Tab::Build, "Build & drivers", Some(Area::Build)),
-    (Tab::Scripts, "Scripts", Some(Area::Scripts)),
-    (Tab::Preview, "Lua preview", None),
-    (Tab::Iso, "Build ISO", None),
+pub const PAGES: &[(Page, &str, &str, Option<Area>)] = &[
+    (Page::System, "system", "System", Some(Area::System)),
+    (Page::Disk, "disk", "Disk", Some(Area::Disk)),
+    (Page::Packages, "packages", "Mirrors & packages", Some(Area::Packages)),
+    (Page::Users, "users", "Users", Some(Area::Users)),
+    (Page::Services, "services", "Services & kernel", Some(Area::Services)),
+    (Page::Build, "build", "Build & drivers", Some(Area::Build)),
+    (Page::Scripts, "scripts", "Scripts", Some(Area::Scripts)),
+    (Page::Lua, "lua", "Lua source", None),
+    (Page::Iso, "iso", "Build ISO", None),
 ];
 
-enum Confirm {
-    AutoLargest,
-    Overwrite(PathBuf),
-}
-
-struct NewUser {
-    name: String,
-    pw: String,
-    pw2: String,
-    groups: String,
-    shell: String,
-}
-
-impl Default for NewUser {
-    fn default() -> Self {
-        NewUser { name: String::new(), pw: String::new(), pw2: String::new(), groups: "wheel".into(), shell: "/bin/bash".into() }
-    }
-}
-
-#[derive(Default)]
-struct BuildState {
-    running: Option<Build>,
-    stages: Vec<(String, State)>,
-    log: Vec<String>,
-    error: Option<String>,
-    /// The finished ISO, once it is in place and checked.
-    iso: Option<(PathBuf, u64, String)>,
-    out: Option<PathBuf>,
-    summary: Option<String>,
-}
-
-#[derive(Default)]
-struct MediaState {
-    volumes: Vec<Volume>,
-    selected: Option<usize>,
-    dir: Option<PathBuf>,
-    overwrite: bool,
-    iso_override: Option<PathBuf>,
-    progress: Option<(Phase, u64, u64)>,
-    rx: Option<Receiver<MediaMsg>>,
-    cancel: Arc<AtomicBool>,
-    result: Option<Result<String, String>>,
-}
-
-enum MediaMsg {
-    Progress(Phase, u64, u64),
-    Done(Result<media::Report, String>),
+pub fn page_of(area: Area) -> Page {
+    PAGES.iter().find(|p| p.3 == Some(area)).map(|p| p.0).unwrap_or(Page::Lua)
 }
 
 pub struct App {
-    model: Model,
-    tab: Tab,
-    status: String,
-    bufs: HashMap<&'static str, String>,
-    new_user: NewUser,
-    new_script: (String, String, String, String), // id, file, url, sha256
-    root_script_ack: bool,
-    confirm: Option<Confirm>,
-    resolve: Option<Result<Resolution, String>>,
-    resolve_rx: Option<Receiver<Result<Resolution, String>>>,
-    build: BuildState,
-    media: MediaState,
-    next_build: u32,
-    presets: Vec<Preset>,
+    pub st: RefCell<State>,
+    pub win: gtk::ApplicationWindow,
+    stack: gtk::Stack,
+    nav: gtk::ListBox,
+    nav_marks: Vec<gtk::Label>,
+    title: gtk::Label,
+    status: gtk::Label,
+    problem: gtk::Label,
+    problem_btn: gtk::Button,
+    boxes: HashMap<Page, gtk::Box>,
+    refreshers: RefCell<HashMap<Page, Rc<dyn Fn()>>>,
+    current: Cell<Page>,
+    /// The live widgets of the Build ISO page (progress, log), while that page exists.
+    pub iso_live: RefCell<Option<Rc<pages::iso::Live>>>,
 }
 
 impl App {
-    pub fn new() -> App {
-        let mut a = App {
-            model: Model::starter(),
-            tab: Tab::System,
-            status: "New config".into(),
-            bufs: HashMap::new(),
-            new_user: NewUser::default(),
-            new_script: Default::default(),
-            root_script_ack: false,
-            confirm: None,
-            resolve: None,
-            resolve_rx: None,
-            build: BuildState::default(),
-            media: MediaState::default(),
-            next_build: 0,
-            presets: build::find_root().map(|r| model::presets(&r)).unwrap_or_default(),
+    pub fn new(gapp: &gtk::Application) -> Rc<App> {
+        // A default size that fits the screen: laptops are smaller than 1180x780.
+        let (mut w, mut h) = (1100, 740);
+        if let Some(m) = gtk::gdk::Display::default().and_then(|d| d.monitors().item(0)).and_then(|m| m.downcast::<gtk::gdk::Monitor>().ok()) {
+            let g = m.geometry();
+            w = w.min(g.width() * 9 / 10);
+            h = h.min(g.height() * 85 / 100);
+        }
+        let win = gtk::ApplicationWindow::builder().application(gapp).title("Archstaller").default_width(w).default_height(h).build();
+
+        // Header bar: file and tools menus, the sidebar toggle, the document name.
+        let header = gtk::HeaderBar::new();
+        let title = gtk::Label::builder().label("untitled").build();
+        header.set_title_widget(Some(&title));
+        let sidebar_toggle = gtk::ToggleButton::builder().icon_name("sidebar-show-symbolic").active(true).tooltip_text("Show or hide the sidebar").build();
+        sidebar_toggle.update_property(&[gtk::accessible::Property::Label("Show or hide the sidebar")]);
+        header.pack_start(&sidebar_toggle);
+        let menu = gio::Menu::new();
+        let file = gio::Menu::new();
+        file.append(Some("New"), Some("win.new"));
+        file.append(Some("Open…"), Some("win.open"));
+        file.append(Some("Save"), Some("win.save"));
+        file.append(Some("Save as…"), Some("win.save-as"));
+        menu.append_section(None, &file);
+        let tools = gio::Menu::new();
+        tools.append(Some("Command launcher…"), Some("win.launcher"));
+        tools.append(Some("Copy config as Lua"), Some("win.copy-lua"));
+        tools.append(Some("Copy ISO SHA-256"), Some("win.copy-sha"));
+        menu.append_section(None, &tools);
+        let presets = gio::Menu::new();
+        let preset_list = crate::build::find_root().map(|r| crate::model::presets(&r)).unwrap_or_default();
+        for p in &preset_list {
+            let item = gio::MenuItem::new(Some(&p.name), None);
+            item.set_action_and_target_value(Some("win.preset"), Some(&p.name.to_variant()));
+            presets.append_item(&item);
+        }
+        let menu_btn = gtk::MenuButton::builder().icon_name("open-menu-symbolic").menu_model(&menu).tooltip_text("Menu").build();
+        header.pack_end(&menu_btn);
+        let preset_btn = gtk::MenuButton::builder().label("From preset").menu_model(&presets).sensitive(!preset_list.is_empty()).tooltip_text(if preset_list.is_empty() { "No presets found (run from the checkout or set ARCHSTALLER_ROOT)" } else { "Start a new, unsaved config from one of the repository's presets" }).build();
+        header.pack_end(&preset_btn);
+        win.set_titlebar(Some(&header));
+
+        // Sidebar.
+        let nav = gtk::ListBox::builder().selection_mode(gtk::SelectionMode::Single).css_classes(["navigation-sidebar", "sidebar-list"]).build();
+        let mut nav_marks = Vec::new();
+        for (_, _, name, _) in PAGES {
+            let r = ui::hbox(6);
+            let l = gtk::Label::builder().label(*name).xalign(0.0).hexpand(true).build();
+            let mark = gtk::Label::builder().label("").build();
+            mark.add_css_class("nav-bad");
+            r.append(&l);
+            r.append(&mark);
+            nav.append(&r);
+            nav_marks.push(mark);
+        }
+        let side = gtk::ScrolledWindow::builder().child(&nav).hscrollbar_policy(gtk::PolicyType::Never).width_request(170).vexpand(true).build();
+
+        // Pages.
+        // Not homogeneous: the window may be as narrow as the visible page, not the widest page.
+        let stack = gtk::Stack::builder().hexpand(true).vexpand(true).hhomogeneous(false).vhomogeneous(false).transition_type(gtk::StackTransitionType::None).build();
+        let mut boxes = HashMap::new();
+        for (page, id, _, _) in PAGES {
+            let (scroll, content) = ui::page_shell();
+            stack.add_named(&scroll, Some(id));
+            boxes.insert(*page, content);
+        }
+
+        // Bottom bar: validation summary and status.
+        let bar = ui::hbox(10);
+        bar.add_css_class("problem-bar");
+        let problem = gtk::Label::builder().xalign(0.0).hexpand(true).ellipsize(gtk::pango::EllipsizeMode::End).build();
+        let problem_btn = gtk::Button::with_label("Go to the problem");
+        let status = gtk::Label::builder().xalign(1.0).css_classes(["hint"]).ellipsize(gtk::pango::EllipsizeMode::Start).max_width_chars(60).build();
+        bar.append(&problem);
+        bar.append(&problem_btn);
+        bar.append(&status);
+
+        let body = ui::hbox(0);
+        body.append(&side);
+        body.append(&gtk::Separator::new(gtk::Orientation::Vertical));
+        body.append(&stack);
+        let root = ui::vbox(0);
+        root.append(&body);
+        root.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        root.append(&bar);
+        win.set_child(Some(&root));
+
+        let app = Rc::new(App { st: RefCell::new(State::new()), win, stack, nav, nav_marks, title, status, problem, problem_btn, boxes, refreshers: RefCell::new(HashMap::new()), current: Cell::new(Page::System), iso_live: RefCell::new(None) });
+        {
+            let side = side.clone();
+            sidebar_toggle.connect_toggled(move |t| side.set_visible(t.is_active()));
+        }
+        // A narrow window hides the sidebar (the toggle brings it back); a wide one shows it again.
+        {
+            let (toggle, last) = (sidebar_toggle.clone(), Cell::new(None::<bool>));
+            app.win.add_tick_callback(move |w, _| {
+                let narrow = w.width() < 760;
+                if last.get() != Some(narrow) {
+                    if last.get().is_some() || narrow {
+                        toggle.set_active(!narrow);
+                    }
+                    last.set(Some(narrow));
+                }
+                glib::ControlFlow::Continue
+            });
+        }
+        {
+            let a = app.clone();
+            app.nav.connect_row_selected(move |_, row| {
+                if let Some(r) = row {
+                    if let Some((page, ..)) = PAGES.get(r.index() as usize) {
+                        a.show_no_select(*page);
+                    }
+                }
+            });
+        }
+        {
+            let a = app.clone();
+            app.problem_btn.connect_clicked(move |_| {
+                let first = a.st.borrow().model.problems().into_iter().next();
+                if let Some(p) = first {
+                    a.show(page_of(p.area));
+                }
+            });
+        }
+        app.install_actions(gapp);
+        app.rebuild_all();
+        app.show(Page::System);
+        {
+            let a = app.clone();
+            glib::timeout_add_local(Duration::from_millis(100), move || {
+                a.tick();
+                glib::ControlFlow::Continue
+            });
+        }
+        {
+            let a = app.clone();
+            app.win.connect_close_request(move |_| {
+                if a.st.borrow().model.dirty {
+                    let a2 = a.clone();
+                    glib::spawn_future_local(async move {
+                        if dialogs::confirm(a2.win.upcast_ref(), "Discard the unsaved changes?", "This config has changes that were not saved.", "Discard and close").await {
+                            a2.st.borrow_mut().model.dirty = false;
+                            a2.win.close();
+                        }
+                    });
+                    return glib::Propagation::Stop;
+                }
+                glib::Propagation::Proceed
+            });
+        }
+        app
+    }
+
+    // ------------------------------------------------------------------ navigation and pages
+
+    pub fn show(self: &Rc<Self>, page: Page) {
+        if let Some(i) = PAGES.iter().position(|p| p.0 == page) {
+            if let Some(row) = self.nav.row_at_index(i as i32) {
+                self.nav.select_row(Some(&row));
+                return;
+            }
+        }
+        self.show_no_select(page);
+    }
+
+    fn show_no_select(self: &Rc<Self>, page: Page) {
+        self.current.set(page);
+        // The read-only source view shows what the forms say now.
+        if page == Page::Lua && self.st.borrow().model.raw.is_none() {
+            self.rebuild(Page::Lua);
+        }
+        if let Some((_, id, ..)) = PAGES.iter().find(|p| p.0 == page) {
+            self.stack.set_visible_child_name(id);
+        }
+        if page == Page::Iso {
+            self.st.borrow_mut().media.last_scan = None;
+            // The summary shows the document as it is now; the live parts are rebuilt from the state.
+            self.rebuild(Page::Iso);
+        }
+    }
+
+    pub fn current(&self) -> Page {
+        self.current.get()
+    }
+
+    pub fn register_refresher(&self, page: Page, f: Rc<dyn Fn()>) {
+        self.refreshers.borrow_mut().insert(page, f);
+    }
+
+    /// Builds (or rebuilds) one page from the current document.
+    pub fn rebuild(self: &Rc<Self>, page: Page) {
+        let content = &self.boxes[&page];
+        ui::clear(content);
+        self.refreshers.borrow_mut().remove(&page);
+        let raw = self.st.borrow().model.raw.is_some();
+        if raw && !matches!(page, Page::Lua | Page::Iso) {
+            ui::heading(content, PAGES.iter().find(|p| p.0 == page).map(|p| p.2).unwrap_or(""), "");
+            let c = ui::card(content, None);
+            ui::note(&c, ui::Kind::Warn, "This config is being edited as source text.");
+            ui::hint(&c, "The form pages work on a config the GUI writes. Open the Lua source page: leave source mode there to come back to the forms (a file the GUI did not write is replaced by form output only after you confirm).");
+            let a = self.clone();
+            c.append(&ui::button("Open the Lua source page", move || a.show(Page::Lua)));
+            return;
+        }
+        match page {
+            Page::System => pages::system::build(self, content),
+            Page::Disk => pages::disk::build(self, content),
+            Page::Packages => pages::packages::build(self, content),
+            Page::Users => pages::users::build(self, content),
+            Page::Services => pages::services::build(self, content),
+            Page::Build => pages::build_page::build(self, content),
+            Page::Scripts => pages::scripts::build(self, content),
+            Page::Lua => pages::lua::build(self, content),
+            Page::Iso => pages::iso::build(self, content),
+        }
+    }
+
+    /// Runs the page's refresher (the part of the page that shows background work), if it has one.
+    pub fn refresh_page(&self, page: Page) {
+        let f = self.refreshers.borrow().get(&page).cloned();
+        if let Some(f) = f {
+            f();
+        }
+    }
+
+    pub fn rebuild_all(self: &Rc<Self>) {
+        for (page, ..) in PAGES {
+            self.rebuild(*page);
+        }
+        self.refresh_chrome();
+    }
+
+    // ------------------------------------------------------------------ the document
+
+    /// A change made by a form control: marks the document dirty and refreshes what depends on it.
+    pub fn edit(&self, f: impl FnOnce(&mut Model)) {
+        {
+            let mut st = self.st.borrow_mut();
+            f(&mut st.model);
+            st.model.dirty = true;
+        }
+        self.refresh_chrome();
+    }
+
+    pub fn set_status(&self, msg: impl Into<String>) {
+        let msg = msg.into();
+        self.status.set_text(&msg);
+        self.st.borrow_mut().status = msg;
+    }
+
+    /// Title, validation summary and the navigation marks.
+    pub fn refresh_chrome(&self) {
+        let (name, dirty, problems) = {
+            let st = self.st.borrow();
+            let name = st.model.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "untitled".into());
+            (name, st.model.dirty, st.model.problems())
         };
-        a.media.volumes = media::volumes();
-        a
-    }
-
-    fn load(&mut self, m: Model) {
-        self.model = m;
-        self.bufs.clear();
-        self.resolve = None;
-        self.root_script_ack = false;
-    }
-
-    fn lines(&mut self, ui: &mut egui::Ui, key: &'static str, get: impl Fn(&Model) -> Vec<String>, set: impl Fn(&mut Model, Vec<String>), height: f32) {
-        let buf = self.bufs.entry(key).or_insert_with(|| get(&self.model).join("\n"));
-        let r = egui::ScrollArea::vertical().id_salt(key).max_height(height).show(ui, |ui| ui.add(egui::TextEdit::multiline(buf).desired_width(f32::INFINITY).desired_rows(4)));
-        if r.inner.changed() {
-            let v: Vec<String> = buf.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
-            set(&mut self.model, v);
-            self.model.dirty = true;
+        let shown = format!("{name}{}", if dirty { " •" } else { "" });
+        self.title.set_text(&shown);
+        self.win.set_title(Some(&format!("{shown} — Archstaller")));
+        for (i, (_, _, _, area)) in PAGES.iter().enumerate() {
+            let bad = area.is_some_and(|a| problems.iter().any(|p| p.area == a));
+            self.nav_marks[i].set_text(if bad { "●" } else { "" });
         }
-    }
-
-    fn field(&mut self, ui: &mut egui::Ui, label: &str, get: impl Fn(&mut Model) -> &mut String) {
-        ui.horizontal(|ui| {
-            ui.label(format!("{label:<12}"));
-            if ui.text_edit_singleline(get(&mut self.model)).changed() {
-                self.model.dirty = true;
-            }
-        });
-    }
-
-    fn save_as(&mut self) {
-        if let Some(p) = rfd::FileDialog::new().add_filter("Lua config", &["lua"]).set_file_name("archstaler.lua").save_file() {
-            self.status = match self.model.save(&p) {
-                Ok(()) => format!("Saved {}", p.display()),
-                Err(e) => e,
-            };
-        }
-    }
-
-    fn save(&mut self) {
-        match self.model.path.clone() {
+        self.problem.remove_css_class("note-bad");
+        self.problem.remove_css_class("note-ok");
+        match problems.first() {
             Some(p) => {
-                self.status = match self.model.save(&p) {
-                    Ok(()) => format!("Saved {}", p.display()),
-                    Err(e) => e,
-                };
-            }
-            None => self.save_as(),
-        }
-    }
-
-    // ---------------------------------------------------------------- tabs
-
-    fn tab_system(&mut self, ui: &mut egui::Ui) {
-        ui.heading("System");
-        self.field(ui, "Hostname", |m| &mut m.cfg.hostname);
-        self.field(ui, "Timezone", |m| &mut m.cfg.timezone);
-        self.field(ui, "Locale", |m| &mut m.cfg.locale);
-        self.field(ui, "Keymap", |m| &mut m.cfg.keymap);
-    }
-
-    fn tab_disk(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Target disk");
-        ui.label("The installer erases the disk it selects. Name it by serial number, or let it take the largest disk.");
-        let mut auto = self.model.cfg.disk.auto_largest;
-        if ui.checkbox(&mut auto, "Erase and install onto the LARGEST disk without asking").changed() {
-            if auto {
-                self.confirm = Some(Confirm::AutoLargest);
-            } else {
-                self.model.cfg.disk.auto_largest = false;
-                self.model.dirty = true;
-            }
-        }
-        ui.add_enabled_ui(!self.model.cfg.disk.auto_largest, |ui| {
-            self.field(ui, "Serial", |m| &mut m.cfg.disk.confirm_serial);
-            let mut has = self.model.cfg.disk.model.is_some();
-            ui.horizontal(|ui| {
-                if ui.checkbox(&mut has, "Also match the model").changed() {
-                    self.model.cfg.disk.model = has.then(String::new);
-                    self.model.dirty = true;
-                }
-                if let Some(m) = &mut self.model.cfg.disk.model {
-                    if ui.text_edit_singleline(m).changed() {
-                        self.model.dirty = true;
-                    }
-                }
-            });
-        });
-        ui.horizontal(|ui| {
-            ui.label("ESP size (MiB)");
-            if ui.add(egui::DragValue::new(&mut self.model.cfg.disk.esp_mib).range(64..=8192)).changed() {
-                self.model.dirty = true;
-            }
-        });
-    }
-
-    fn tab_packages(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Mirrors");
-        ui.label("One URL per line; $repo and $arch are substituted.");
-        self.lines(ui, "mirrors", |m| m.cfg.mirrors.clone(), |m, v| m.cfg.mirrors = v, 90.0);
-        ui.separator();
-        ui.heading("Packages");
-        ui.label("Official packages and groups (core and extra), one per line.");
-        self.lines(ui, "packages", |m| m.cfg.packages.clone(), |m, v| m.cfg.packages = v, 220.0);
-        ui.horizontal(|ui| {
-            let busy = self.resolve_rx.is_some();
-            if ui.add_enabled(!busy, egui::Button::new("Resolve dependencies")).clicked() {
-                let cfg = self.model.cfg.clone();
-                let mirror = cfg.mirrors.first().cloned().unwrap_or_default();
-                let cache = dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("archstaler-gui");
-                let (tx, rx) = channel();
-                self.resolve_rx = Some(rx);
-                std::thread::spawn(move || {
-                    let r = hostcfg::resolve::fetch_dbs(&mirror, &cache).and_then(|dbs| hostcfg::resolve::resolve(&cfg, &dbs)).map_err(|e| e.to_string());
-                    let _ = tx.send(r);
-                });
-            }
-            if busy {
-                ui.spinner();
-                ui.label("fetching the package databases...");
-            }
-        });
-        match &self.resolve {
-            Some(Err(e)) => {
-                ui.colored_label(egui::Color32::LIGHT_RED, e);
-            }
-            Some(Ok(r)) => {
-                ui.label(format!("{} packages, {} MiB to download", r.packages.len(), r.download_bytes() >> 20));
-                for a in &r.ambiguities {
-                    ui.colored_label(egui::Color32::YELLOW, format!("{} is provided by {}; chosen {} (set it in `providers` to pick another)", a.dep, a.candidates.join(", "), a.chosen));
-                }
-                egui::ScrollArea::vertical().id_salt("resolved").max_height(180.0).show(ui, |ui| {
-                    for p in &r.packages {
-                        ui.label(format!("{}{} {} ({}, {} KiB)", if p.explicit { "* " } else { "  " }, p.name, p.version, p.repo, p.csize >> 10));
-                    }
-                });
-            }
-            None => {}
-        }
-    }
-
-    fn tab_users(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Users");
-        ui.label("Passwords are stored as SHA-512 crypt hashes only; the plaintext is never saved.");
-        let mut remove = None;
-        for (i, u) in self.model.cfg.users.iter().enumerate() {
-            ui.horizontal(|ui| {
-                ui.label(format!("{}  groups: {}  shell: {}", u.name, u.groups.join(","), u.shell));
-                if ui.button("Remove").clicked() {
-                    remove = Some(i);
-                }
-            });
-        }
-        if let Some(i) = remove {
-            self.model.cfg.users.remove(i);
-            self.model.dirty = true;
-        }
-        ui.separator();
-        ui.label("Add a user");
-        let n = &mut self.new_user;
-        ui.horizontal(|ui| {
-            ui.label("Name");
-            ui.text_edit_singleline(&mut n.name);
-        });
-        ui.horizontal(|ui| {
-            ui.label("Password");
-            ui.add(egui::TextEdit::singleline(&mut n.pw).password(true));
-            ui.label("Again");
-            ui.add(egui::TextEdit::singleline(&mut n.pw2).password(true));
-        });
-        ui.horizontal(|ui| {
-            ui.label("Groups");
-            ui.text_edit_singleline(&mut n.groups);
-            ui.label("Shell");
-            ui.text_edit_singleline(&mut n.shell);
-        });
-        let ok = !n.name.is_empty() && !n.pw.is_empty() && n.pw == n.pw2;
-        if !n.pw.is_empty() && n.pw != n.pw2 {
-            ui.colored_label(egui::Color32::LIGHT_RED, "The passwords differ");
-        }
-        if ui.add_enabled(ok, egui::Button::new("Add user")).clicked() {
-            match hostcfg::password::hash(&n.pw) {
-                Ok(h) => {
-                    let groups = n.groups.split(',').map(|g| g.trim().to_string()).filter(|g| !g.is_empty()).collect();
-                    self.model.cfg.users.push(config::User { name: n.name.clone(), password_hash: h, groups, shell: n.shell.clone() });
-                    self.model.dirty = true;
-                    self.new_user = NewUser::default();
-                }
-                Err(e) => self.status = format!("cannot hash the password: {e}"),
-            }
-        }
-        ui.separator();
-        ui.label("root account");
-        let mut locked = self.model.cfg.root_password_hash.is_none();
-        if ui.checkbox(&mut locked, "Leave root locked (use sudo)").changed() {
-            if locked {
-                self.model.cfg.root_password_hash = None;
-            } else {
-                self.model.cfg.root_password_hash = Some(String::new());
-            }
-            self.model.dirty = true;
-        }
-        if self.model.cfg.root_password_hash.is_some() {
-            ui.label("Set a root password in the user form above and paste its hash here, or edit the Lua file: root_password_hash.");
-            if let Some(h) = &mut self.model.cfg.root_password_hash {
-                if ui.text_edit_singleline(h).changed() {
-                    self.model.dirty = true;
-                }
-            }
-        }
-    }
-
-    fn tab_services(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Services enabled on first boot");
-        self.lines(ui, "services", |m| m.cfg.services.clone(), |m, v| m.cfg.services = v, 140.0);
-        ui.heading("Extra kernel parameters");
-        ui.label("One word per line, for the installed system's kernel command line.");
-        self.lines(ui, "kernel_params", |m| m.cfg.kernel_params.clone(), |m, v| m.cfg.kernel_params = v, 120.0);
-    }
-
-    fn tab_build(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Build profile");
-        let current = self.model.host.build.profile.clone().unwrap_or_else(|| "super-small".into());
-        let mut chosen = current.clone();
-        ui.radio_value(&mut chosen, "super-small".into(), "super-small: size-optimized installer (the default). About 0.7 MiB; a crash shows no panic message.");
-        ui.radio_value(&mut chosen, "large".into(), "large: regular release build, panic messages kept. About 0.8 MiB.");
-        ui.add_enabled(false, egui::RadioButton::new(false, "extra-large: reserved, not available yet"));
-        if chosen != current {
-            self.model.set_profile(&chosen);
-        }
-        ui.separator();
-        let mut teth = self.model.host.build.tethering;
-        if ui.checkbox(&mut teth, "Include USB tethering (iPhone, Android, USB Ethernet), about +100 KiB").changed() {
-            self.model.host.build.tethering = teth;
-            self.model.dirty = true;
-        }
-        ui.separator();
-        ui.heading("Installer drivers");
-        ui.label("Drivers of the installer itself, not packages for the installed system. Leave all selected unless you know the hardware.");
-        let mut all = self.model.host.installer_drivers.is_none();
-        if ui.checkbox(&mut all, "All drivers").changed() {
-            self.model.host.installer_drivers = if all { None } else { Some(DRIVERS.iter().map(|d| d.id.to_string()).collect()) };
-            self.model.dirty = true;
-        }
-        if let Some(list) = self.model.host.installer_drivers.clone() {
-            let mut next = list.clone();
-            for (class, title) in [(DriverClass::Storage, "Storage"), (DriverClass::Network, "Network")] {
-                ui.label(title);
-                for d in DRIVERS.iter().filter(|d| d.class == class) {
-                    let mut on = list.iter().any(|i| i == d.id);
-                    if ui.checkbox(&mut on, format!("{}: {} ({})", d.id, d.description, d.status)).changed() {
-                        if on {
-                            next.push(d.id.to_string());
-                        } else {
-                            next.retain(|i| i != d.id);
-                        }
-                    }
-                }
-            }
-            if next != list {
-                self.model.host.installer_drivers = Some(next);
-                self.model.dirty = true;
-            }
-        }
-        ui.separator();
-        ui.label("AUR packages: not available yet.");
-    }
-
-    fn tab_scripts(&mut self, ui: &mut egui::Ui) {
-        ui.heading("First-boot scripts");
-        ui.colored_label(egui::Color32::YELLOW, "Scripts are code. They run as root on the installed system, in this order, at the end of the first boot. A failing script only logs a warning.");
-        let mut remove = None;
-        for (i, s) in self.model.cfg.scripts.iter().enumerate() {
-            ui.horizontal(|ui| {
-                let src = match hostcfg::scripts::source(s) {
-                    hostcfg::scripts::Source::Builtin => "built-in".to_string(),
-                    hostcfg::scripts::Source::File(f) => format!("local file {f}"),
-                    hostcfg::scripts::Source::Remote { url, sha256 } => format!("{url}, sha256 {sha256}"),
-                };
-                ui.label(format!("{}. {} ({src}) args: [{}]", i + 1, s.id, s.args.join(" ")));
-                if ui.button("Remove").clicked() {
-                    remove = Some(i);
-                }
-            });
-        }
-        if let Some(i) = remove {
-            self.model.cfg.scripts.remove(i);
-            self.model.dirty = true;
-        }
-        ui.separator();
-        ui.label("Built-in scripts");
-        for b in hostcfg::scripts::BUILTINS {
-            ui.horizontal(|ui| {
-                ui.label(format!("{}: {} (runs as {}, {}; needs: {})", b.id, b.description, b.runs_as, b.phase, if b.requires.is_empty() { "nothing" } else { b.requires }));
-                if ui.button("Add").clicked() && !self.model.cfg.scripts.iter().any(|s| s.id == b.id) {
-                    self.model.cfg.scripts.push(config::Script { id: b.id.into(), ..Default::default() });
-                    self.model.dirty = true;
-                }
-            });
-        }
-        ui.separator();
-        ui.label("Custom script: a local file, or an https URL pinned by its SHA-256 digest");
-        let n = &mut self.new_script;
-        ui.horizontal(|ui| {
-            ui.label("Id");
-            ui.text_edit_singleline(&mut n.0);
-        });
-        ui.horizontal(|ui| {
-            ui.label("Local file");
-            ui.text_edit_singleline(&mut n.1);
-            if ui.button("Browse...").clicked() {
-                if let Some(p) = rfd::FileDialog::new().pick_file() {
-                    n.1 = p.display().to_string();
-                }
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.label("URL");
-            ui.text_edit_singleline(&mut n.2);
-            ui.label("SHA-256");
-            ui.text_edit_singleline(&mut n.3);
-        });
-        if !n.1.is_empty() {
-            if let Ok(text) = std::fs::read_to_string(&n.1) {
-                let digest = {
-                    use sha2::Digest;
-                    sha2::Sha256::digest(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect::<String>()
-                };
-                ui.label(format!("sha256 {digest}"));
-                egui::ScrollArea::vertical().id_salt("scriptsrc").max_height(120.0).show(ui, |ui| ui.monospace(&text));
-            }
-        }
-        ui.checkbox(&mut self.root_script_ack, "I understand a custom script runs as root on the installed system");
-        let valid = !n.0.is_empty() && (!n.1.is_empty() || !n.2.is_empty());
-        if ui.add_enabled(valid && self.root_script_ack, egui::Button::new("Add custom script")).clicked() {
-            let s = config::Script {
-                id: n.0.clone(),
-                file: (!n.1.is_empty()).then(|| n.1.clone()),
-                url: (n.1.is_empty() && !n.2.is_empty()).then(|| n.2.clone()),
-                sha256: (n.1.is_empty() && !n.3.is_empty()).then(|| n.3.clone()),
-                ..Default::default()
-            };
-            self.model.cfg.scripts.push(s);
-            self.model.dirty = true;
-            self.new_script = Default::default();
-        }
-    }
-
-    fn tab_preview(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Lua");
-        match &mut self.model.raw {
-            Some(text) => {
-                ui.label("This file was not written by the GUI, so it is edited as text and checked as it is.");
-                if ui.add(egui::TextEdit::multiline(text).code_editor().desired_width(f32::INFINITY).desired_rows(30)).changed() {
-                    self.model.dirty = true;
-                }
-                if ui.button("Replace with a form-based starter").clicked() {
-                    let p = self.model.path.clone();
-                    let mut m = Model::starter();
-                    m.path = p;
-                    m.dirty = true;
-                    self.load(m);
-                }
+                self.problem.set_text(&format!("Invalid: {}", p.message));
+                self.problem.add_css_class("note-bad");
+                self.problem_btn.set_visible(true);
             }
             None => {
-                let mut text = self.model.lua();
-                egui::ScrollArea::vertical().show(ui, |ui| ui.add(egui::TextEdit::multiline(&mut text).code_editor().desired_width(f32::INFINITY).interactive(false)));
+                self.problem.set_text("The config is valid (the same checks as the command line).");
+                self.problem.add_css_class("note-ok");
+                self.problem_btn.set_visible(false);
             }
         }
+        self.status.set_text(&self.st.borrow().status);
     }
 
-    fn tab_iso(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Build the ISO");
-        let problems = self.model.problems();
-        if let Some(p) = problems.first() {
-            ui.colored_label(egui::Color32::LIGHT_RED, format!("The config is invalid: {}", p.message));
+    /// Asks before a replacement of the document throws unsaved work away.
+    pub async fn may_discard(self: &Rc<Self>) -> bool {
+        if !self.st.borrow().model.dirty {
+            return true;
         }
-        match self.model.path.clone() {
-            Some(p) => {
-                ui.label(format!("Config: {}", p.display()));
+        dialogs::confirm(self.win.upcast_ref(), "Discard the unsaved changes?", "This config has changes that were not saved.", "Discard").await
+    }
+
+    pub fn load(self: &Rc<Self>, m: Model, status: String) {
+        self.st.borrow_mut().load(m);
+        self.set_status(status);
+        self.rebuild_all();
+    }
+
+    pub fn new_doc(self: &Rc<Self>) {
+        let a = self.clone();
+        glib::spawn_future_local(async move {
+            if a.may_discard().await {
+                a.load(Model::starter(), "New config".into());
             }
-            None => {
-                ui.label("The config has not been saved yet; a build uses the saved file.");
+        });
+    }
+
+    pub fn open_doc(self: &Rc<Self>) {
+        let a = self.clone();
+        glib::spawn_future_local(async move {
+            if !a.may_discard().await {
+                return;
             }
-        }
-        ui.label(format!("Profile: {}   Tethering: {}   Drivers: {}", self.model.effective_profile(), self.model.host.build.tethering, self.model.host.drivers().join(", ")));
-        if self.model.cfg.disk.auto_largest {
-            ui.colored_label(egui::Color32::YELLOW, "This ISO erases the largest disk of the machine it boots on, without asking.");
-        }
-        for l in hostcfg::scripts::summary(&self.model.cfg) {
-            ui.label(l);
-        }
-        let can = problems.is_empty() && self.build.running.is_none();
-        ui.horizontal(|ui| {
-            if ui.add_enabled(can, egui::Button::new("Save and build...")).clicked() {
-                self.save();
-                if let Some(cfg) = self.model.path.clone() {
-                    let name = cfg.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "archstaler".into());
-                    if let Some(out) = rfd::FileDialog::new().add_filter("ISO image", &["iso"]).set_file_name(format!("{name}.iso")).save_file() {
-                        if out.exists() {
-                            self.confirm = Some(Confirm::Overwrite(out));
-                        } else {
-                            self.start_build(cfg, out);
-                        }
+            let Some(p) = dialogs::open_file(a.win.upcast_ref(), "Open a Lua config", Some(("Lua config", "*.lua"))).await else { return };
+            match Model::open(&p) {
+                Ok(m) => a.load(m, format!("Opened {}", p.display())),
+                Err(e) => a.set_status(e),
+            }
+        });
+    }
+
+    pub fn preset_doc(self: &Rc<Self>, name: String) {
+        let a = self.clone();
+        glib::spawn_future_local(async move {
+            if !a.may_discard().await {
+                return;
+            }
+            let path = a.st.borrow().presets.iter().find(|p| p.name == name).map(|p| p.path.clone());
+            let Some(path) = path else {
+                a.set_status(format!("no preset named {name}"));
+                return;
+            };
+            match Model::from_preset(&path) {
+                Ok(m) => {
+                    a.load(m, format!("New config from preset {name} (unsaved)"));
+                    // Presets erase the largest disk: say so before the user builds anything from it.
+                    a.show(Page::Disk);
+                    if a.st.borrow().model.cfg.disk.auto_largest {
+                        dialogs::notice(a.win.upcast_ref(), "This preset erases the largest disk", "A machine that boots an ISO built from it loses its largest disk without being asked. Change the disk choice on the Disk page if that is not what you want.");
                     }
                 }
-            }
-            if self.build.running.is_some() && ui.button("Cancel").clicked() {
-                if let Some(b) = self.build.running.take() {
-                    b.cancel();
-                    self.build.error = Some(format!("Cancelled. Log kept at {}", b.log_path.display()));
-                    self.build.iso = None;
-                }
+                Err(e) => a.set_status(e),
             }
         });
-        for (name, st) in &self.build.stages {
-            let (mark, color) = match st {
-                State::Start => ("...", egui::Color32::YELLOW),
-                State::Ok => ("ok ", egui::Color32::LIGHT_GREEN),
-                State::Fail => ("FAILED", egui::Color32::LIGHT_RED),
-            };
-            ui.colored_label(color, format!("{mark} {name}"));
-        }
-        if let Some(e) = &self.build.error {
-            ui.colored_label(egui::Color32::LIGHT_RED, e);
-        }
-        if let Some((path, size, sha)) = &self.build.iso {
-            ui.colored_label(egui::Color32::LIGHT_GREEN, format!("Built {} ({} KiB)", path.display(), size >> 10));
-            ui.label(format!("sha256 {sha}"));
-            if let Some(s) = &self.build.summary {
-                ui.label(s);
-            }
-        }
-        ui.separator();
-        ui.label("Build log");
-        egui::ScrollArea::vertical().id_salt("log").stick_to_bottom(true).max_height(160.0).show(ui, |ui| {
-            for l in &self.build.log {
-                ui.monospace(l);
-            }
-        });
-        ui.separator();
-        self.media_section(ui);
     }
 
-    fn start_build(&mut self, cfg: PathBuf, out: PathBuf) {
-        let root = match build::find_root() {
-            Ok(r) => r,
+    /// Saves to the known path, else asks for one. `true` when the file was written.
+    pub async fn save_async(self: &Rc<Self>) -> bool {
+        let path = self.st.borrow().model.path.clone();
+        let path = match path {
+            Some(p) => p,
+            None => match dialogs::save_file(self.win.upcast_ref(), "Save the config", "archstaller.lua", Some(("Lua config", "*.lua"))).await {
+                Some(p) => p,
+                None => return false,
+            },
+        };
+        let r = self.st.borrow_mut().model.save(&path);
+        match r {
+            Ok(()) => {
+                self.set_status(format!("Saved {}", path.display()));
+                self.refresh_chrome();
+                true
+            }
             Err(e) => {
-                self.build.error = Some(e);
-                return;
+                self.set_status(e);
+                false
             }
+        }
+    }
+
+    pub fn save(self: &Rc<Self>) {
+        let a = self.clone();
+        glib::spawn_future_local(async move {
+            a.save_async().await;
+        });
+    }
+
+    pub fn save_as(self: &Rc<Self>) {
+        let a = self.clone();
+        glib::spawn_future_local(async move {
+            let Some(p) = dialogs::save_file(a.win.upcast_ref(), "Save the config as", "archstaller.lua", Some(("Lua config", "*.lua"))).await else { return };
+            let r = a.st.borrow_mut().model.save(&p);
+            match r {
+                Ok(()) => a.set_status(format!("Saved {}", p.display())),
+                Err(e) => a.set_status(e),
+            }
+            a.refresh_chrome();
+        });
+    }
+
+    pub fn copy_text(&self, text: &str, what: &str) {
+        self.win.clipboard().set_text(text);
+        self.set_status(format!("{what} copied to the clipboard"));
+    }
+
+    // ------------------------------------------------------------------ actions
+
+    fn install_actions(self: &Rc<Self>, gapp: &gtk::Application) {
+        let simple = |name: &str, a: &Rc<App>, f: fn(&Rc<App>)| {
+            let act = gio::SimpleAction::new(name, None);
+            let a = a.clone();
+            act.connect_activate(move |_, _| f(&a));
+            self.win.add_action(&act);
         };
-        self.next_build += 1;
-        let id = format!("{}-{}", std::process::id(), self.next_build);
-        self.build = BuildState::default();
-        match Build::start(&root, &cfg, &id) {
-            Ok(b) => {
-                self.build.out = Some(out);
-                self.build.summary = Some(format!("config {}, profile {}", cfg.display(), self.model.effective_profile()));
-                self.build.running = Some(b);
+        simple("new", self, |a| a.new_doc());
+        simple("open", self, |a| a.open_doc());
+        simple("save", self, |a| a.save());
+        simple("save-as", self, |a| a.save_as());
+        simple("copy-lua", self, |a| {
+            let t = a.st.borrow().model.lua();
+            a.copy_text(&t, "Lua");
+        });
+        simple("copy-sha", self, |a| {
+            let sha = a.st.borrow().build.iso.as_ref().map(|i| i.2.clone());
+            match sha {
+                Some(s) => a.copy_text(&s, "SHA-256"),
+                None => a.set_status("no ISO built yet"),
             }
-            Err(e) => self.build.error = Some(e),
+        });
+        simple("launcher", self, |a| crate::launcher::open(a));
+        simple("build-iso", self, |a| {
+            a.show(Page::Iso);
+            pages::iso::start_from_action(a);
+        });
+        let preset = gio::SimpleAction::new("preset", Some(glib::VariantTy::STRING));
+        {
+            let a = self.clone();
+            preset.connect_activate(move |_, v| {
+                if let Some(name) = v.and_then(|v| v.get::<String>()) {
+                    a.preset_doc(name);
+                }
+            });
+        }
+        self.win.add_action(&preset);
+        let goto = gio::SimpleAction::new("goto", Some(glib::VariantTy::STRING));
+        {
+            let a = self.clone();
+            goto.connect_activate(move |_, v| {
+                if let Some(id) = v.and_then(|v| v.get::<String>()) {
+                    if let Some((page, ..)) = PAGES.iter().find(|p| p.1 == id) {
+                        a.show(*page);
+                    }
+                }
+            });
+        }
+        self.win.add_action(&goto);
+        gapp.set_accels_for_action("win.new", &["<Primary>n"]);
+        gapp.set_accels_for_action("win.open", &["<Primary>o"]);
+        gapp.set_accels_for_action("win.save", &["<Primary>s"]);
+        gapp.set_accels_for_action("win.save-as", &["<Primary><Shift>s"]);
+        gapp.set_accels_for_action("win.launcher", &["<Primary>k"]);
+        // "/" opens the launcher too, but only when no text field has the focus.
+        let key = gtk::EventControllerKey::new();
+        key.set_propagation_phase(gtk::PropagationPhase::Capture);
+        {
+            let a = self.clone();
+            key.connect_key_pressed(move |_, k, _, mods| {
+                if k == gtk::gdk::Key::slash && mods.is_empty() {
+                    let typing = gtk::prelude::GtkWindowExt::focus(&a.win).is_some_and(|f| f.is::<gtk::Editable>() || f.is::<gtk::TextView>() || f.ancestor(gtk::TextView::static_type()).is_some() || f.ancestor(gtk::Text::static_type()).is_some());
+                    if !typing {
+                        crate::launcher::open(&a);
+                        return glib::Propagation::Stop;
+                    }
+                }
+                glib::Propagation::Proceed
+            });
+        }
+        self.win.add_controller(key);
+    }
+
+    // ------------------------------------------------------------------ background work
+
+    fn tick(self: &Rc<Self>) {
+        let mut changed = false;
+        {
+            let mut st = self.st.borrow_mut();
+            if let Some(rx) = &st.resolve_rx {
+                if let Ok(r) = rx.try_recv() {
+                    st.resolve = Some(r);
+                    st.resolve_rx = None;
+                    changed = true;
+                }
+            }
+            let was_busy = st.aur.busy();
+            if let Some(p) = st.aur.poll() {
+                // Pinned: the search that led here is done with.
+                st.aur.results = None;
+                st.aur.search.clear();
+                st.aur_focus_search = true;
+                st.model.cfg.aur = p.entries;
+                st.model.dirty = true;
+                changed = true;
+            }
+            if was_busy && !st.aur.busy() {
+                changed = true;
+            }
+            // A search for an exact package name goes straight to that package's review.
+            if st.aur_auto_review && st.aur.search_rx.is_none() {
+                st.aur_auto_review = false;
+                let term = st.aur.search.trim().to_lowercase();
+                let hit = match &st.aur.results {
+                    Some(Ok(list)) => list.iter().find(|i| i.name.to_lowercase() == term).cloned(),
+                    _ => None,
+                };
+                if let Some(info) = hit {
+                    if st.aur.review.is_none() && !st.aur.busy() {
+                        st.aur.start_review(&info);
+                        changed = true;
+                    }
+                }
+            }
+        }
+        if pages::iso::pump(self) {
+            changed = true;
+        }
+        if changed {
+            self.st.borrow_mut().ui_dirty = true;
+        }
+        let dirty = std::mem::take(&mut self.st.borrow_mut().ui_dirty);
+        if dirty {
+            self.refresh_chrome();
+            let f = self.refreshers.borrow().get(&self.current()).cloned();
+            if let Some(f) = f {
+                f();
+            }
+        }
+        // Keep the live ISO page current while it is visible (progress bars, volume list).
+        if self.current() == Page::Iso {
+            pages::iso::live_refresh(self);
         }
     }
 
-    fn pump_build(&mut self) {
-        let Some(b) = &self.build.running else { return };
-        let mut done: Option<(String, u64, String)> = None;
-        let mut exit = None;
-        while let Ok(m) = b.rx.try_recv() {
-            match m {
-                Msg::Log(l) => {
-                    if self.build.log.len() < 20_000 {
-                        self.build.log.push(l);
-                    }
-                }
-                Msg::Event(Event::Stage { name, state }) => {
-                    match self.build.stages.iter_mut().find(|(n, _)| *n == name) {
-                        Some(s) => s.1 = state,
-                        None => self.build.stages.push((name, state)),
-                    }
-                }
-                Msg::Event(Event::Done { path, size, sha256, .. }) => done = Some((path, size, sha256)),
-                Msg::Event(Event::Failed { message }) => self.build.error = Some(message),
-                Msg::Exit(ok) => exit = Some(ok),
-            }
-        }
-        if let Some(ok) = exit {
-            let b = self.build.running.take().unwrap();
-            let _ = std::fs::write(&b.log_path, self.build.log.join("\n"));
-            match (ok, done) {
-                (true, Some((path, size, sha))) if build::usable(std::path::Path::new(&path), size) => {
-                    let out = self.build.out.clone().unwrap();
-                    let moved = std::fs::rename(&path, &out).or_else(|_| std::fs::copy(&path, &out).map(|_| ()));
-                    match moved {
-                        Ok(()) if build::usable(&out, size) => {
-                            let _ = std::fs::remove_dir_all(&b.workdir);
-                            self.build.iso = Some((out, size, sha));
-                        }
-                        Ok(()) => self.build.error = Some("the ISO was moved but is not readable at the expected size".into()),
-                        Err(e) => self.build.error = Some(format!("cannot place the ISO at its destination: {e}")),
-                    }
-                }
-                _ => {
-                    if self.build.error.is_none() {
-                        self.build.error = Some(format!("The build failed; see the log (kept at {})", b.log_path.display()));
-                    }
-                }
-            }
-        }
-    }
-
-    fn media_section(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Put it on a stick");
-        let iso = self.media.iso_override.clone().or_else(|| self.build.iso.as_ref().map(|i| i.0.clone()));
-        ui.horizontal(|ui| {
-            ui.label(match &iso {
-                Some(p) => format!("ISO: {}", p.display()),
-                None => "Build an ISO first, or pick one.".into(),
-            });
-            if ui.button("Pick an ISO...").clicked() {
-                self.media.iso_override = rfd::FileDialog::new().add_filter("ISO image", &["iso"]).pick_file();
-            }
-        });
-        ui.label("Copy to Ventoy adds the ISO as a file; nothing on the stick is formatted or repartitioned. Raw flashing is not available yet.");
-        if ui.button("Refresh volumes").clicked() {
-            self.media.volumes = media::volumes();
-            self.media.selected = None;
-        }
-        let all = self.media.volumes.clone();
-        for (i, v) in all.iter().enumerate() {
-            let ventoy = media::is_ventoy(v, &all);
-            let tag = if ventoy { "  [Ventoy]" } else if v.removable { "  [removable]" } else { "" };
-            let label = format!("{}  {}  {}  {} GiB free of {} GiB{tag}", v.name, v.mount.display(), v.fs, v.available >> 30, v.total >> 30);
-            if ui.radio(self.media.selected == Some(i), label).clicked() {
-                self.media.selected = Some(i);
-                self.media.dir = Some(v.mount.clone());
-            }
-        }
-        if let Some(i) = self.media.selected {
-            let v = &all[i];
-            if !media::is_ventoy(v, &all) {
-                ui.colored_label(egui::Color32::YELLOW, "Ventoy was not detected on this volume (no ventoy folder or ventoy.json). The ISO will only be copied into the folder you choose.");
-            }
-            ui.horizontal(|ui| {
-                ui.label(format!("Destination folder: {}", self.media.dir.as_ref().map(|d| d.display().to_string()).unwrap_or_default()));
-                if ui.button("Choose...").clicked() {
-                    if let Some(d) = rfd::FileDialog::new().set_directory(&v.mount).pick_folder() {
-                        self.media.dir = Some(d);
-                    }
-                }
-            });
-            ui.checkbox(&mut self.media.overwrite, "Overwrite a file with the same name");
-        }
-        let busy = self.media.rx.is_some();
-        let ready = iso.is_some() && self.media.selected.is_some() && !busy;
-        ui.horizontal(|ui| {
-            if ui.add_enabled(ready, egui::Button::new("Copy to the selected volume")).clicked() {
-                let (iso, v) = (iso.clone().unwrap(), all[self.media.selected.unwrap()].clone());
-                let target = FolderCopy { dir: self.media.dir.clone().unwrap_or(v.mount.clone()), available: Some(v.available), overwrite: self.media.overwrite };
-                let (tx, rx) = channel();
-                self.media.rx = Some(rx);
-                self.media.result = None;
-                self.media.cancel = Arc::new(AtomicBool::new(false));
-                let cancel = self.media.cancel.clone();
-                std::thread::spawn(move || {
-                    let t2 = tx.clone();
-                    let r = target.write(&iso, &mut |p, d, t| {
-                        let _ = t2.send(MediaMsg::Progress(p, d, t));
-                    }, &cancel);
-                    let _ = tx.send(MediaMsg::Done(r));
-                });
-            }
-            if busy && ui.button("Cancel").clicked() {
-                self.media.cancel.store(true, Ordering::Relaxed);
-            }
-        });
-        if let Some((phase, done, total)) = self.media.progress {
-            if busy {
-                let f = if total == 0 { 0.0 } else { done as f32 / total as f32 };
-                ui.add(egui::ProgressBar::new(f).text(match phase {
-                    Phase::Copying => "copying",
-                    Phase::Verifying => "verifying",
-                }));
-            }
-        }
-        match &self.media.result {
-            Some(Ok(m)) => {
-                ui.colored_label(egui::Color32::LIGHT_GREEN, m);
-            }
-            Some(Err(e)) => {
-                ui.colored_label(egui::Color32::LIGHT_RED, format!("Not copied: {e}"));
-            }
-            None => {}
-        }
-    }
-
-    fn pump_media(&mut self) {
-        let mut finished = false;
-        if let Some(rx) = &self.media.rx {
-            while let Ok(m) = rx.try_recv() {
-                match m {
-                    MediaMsg::Progress(p, d, t) => self.media.progress = Some((p, d, t)),
-                    MediaMsg::Done(r) => {
-                        self.media.result = Some(r.map(|r| format!("Copied and verified {} ({} KiB, sha256 {})", r.dest.display(), r.size >> 10, r.sha256)));
-                        finished = true;
-                    }
-                }
-            }
-        }
-        if finished {
-            self.media.rx = None;
-            self.media.progress = None;
-            self.media.volumes = media::volumes();
-        }
-    }
-}
-
-impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if let Some(rx) = &self.resolve_rx {
-            if let Ok(r) = rx.try_recv() {
-                self.resolve = Some(r);
-                self.resolve_rx = None;
-            }
-        }
-        self.pump_build();
-        self.pump_media();
-        if self.build.running.is_some() || self.media.rx.is_some() || self.resolve_rx.is_some() {
-            ctx.request_repaint_after(std::time::Duration::from_millis(100));
-        }
-
-        egui::TopBottomPanel::top("top").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                if ui.button("New").clicked() {
-                    self.load(Model::starter());
-                    self.status = "New config".into();
-                }
-                ui.menu_button("From preset", |ui| {
-                    if self.presets.is_empty() {
-                        ui.label("No presets found (run from the checkout or set ARCHSTALER_ROOT).");
-                    }
-                    let mut pick = None;
-                    for p in &self.presets {
-                        if ui.button(&p.name).on_hover_text(&p.description).clicked() {
-                            pick = Some(p.path.clone());
-                            ui.close_menu();
-                        }
-                    }
-                    if let Some(path) = pick {
-                        match Model::from_preset(&path) {
-                            Ok(m) => {
-                                self.status = format!("New config from preset {} (unsaved; presets erase the largest disk, see the Disk tab)", path.file_stem().unwrap_or_default().to_string_lossy());
-                                self.load(m);
-                            }
-                            Err(e) => self.status = e,
-                        }
-                    }
-                });
-                if ui.button("Open...").clicked() {
-                    if let Some(p) = rfd::FileDialog::new().add_filter("Lua config", &["lua"]).pick_file() {
-                        match Model::open(&p) {
-                            Ok(m) => {
-                                self.status = format!("Opened {}", p.display());
-                                self.load(m);
-                            }
-                            Err(e) => self.status = e,
-                        }
-                    }
-                }
-                if ui.button("Save").clicked() {
-                    self.save();
-                }
-                if ui.button("Save as...").clicked() {
-                    self.save_as();
-                }
-                ui.separator();
-                let name = self.model.path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "(unsaved)".into());
-                ui.label(format!("{name}{}", if self.model.dirty { " *" } else { "" }));
-                ui.separator();
-                ui.label(&self.status);
-            });
-        });
-
-        let problems = self.model.problems();
-        egui::TopBottomPanel::bottom("problems").show(ctx, |ui| match problems.first() {
-            Some(p) => {
-                ui.colored_label(egui::Color32::LIGHT_RED, format!("Invalid: {}", p.message));
-            }
-            None => {
-                ui.colored_label(egui::Color32::LIGHT_GREEN, "The config is valid (the same checks as the command line).");
-            }
-        });
-
-        egui::SidePanel::left("tabs").resizable(false).show(ctx, |ui| {
-            for (tab, name, area) in TABS {
-                let bad = area.is_some_and(|a| problems.iter().any(|p| p.area == a));
-                let text = if bad { egui::RichText::new(format!("{name} !")).color(egui::Color32::LIGHT_RED) } else { egui::RichText::new(*name) };
-                if ui.selectable_label(self.tab == *tab, text).clicked() {
-                    self.tab = *tab;
-                }
-            }
-        });
-
-        egui::CentralPanel::default().show(ctx, |ui| {
-            if self.model.raw.is_some() && !matches!(self.tab, Tab::Preview | Tab::Iso) {
-                ui.label("This config was not written by the GUI: it is edited as text on the \"Lua preview\" tab. The form tabs are for GUI-generated files.");
-                return;
-            }
-            egui::ScrollArea::vertical().id_salt("page").show(ui, |ui| match self.tab {
-                Tab::System => self.tab_system(ui),
-                Tab::Disk => self.tab_disk(ui),
-                Tab::Packages => self.tab_packages(ui),
-                Tab::Users => self.tab_users(ui),
-                Tab::Services => self.tab_services(ui),
-                Tab::Build => self.tab_build(ui),
-                Tab::Scripts => self.tab_scripts(ui),
-                Tab::Preview => self.tab_preview(ui),
-                Tab::Iso => self.tab_iso(ui),
-            });
-        });
-
-        // Confirmations for irreversible choices.
-        let mut resolved = None;
-        if let Some(c) = &self.confirm {
-            egui::Window::new("Please confirm").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
-                match c {
-                    Confirm::AutoLargest => {
-                        ui.label("With this option the installer wipes and installs onto the largest disk of whatever machine boots this ISO, with no confirmation. Use it only for machines you intend to erase.");
-                    }
-                    Confirm::Overwrite(p) => {
-                        ui.label(format!("{} exists. Replace it with the new ISO?", p.display()));
-                    }
-                }
-                ui.horizontal(|ui| {
-                    if ui.button("Yes, continue").clicked() {
-                        resolved = Some(true);
-                    }
-                    if ui.button("No").clicked() {
-                        resolved = Some(false);
-                    }
-                });
-            });
-        }
-        if let Some(yes) = resolved {
-            match (self.confirm.take(), yes) {
-                (Some(Confirm::AutoLargest), true) => {
-                    self.model.cfg.disk.auto_largest = true;
-                    self.model.dirty = true;
-                }
-                (Some(Confirm::Overwrite(out)), true) => {
-                    if let Some(cfg) = self.model.path.clone() {
-                        self.start_build(cfg, out);
-                    }
-                }
-                _ => {}
-            }
-        }
+    pub fn window(&self) -> gtk::Window {
+        self.win.clone().upcast()
     }
 }

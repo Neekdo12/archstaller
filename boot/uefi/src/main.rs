@@ -2,7 +2,7 @@
 //! volume it was started from:
 //!
 //! * `\payload.bin` (the installer ISO's boot image): unpack the installer kernel and enter it.
-//! * `\archstaler.cfg` (the target disk's ESP, first boot): start the Arch Linux kernel, which is a
+//! * `\archstaller.cfg` (the target disk's ESP, first boot): start the Arch Linux kernel, which is a
 //!   UEFI application itself, with a command line and an initramfs read from the ESP. The config
 //!   is `kernel=<path>`, `initrd=<path>`, `cmdline=<rest of line>`, one per line.
 #![no_std]
@@ -569,12 +569,12 @@ extern "efiapi" fn efi_main(image: Handle, st: *mut SystemTable) -> Status {
     // A firmware watchdog resets the machine after five minutes by default; the installer runs longer.
     (bs().set_watchdog_timer)(0, 0, 0, null());
     log("boot: UEFI loader\n");
-    if let Some((_, cfg, n)) = find_file(image, "\\archstaler.cfg") {
+    if let Some((_, cfg, n)) = find_file(image, "\\archstaller.cfg") {
         boot_linux(image, unsafe { core::slice::from_raw_parts(cfg, n) });
     } else if let Some((_, p, n)) = find_file(image, "\\payload.bin") {
         boot_installer(image, p, n);
     } else {
-        say("boot: neither archstaler.cfg nor payload.bin found\n");
+        say("boot: neither archstaller.cfg nor payload.bin found\n");
     }
     (bs().stall)(10_000_000);
     ERR | 1

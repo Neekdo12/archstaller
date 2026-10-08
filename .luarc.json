@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/LuaLS/vscode-lua/master/setting/schema.json",
+  "runtime.version": "Lua 5.4",
+  "runtime.path": ["configs/?.lua"],
+  "workspace.library": ["configs"],
+  "workspace.checkThirdParty": false,
+  "diagnostics.globals": ["CONFIG_DIR"],
+  "diagnostics.severity": {
+    "undefined-field": "Error",
+    "inject-field": "Error",
+    "missing-fields": "Error",
+    "param-type-mismatch": "Error",
+    "assign-type-mismatch": "Error",
+    "return-type-mismatch": "Error"
+  }
+}

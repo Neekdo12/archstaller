@@ -133,9 +133,9 @@ fn cert_chain_verified_by_openssl() {
         .expect("pair record");
 
     let dir = std::env::temp_dir();
-    let root = dir.join("archstaler-test-root.pem");
-    let devc = dir.join("archstaler-test-dev.pem");
-    let host = dir.join("archstaler-test-host.pem");
+    let root = dir.join("archstaller-test-root.pem");
+    let devc = dir.join("archstaller-test-dev.pem");
+    let host = dir.join("archstaller-test-host.pem");
     std::fs::write(&root, &rec.root_certificate).unwrap();
     std::fs::write(&devc, &rec.device_certificate).unwrap();
     std::fs::write(&host, &rec.host_certificate).unwrap();

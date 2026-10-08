@@ -1,0 +1,64 @@
+name: Release
+
+# Push a tag such as v0.1.0. The workflow builds every preset ISO and attaches them, with checksums, to a
+# GitHub release. The ISOs are under 1 MiB each: the packages are downloaded at install time.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to (re)build the release for
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    timeout-minutes: 90
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Install git (needed before checkout inside the container)
+        run: pacman -Sy --noconfirm --needed git
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: ./.github/actions/setup
+        with:
+          packages: github-cli
+      - name: Build every preset (the hardware tester is one of them)
+        run: cargo xtask presets
+      - name: Checksums
+        run: |
+          cd target/isos
+          sha256sum *.iso | tee SHA256SUMS
+      - name: Publish
+        run: |
+          set -euo pipefail
+          notes=$(cat <<'EOF'
+          Installer ISOs for every preset, built from this tag.
+
+          **These ISOs erase the largest disk of the machine that boots them without asking** (`disk.auto_largest`).
+          Only boot them where that is what you want. Change the default password (`passwd`) of the user
+          `passwd_is_passwd` before the installed machine is on a network.
+
+          `archstaller-tester.iso` is read-only: it tests the hardware and never writes a disk.
+          Verify downloads with `sha256sum -c SHA256SUMS`.
+          EOF
+          )
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" target/isos/*.iso target/isos/SHA256SUMS --clobber
+          else
+            gh release create "$TAG" target/isos/*.iso target/isos/SHA256SUMS \
+              --title "$TAG" --notes "$notes" --verify-tag
+          fi

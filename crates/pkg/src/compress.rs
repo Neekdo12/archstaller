@@ -27,6 +27,11 @@ impl<R: Read> Read for Peeked<R> {
     }
 }
 
+/// The largest zstd window accepted. ruzstd's default is 100 MiB, but Arch compresses packages with
+/// `zstd --ultra -20`, which uses a 128 MiB window (`js140` is one); anything larger is refused so a
+/// hostile stream cannot make the installer allocate without bound.
+const ZSTD_MAX_WINDOW: u64 = 128 * 1024 * 1024;
+
 /// Adapts our reader to ruzstd's.
 pub struct ZAdapter<R>(R);
 
@@ -143,7 +148,7 @@ pub fn open<R: Read>(mut src: R) -> Result<Decompressor<R>> {
     if head[..2] == [0x1f, 0x8b] {
         Ok(Decompressor::Gzip(Gzip::new(peeked)?))
     } else if head == [0x28, 0xb5, 0x2f, 0xfd] {
-        let d = ruzstd::decoding::StreamingDecoder::new(ZAdapter(peeked)).map_err(|_| Error::Format("bad zstd frame"))?;
+        let d = ruzstd::decoding::StreamingDecoder::new_with_max_window_size(ZAdapter(peeked), ZSTD_MAX_WINDOW).map_err(|_| Error::Format("bad zstd frame"))?;
         Ok(Decompressor::Zstd(Box::new(d)))
     } else if head == [0xfd, b'7', b'z', b'X'] {
         Err(Error::Unsupported("xz"))
@@ -159,5 +164,46 @@ impl<R: Read> Read for Decompressor<R> {
             Decompressor::Gzip(r) => r.read(buf),
             Decompressor::Zstd(r) => ruzstd::io::Read::read(&mut **r, buf).map_err(|_| Error::Format("corrupt zstd stream")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A zstd frame with one raw block holding "hello" and the given window descriptor byte.
+    fn frame(window_descriptor: u8) -> Vec<u8> {
+        let mut f = vec![0x28, 0xb5, 0x2f, 0xfd, 0x00, window_descriptor];
+        f.extend_from_slice(&[0x29, 0x00, 0x00]); // last block, raw, 5 bytes
+        f.extend_from_slice(b"hello");
+        f
+    }
+
+    fn decode(data: &[u8]) -> Result<Vec<u8>> {
+        let mut d = open(data)?;
+        let mut out = Vec::new();
+        let mut buf = [0u8; 64];
+        loop {
+            let n = d.read(&mut buf)?;
+            if n == 0 {
+                return Ok(out);
+            }
+            out.extend_from_slice(&buf[..n]);
+        }
+    }
+
+    #[test]
+    fn arch_packages_use_a_128_mib_window_and_it_is_accepted() {
+        // Window_Descriptor 0x88: exponent 17, mantissa 0 -> 2^(10+17) = 128 MiB (`zstd --ultra -20`).
+        assert_eq!(decode(&frame(0x88)).unwrap(), b"hello");
+        // 64 MiB and the 8 MiB default of `zstd -19` are fine too.
+        assert_eq!(decode(&frame(0x80)).unwrap(), b"hello");
+        assert_eq!(decode(&frame(0x48)).unwrap(), b"hello");
+    }
+
+    #[test]
+    fn a_window_larger_than_128_mib_is_refused() {
+        // exponent 18 -> 256 MiB
+        assert!(matches!(decode(&frame(0x90)), Err(Error::Format("bad zstd frame"))));
     }
 }

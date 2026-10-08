@@ -1,0 +1,25 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: [dependencies]
+    commit-message:
+      prefix: "deps"
+    groups:
+      rustcrypto:
+        patterns: ["sha2", "sha1", "digest", "aes*", "chacha20*", "poly1305", "ghash", "polyval", "curve25519-dalek", "ed25519*", "rsa", "p256", "p384", "x25519*", "hmac", "hkdf", "crypto-*", "signature", "subtle", "zeroize"]
+      gtk:
+        patterns: ["gtk4*", "gtk*", "sourceview5", "glib*", "gio*", "gdk*", "pango*", "cairo*", "graphene*"]
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    labels: [ci]
+    commit-message:
+      prefix: "ci"

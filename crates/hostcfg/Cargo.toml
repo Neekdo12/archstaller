@@ -9,10 +9,12 @@ config = { path = "../../config", features = ["std"] }
 mlua = { version = "0.12", features = ["lua54", "vendored", "serialize"] }
 postcard = { version = "1", features = ["use-std"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 pkg = { path = "../pkg" }
 sha-crypt = { version = "0.5", default-features = false, features = ["simple"] }
 ureq = { version = "3", optional = true }
+schemars = { version = "1", features = ["preserve_order"] }
+serde_path_to_error = "0.1"
 
 [features]
 # Downloading the package databases (the GUI turns it on; xtask uses the host's pacman databases).

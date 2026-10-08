@@ -2,7 +2,7 @@ cargo-features = ["panic-immediate-abort"]
 
 [workspace]
 resolver = "2"
-members = ["xtask", "kernel", "config", "crates/hal", "crates/drivers", "crates/net", "crates/pgp-lite", "crates/pkg", "crates/ext4w", "crates/disk", "crates/initrd", "crates/usb", "crates/imobiledevice", "crates/usbnet", "tiny-init", "crates/bootinfo", "crates/hostcfg", "gui", "crates/loadcore", "boot/uefi", "boot/bios-s1", "boot/bios"]
+members = ["xtask", "kernel", "config", "crates/hal", "crates/drivers", "crates/net", "crates/pgp-lite", "crates/pkg", "crates/ext4w", "crates/disk", "crates/initrd", "crates/usb", "crates/imobiledevice", "crates/usbnet", "tiny-init", "crates/bootinfo", "crates/hostcfg", "crates/aurbuild", "gui", "crates/loadcore", "boot/uefi", "boot/bios-s1", "boot/bios"]
 
 [profile.release]
 opt-level = "z"
@@ -19,7 +19,7 @@ inherits = "release"
 panic = "immediate-abort"
 
 # The desktop GUI wants speed, not the installer's size-optimized settings:
-#   cargo build --profile gui -p archstaler-gui   ->  target/gui/archstaler-gui
+#   cargo build --profile gui -p archstaller-gui   ->  target/gui/archstaller-gui
 [profile.gui]
 inherits = "release"
 opt-level = 3

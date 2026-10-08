@@ -1,0 +1,13 @@
+# Review is requested automatically from the owners of the paths a pull request touches.
+* @krasavic3-wittmayer @Neekdo12
+
+# The kernel/loader/installer contract is shared by several crates: change all sides together.
+/crates/bootinfo/ @krasavic3-wittmayer @Neekdo12
+/boot/           @krasavic3-wittmayer @Neekdo12
+/kernel/src/install.rs @krasavic3-wittmayer @Neekdo12
+
+# Trust anchor: the pinned keyring and the PGP verification.
+/xtask/keyring.pin   @krasavic3-wittmayer @Neekdo12
+/crates/pgp-lite/    @krasavic3-wittmayer @Neekdo12
+
+/.github/ @krasavic3-wittmayer @Neekdo12

@@ -1,0 +1,16 @@
+[Unit]
+Description=archstaller: build and install the configured AUR packages
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/var/lib/archstaller/aur.list
+ConditionPathExists=!/var/lib/archstaller/firstboot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/archstaller/aur.sh
+StandardOutput=journal+console
+StandardError=journal+console
+TimeoutStartSec=infinity
+
+[Install]
+WantedBy=multi-user.target

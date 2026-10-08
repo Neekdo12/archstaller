@@ -44,6 +44,50 @@ pub struct Config {
     /// Scripts run as root, in order, at the end of the first boot (after users and services).
     #[serde(default)]
     pub scripts: Vec<Script>,
+    /// AUR packages, in build order. They are not in the ISO: the installed system builds them at its
+    /// first boot (see `plans-implement/aur.md`). Written as `aur_packages` in Lua.
+    #[serde(default, rename = "aur_packages")]
+    pub aur: Vec<AurPackage>,
+}
+
+/// One AUR package, pinned to the reviewed recipe.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AurPackage {
+    /// The package to install (a `pkgname` of the recipe).
+    pub name: String,
+    /// The AUR git repository (`https://aur.archlinux.org/<pkgbase>.git`).
+    pub pkgbase: String,
+    /// Full 40-digit lower-case hex commit of the reviewed recipe.
+    pub commit: String,
+    /// SHA-256 over the reviewed tree (see `plans-implement/aur.md`, "Pinning"), 64 lower-case hex digits.
+    pub sha256: String,
+    /// The recipe builds from a VCS source that the commit does not pin (the user acknowledged it).
+    #[serde(default)]
+    pub vcs: bool,
+    /// Install it as a dependency (another entry needs it) instead of as an explicit package.
+    #[serde(default)]
+    pub as_dep: bool,
+    /// Official packages the recipe needs, to build and to run; the installer adds them to the install.
+    #[serde(default)]
+    pub deps: Vec<String>,
+    /// The part of `deps` that only the build needs.
+    #[serde(default)]
+    pub build_deps: Vec<String>,
+    /// Units to enable once this package is installed.
+    #[serde(default)]
+    pub services: Vec<String>,
+}
+
+/// The most AUR packages a config can name.
+pub const AUR_MAX: usize = 16;
+
+fn hex(s: &str, n: usize) -> bool {
+    s.len() == n && s.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+}
+
+/// Package names as the AUR and pacman allow them.
+fn pkg_name(s: &str) -> bool {
+    !s.is_empty() && s.len() <= 100 && !s.starts_with(['-', '.']) && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "@._+-".contains(c))
 }
 
 /// A first-boot script. Exactly one source: none of `file`/`url` (a built-in script of that `id`),
@@ -163,9 +207,13 @@ impl Config {
                 return bad("root_password_hash (need a $6$ SHA-512 crypt hash)", "<hidden>");
             }
         }
-        for u in &self.users {
+        for (i, u) in self.users.iter().enumerate() {
             if !ident(&u.name, "_-") || u.name.starts_with('-') || u.name == "root" {
                 return bad("user name", &u.name);
+            }
+            // The first-boot script runs `useradd` once per entry and stops at the second one for a name.
+            if self.users[..i].iter().any(|o| o.name == u.name) {
+                return bad("duplicate user name", &u.name);
             }
             if !crypt_hash(&u.password_hash) {
                 return bad("password_hash (need a $6$ SHA-512 crypt hash) for user", &u.name);
@@ -206,6 +254,39 @@ impl Config {
                 return bad("user_archives url (https:// only)", &a.url);
             }
         }
+        if self.aur.len() > AUR_MAX {
+            return Err(format!("at most {AUR_MAX} aur_packages"));
+        }
+        for (i, a) in self.aur.iter().enumerate() {
+            let at = |m: &str| Err(format!("aur_packages[{}]: {m}", i + 1));
+            if !pkg_name(&a.name) {
+                return at(&format!("invalid package name {:?}", a.name));
+            }
+            if !pkg_name(&a.pkgbase) {
+                return at(&format!("invalid pkgbase {:?}", a.pkgbase));
+            }
+            if !hex(&a.commit, 40) {
+                return at("commit must be a full 40-digit lower-case hex commit id (a branch name is not a pin)");
+            }
+            if !hex(&a.sha256, 64) {
+                return at("sha256 must be 64 lower-case hex digits");
+            }
+            if self.aur[..i].iter().any(|o| o.name == a.name) {
+                return at(&format!("{:?} is listed twice", a.name));
+            }
+            if a.deps.len() > 256 || a.deps.iter().any(|d| !pkg_name(d)) {
+                return at("deps must be at most 256 official package names");
+            }
+            if a.build_deps.iter().any(|d| !a.deps.contains(d)) {
+                return at("build_deps must be part of deps");
+            }
+            if a.services.len() > 16 || a.services.iter().any(|u| !ident(u, "._@:-")) {
+                return at("services must be at most 16 systemd unit names");
+            }
+        }
+        if !self.aur.is_empty() && !self.services.iter().any(|u| ["NetworkManager.service", "systemd-networkd.service", "dhcpcd.service", "connman.service"].contains(&u.as_str())) {
+            return Err("aur_packages: the installed system builds them at its first boot and needs a network then; enable NetworkManager.service (or another network service) in services".into());
+        }
         if self.scripts.len() > 32 {
             return Err("at most 32 scripts".into());
         }
@@ -244,5 +325,84 @@ impl Config {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::string::ToString;
+    use alloc::vec;
+
+    fn base() -> Config {
+        Config {
+            hostname: "box".into(),
+            timezone: "Europe/Prague".into(),
+            locale: "en_US.UTF-8".into(),
+            keymap: "us".into(),
+            disk: Disk { model: None, confirm_serial: "S".into(), auto_largest: false, esp_mib: 512 },
+            mirrors: vec!["https://example.org/$repo/os/$arch".into()],
+            packages: vec!["base".into()],
+            providers: vec![],
+            root_password_hash: None,
+            users: vec![],
+            services: vec!["NetworkManager.service".into()],
+            kernel_params: vec![],
+            user_files: vec![],
+            user_archives: vec![],
+            dry_run: false,
+            scripts: vec![],
+            aur: vec![],
+        }
+    }
+
+    fn pkg() -> AurPackage {
+        AurPackage { name: "zen-browser-bin".into(), pkgbase: "zen-browser-bin".into(), commit: "a".repeat(40), sha256: "b".repeat(64), ..Default::default() }
+    }
+
+    fn err_of(f: impl FnOnce(&mut AurPackage)) -> String {
+        let mut c = base();
+        let mut p = pkg();
+        f(&mut p);
+        c.aur = vec![p];
+        c.validate().unwrap_err().to_string()
+    }
+
+    #[test]
+    fn duplicate_user_names_are_refused() {
+        let user = |n: &str| User { name: n.into(), password_hash: format!("$6$abc${}", "a".repeat(86)), groups: vec!["wheel".into()], shell: "/bin/bash".into() };
+        let mut c = base();
+        c.users = vec![user("alice"), user("bob")];
+        assert!(c.validate().is_ok());
+        c.users.push(user("alice"));
+        let e = c.validate().unwrap_err().to_string();
+        assert!(e.contains("duplicate user name") && e.contains("alice"), "{e}");
+    }
+
+    #[test]
+    fn aur_entry_rules() {
+        let mut c = base();
+        c.aur = vec![pkg()];
+        assert!(c.validate().is_ok());
+        assert!(err_of(|p| p.commit = "master".into()).contains("40-digit"));
+        assert!(err_of(|p| p.commit = "A".repeat(40)).contains("40-digit"));
+        assert!(err_of(|p| p.sha256 = "b".repeat(63)).contains("sha256"));
+        assert!(err_of(|p| p.name = "Bad Name".into()).contains("invalid package name"));
+        assert!(err_of(|p| p.pkgbase = "../x".into()).contains("pkgbase"));
+        assert!(err_of(|p| p.deps = vec!["gtk3; rm".into()]).contains("deps"));
+        assert!(err_of(|p| p.build_deps = vec!["gcc".into()]).contains("part of deps"));
+        assert!(err_of(|p| p.services = vec!["a b".into()]).contains("services"));
+    }
+
+    #[test]
+    fn aur_duplicates_count_and_network() {
+        let mut c = base();
+        c.aur = vec![pkg(), pkg()];
+        assert!(c.validate().unwrap_err().contains("twice"));
+        c.aur = (0..=AUR_MAX).map(|i| AurPackage { name: alloc::format!("p{i}"), pkgbase: alloc::format!("p{i}"), ..pkg() }).collect();
+        assert!(c.validate().unwrap_err().contains("at most"));
+        c.aur = vec![pkg()];
+        c.services.clear();
+        assert!(c.validate().unwrap_err().contains("needs a network"));
     }
 }

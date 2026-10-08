@@ -44,11 +44,21 @@ const ATA_IDENTIFY: u8 = 0xec;
 const CHUNK: usize = 128 * 1024;
 
 pub fn probe(dev: &PciDevice, out: &mut Devices) {
-    if dev.class != 0x01 || dev.subclass != 0x06 || dev.prog_if != 0x01 {
+    // AHCI mode (01:06:01), or an Intel controller in "RAID" mode (01:04), which has the same register
+    // set for plain disks. The latter is only taken when the registers look like an HBA.
+    let ahci = dev.class == 0x01 && dev.subclass == 0x06 && dev.prog_if == 0x01;
+    let intel_raid = dev.class == 0x01 && dev.subclass == 0x04 && dev.vendor == 0x8086;
+    if !ahci && !intel_raid {
         return;
     }
     let Some(hba) = dev.map_bar(5) else { return };
     dev.enable();
+    if intel_raid {
+        let (pi, vs) = (hba.read32(PI), hba.read32(0x10));
+        if pi == 0 || pi == 0xffff_ffff || vs == 0 || vs == 0xffff_ffff {
+            return;
+        }
+    }
     hba.write32(GHC, hba.read32(GHC) | GHC_AE);
     let s64 = hba.read32(CAP) & CAP_S64A != 0;
     let implemented = hba.read32(PI);

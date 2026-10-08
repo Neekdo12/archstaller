@@ -42,7 +42,14 @@ pub fn parse_db(name: &str, data: &[u8]) -> Result<Db> {
 /// Resolves `cfg.packages` against `dbs` with the config's `providers`.
 pub fn resolve(cfg: &Config, dbs: &[Db]) -> Result<Resolution> {
     let providers: BTreeMap<String, String> = cfg.providers.iter().cloned().collect();
-    let r = Resolver::new(dbs, &providers).resolve(&cfg.packages).map_err(|e| format!("{e:?}"))?;
+    // The official packages the AUR recipes need are installed with the rest (the installer does the same).
+    let mut wanted = cfg.packages.clone();
+    for d in cfg.aur.iter().flat_map(|a| a.deps.iter()) {
+        if !wanted.contains(d) {
+            wanted.push(d.clone());
+        }
+    }
+    let r = Resolver::new(dbs, &providers).resolve(&wanted).map_err(|e| format!("{e:?}"))?;
     Ok(Resolution {
         packages: r.packages.iter().map(|s| Entry { repo: s.pkg.repo.clone(), name: s.pkg.name.clone(), version: s.pkg.version.clone(), csize: s.pkg.csize, explicit: s.explicit }).collect(),
         ambiguities: r.ambiguities.iter().map(|a| Ambiguity { dep: a.dep.clone(), chosen: a.chosen.clone(), candidates: a.candidates.clone() }).collect(),

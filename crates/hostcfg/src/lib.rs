@@ -2,10 +2,13 @@
 //! the same configs and build exactly the same ISOs. Std only: nothing here reaches the kernel.
 //!
 //! * [`lua`]: evaluating a Lua config into the installer's [`config::Config`] plus the host-only
-//!   [`host::HostConfig`] (`build`, `installer_drivers`, `aur_packages`).
+//!   [`host::HostConfig`] (`build`, `installer_drivers`).
 //! * [`host`]: build profiles, the installer driver catalogue and their validation.
 
+pub mod asconfig;
+pub mod configs;
 pub mod host;
+pub mod luals;
 pub mod lua;
 pub mod password;
 pub mod progress;

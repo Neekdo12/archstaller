@@ -1,7 +1,9 @@
+mod aur;
 mod bios;
 mod e2e;
 mod iso;
 mod keyring;
+mod coverage;
 mod presets;
 mod linux_test;
 mod lua;
@@ -35,32 +37,34 @@ pub struct Options {
     pub legacy_small: bool,
     /// `xtask size` fails when the ISO exceeds this many bytes.
     pub limit: u64,
-    /// Output path of the ISO (default target/archstaler.iso).
+    /// Output path of the ISO (default target/archstaller.iso).
     pub out: Option<PathBuf>,
     /// Appended to the config's kernel command line (used by e2e for a serial console).
     pub extra_kernel_params: Vec<String>,
     pub uefi: bool,
     pub headless: bool,
-    /// virtio | ahci | nvme
+    /// virtio | ahci | nvme | ide (legacy IDE-mode controller, on the i440fx machine)
     pub disk: String,
-    /// virtio | e1000 | e1000e | igb | rtl8139 | usb-rndis | none
+    /// virtio | e1000 | e1000e | igb | rtl8139 | usb-rndis | none | any QEMU NIC model name (vmxnet3, pcnet, i82559er, ...)
     pub nic: String,
     /// Build with the usb-selftest kernel feature and attach qemu-xhci + usb-storage.
     pub usb: bool,
     /// Build with the usb-tethering kernel feature (iPhone Personal Hotspot over USB; needs a real iPhone).
     pub tethering: bool,
     /// Build with the debug kernel feature: verbose driver and network tracing. Always on for a
-    /// dry-run (hardware test) config such as presets/tester.lua.
+    /// dry-run (hardware test) config such as configs/tester.lua.
     pub debug: bool,
     /// `--progress json`: print structured build events (`hostcfg::progress`) on stdout.
     pub progress: bool,
     /// `--workdir DIR`: scratch directory of this build (default `target/`); the GUI gives every build its own.
     pub workdir: Option<PathBuf>,
+    /// `--disk-gib N`: size of the e2e test disk in GiB (default 16; the Omarchy preset needs about 24).
+    pub disk_gib: u64,
 }
 
 fn parse(args: &[String]) -> Result<Options> {
     let mut o = Options {
-        config: root().join("examples/config.lua"),
+        config: root().join("configs/config.lua"),
         fault_test: false,
         selftest: false,
         profile: None,
@@ -77,6 +81,7 @@ fn parse(args: &[String]) -> Result<Options> {
         debug: false,
         progress: false,
         workdir: None,
+        disk_gib: 16,
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -101,6 +106,7 @@ fn parse(args: &[String]) -> Result<Options> {
                 Some("json") => o.progress = true,
                 _ => return Err("--progress needs the value json".into()),
             },
+            "--disk-gib" => o.disk_gib = it.next().ok_or("--disk-gib needs a number")?.parse()?,
             "--workdir" => o.workdir = Some(it.next().ok_or("--workdir needs a path")?.into()),
             other => return Err(format!("unknown option {other}").into()),
         }
@@ -108,9 +114,34 @@ fn parse(args: &[String]) -> Result<Options> {
     Ok(o)
 }
 
+/// Writes `configs/archstaller.lua` (LuaLS types) from the Rust schema; with `--check` only compares.
+fn luals(check: bool) -> Result<()> {
+    let path = root().join(hostcfg::configs::DIR).join("archstaller.lua");
+    let text = hostcfg::luals::annotations(&hostcfg::asconfig::json_schema());
+    if check {
+        if std::fs::read_to_string(&path).map_or(true, |t| t != text) {
+            return Err(format!("{} is out of date; run `cargo xtask gen-luals`", path.display()).into());
+        }
+        println!("{} is up to date", path.display());
+    } else {
+        std::fs::write(&path, text)?;
+        println!("wrote {}", path.display());
+    }
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|keyring|update-keyring> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--profile super-small|large] [--progress json] [--workdir DIR] [--limit BYTES]")?;
+    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|gen-luals|coverage|aur-pin|keyring|update-keyring> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme|ide] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--profile super-small|large] [--progress json] [--workdir DIR] [--disk-gib N (e2e)] [--limit BYTES]")?;
+    if cmd == "aur-pin" {
+        return aur::pin(rest);
+    }
+    if cmd == "coverage" {
+        return coverage::run(rest);
+    }
+    if cmd == "gen-luals" {
+        return luals(rest.iter().any(|a| a == "--check"));
+    }
     let opts = parse(rest)?;
     match cmd.as_str() {
         "build" => {

@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 bootinfo = { path = "../crates/bootinfo" }
 hostcfg = { path = "../crates/hostcfg" }
+aurbuild = { path = "../crates/aurbuild", features = ["net"] }
 sha2 = "0.11"
 miniz_oxide = "0.9"
 serde = "1"
@@ -13,3 +14,5 @@ pgp-lite = { path = "../crates/pgp-lite", features = ["std"] }
 ext4w = { path = "../crates/ext4w" }
 initrd = { path = "../crates/initrd" }
 pkg = { path = "../crates/pkg" }
+drivers = { version = "0.1.0", path = "../crates/drivers" }
+usbnet = { version = "0.1.0", path = "../crates/usbnet" }
