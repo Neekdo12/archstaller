@@ -2,7 +2,7 @@
 name = "aurbuild"
 version = "0.1.0"
 edition = "2021"
-description = "Host side of AUR support: search, review, pin and plan (std only; the build itself happens on the installed system, see docs/aur.md)"
+description = "Host side of AUR support: search, review, pin and plan (std only; the build itself happens on the installed system, see plans-implement/aur.md)"
 
 [dependencies]
 config = { path = "../../config", features = ["std"] }

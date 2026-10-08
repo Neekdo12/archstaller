@@ -17,7 +17,7 @@ config uses the new layout. Decisions the text below left open:
 - Editor diagnostics were verified with `lua-language-server` 3.19.1 (`--check`): the repository's configs
   report no problems, and a config with a wrong value type, a missing required field and an invalid profile
   reports errors. A misspelled key is reported as the missing required field. `lua-language-server` is not part
-  of `cargo test`; the generated file is covered by a test against the schema. README.md has the VS Code and
+  of `cargo test`; the generated file is covered by a test against the schema. docs/editor-setup.md has the VS Code and
   Neovim/LazyVim setup.
 
 This spec describes a new host-side Lua config model inspired by the structure of the local

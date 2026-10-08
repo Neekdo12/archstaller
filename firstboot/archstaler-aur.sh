@@ -23,7 +23,7 @@ CACHE=${ARCHSTALER_CACHE:-/var/cache/pacman/pkg}
 say() { echo "archstaler-aur: $*" | tee -a "$LOG"; }
 as_build() { runuser -u "$BU" -- env HOME="$BH" LC_ALL=C.UTF-8 "$@"; }
 
-# SHA-256 over the sorted lines "<sha256 of file>  <path>" of every file but .git (docs/aur.md, "Pinning").
+# SHA-256 over the sorted lines "<sha256 of file>  <path>" of every file but .git (plans-implement/aur.md, "Pinning").
 tree_digest() {
     (cd "$1" && find . -path ./.git -prune -o -type f -printf '%P\n' | LC_ALL=C sort |
         while IFS= read -r f; do printf '%s  %s\n' "$(sha256sum < "$f" | cut -d' ' -f1)" "$f"; done) | sha256sum | cut -d' ' -f1

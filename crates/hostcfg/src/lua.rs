@@ -16,7 +16,7 @@ pub struct Loaded {
 }
 
 /// The note printed for a config in the old flat shape.
-pub const LEGACY_WARNING: &str = "this config uses the legacy flat layout; it is still read, but new files are written as `return { as = { ... } }` (see docs/lua-config-api.md)";
+pub const LEGACY_WARNING: &str = "this config uses the legacy flat layout; it is still read, but new files are written as `return { as = { ... } }` (see plans-implement/lua-config-api.md)";
 
 /// Evaluates a Lua config and validates both halves.
 pub fn load(path: &Path) -> Result<Loaded> {

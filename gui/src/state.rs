@@ -52,6 +52,10 @@ pub struct BuildState {
     pub summary: Option<String>,
     /// Build straight onto this Ventoy volume under this file name, with no copy kept elsewhere.
     pub stick: Option<(Volume, String)>,
+    /// Build, then flash the result over this whole USB drive and delete it.
+    pub flash: Option<crate::flash::RawDevice>,
+    /// The built ISO and drive waiting for the flash to start (set by `pump`, taken by `pump_copy`).
+    pub flash_pending: Option<(PathBuf, crate::flash::RawDevice)>,
     /// The `done` event, kept until the process exit arrives (they can come in different reads).
     pub done: Option<(String, u64, String)>,
 }

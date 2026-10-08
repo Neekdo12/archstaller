@@ -1,4 +1,4 @@
-//! Raw flashing (docs/raw-usb-flash.md): writing the hybrid ISO over a whole USB stick, offered when no
+//! Raw flashing (plans-implement/raw-usb-flash.md): writing the hybrid ISO over a whole USB stick, offered when no
 //! Ventoy volume is found. Linux only, through UDisks2: it unmounts the stick's file systems and opens the
 //! device, asking for authorization through the desktop's polkit agent. Nothing here runs `sudo` or a shell.
 //! Devices come from `lsblk` and sysfs; the eligibility rules and the writer are plain functions, tested
@@ -492,7 +492,14 @@ impl Backend for UDisks {
         let ty = glib::VariantTy::new("(h)").map_err(|e| e.to_string())?;
         let (reply, fds) = c
             .call_with_unix_fd_list_sync(Some(BUS), &object_path(&dev.kname), "org.freedesktop.UDisks2.Block", "OpenDevice", Some(&args), Some(ty), gio::DBusCallFlags::ALLOW_INTERACTIVE_AUTHORIZATION, TIMEOUT_MS, None::<&gio::UnixFDList>, None::<&gio::Cancellable>)
-            .map_err(|e| e.message().to_string())?;
+            .map_err(|e| {
+                let m = e.message().to_string();
+                if m.contains("NotAuthorized") {
+                    format!("{m}. Opening a drive needs your password: start a polkit authentication agent (for example polkit-kde-authentication-agent-1) in your session and try again")
+                } else {
+                    m
+                }
+            })?;
         let idx = reply.child_value(0).get::<glib::variant::Handle>().ok_or("UDisks2 answered without a handle")?.0;
         let fd = fds.ok_or("UDisks2 sent no file descriptor")?.get(idx).map_err(|e| e.message().to_string())?;
         let f = File::from(fd);

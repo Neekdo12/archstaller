@@ -11,6 +11,7 @@ mod launcher;
 mod media;
 mod model;
 mod pages;
+mod polkit;
 mod state;
 mod ui;
 
@@ -30,7 +31,9 @@ fn main() -> gtk::glib::ExitCode {
         }
     }
     let gapp = gtk::Application::builder().application_id("org.archstaler.Gui").flags(gtk::gio::ApplicationFlags::NON_UNIQUE).build();
+    gapp.connect_shutdown(|_| polkit::stop());
     gapp.connect_activate(|gapp| {
+        polkit::start();
         let app = app::App::new(gapp);
         // The status colours follow the theme's lightness; the theme itself is the system's.
         let css = gtk::CssProvider::new();

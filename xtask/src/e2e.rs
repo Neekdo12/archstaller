@@ -168,7 +168,7 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
     let log = dir.join(format!("secondboot-{mode}.log"));
     let _ = std::fs::remove_file(&log);
     let mut child = qemu(&o, &disk, None, &log)?;
-    // AUR packages are built by archstaler-aur.service on this boot (docs/aur.md); wait for it first.
+    // AUR packages are built by archstaler-aur.service on this boot (plans-implement/aur.md); wait for it first.
     let aur_log;
     if !cfg.aur.is_empty() {
         println!("== [{mode}] AUR build on the installed system");

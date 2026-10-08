@@ -121,7 +121,7 @@ Estimate: ~3.5–5 MB by default, ~1.5–2 MB after optimizations, a minimal var
 
 ## Implementation status (deviations from the plan)
 
-All phases 1–6 are done and verified in QEMU (BIOS and UEFI). Details and usage instructions are in `README.md`.
+All phases 1–6 are done and verified in QEMU (BIOS and UEFI). Details and usage instructions are in `README.md` and `docs/`.
 Differences from the plan above:
 
 - **Network drivers:** on top of the planned e1000/e1000e, r8169 and virtio there are igb, igc, RTL8125/8126 and RTL8139.

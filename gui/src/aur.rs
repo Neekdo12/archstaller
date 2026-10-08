@@ -1,4 +1,4 @@
-//! AUR packages in the GUI (docs/aur.md): search, review, pin. Network work runs on a thread; the UI
+//! AUR packages in the GUI (plans-implement/aur.md): search, review, pin. Network work runs on a thread; the UI
 //! polls the channels. Nothing is built here: the installed system builds the pinned recipe at its first boot.
 use aurbuild::plan::{plan, unresolved, Official, Review};
 use aurbuild::rpc::{self, Info};

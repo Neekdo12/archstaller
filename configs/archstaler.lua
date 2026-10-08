@@ -38,7 +38,7 @@
 ---@class (exact) AsPackages
 ---@field explicit string[] Package or group names installed explicitly. Names are suggestions: the resolver decides.
 ---@field providers? table<string, string> Dependency name to the package that provides it, for example `{ initramfs = "mkinitcpio" }`.
----@field aur? AsAur[] AUR packages, in build order, pinned to the reviewed recipe (see `docs/aur.md`).
+---@field aur? AsAur[] AUR packages, in build order, pinned to the reviewed recipe (see `plans-implement/aur.md`).
 
 ---One AUR package, pinned to the reviewed recipe.
 ---@class (exact) AsAur

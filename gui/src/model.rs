@@ -110,7 +110,14 @@ impl Model {
     /// A new, unsaved document from one of the repository's presets (`configs/`). The preset is
     /// evaluated like the CLI does and then edited as an ordinary form; saving writes plain Lua.
     pub fn from_preset(path: &Path) -> Result<Model, String> {
-        let l = hostcfg::lua::load(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let mut l = hostcfg::lua::load(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        // The document is unsaved and will land in another directory (or a temp copy): script paths
+        // that were relative to the preset must not depend on where the copy ends up.
+        for s in &mut l.config.scripts {
+            if let Some(f) = s.file.as_mut().filter(|f| std::path::Path::new(f.as_str()).is_relative()) {
+                *f = l.dir.join(&*f).to_string_lossy().into_owned();
+            }
+        }
         Ok(Model { cfg: l.config, host: l.host, path: None, raw: None, foreign: false, dirty: true })
     }
 
@@ -290,7 +297,7 @@ mod tests {
         let root = crate::build::find_root().unwrap();
         let list = presets(&root);
         let names: Vec<&str> = list.iter().map(|p| p.name.as_str()).collect();
-        assert_eq!(names, ["hyprland", "i3", "minimal", "omarchy", "plasma", "server", "tester"]);
+        assert_eq!(names, ["hyprland", "i3", "minimal", "omarchy", "plasma", "server", "sway", "tester"]);
         for p in &list {
             assert!(!p.description.is_empty(), "{}", p.name);
             let m = Model::from_preset(&p.path).unwrap_or_else(|e| panic!("{}: {e}", p.name));

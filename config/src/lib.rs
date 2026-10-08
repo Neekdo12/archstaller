@@ -45,7 +45,7 @@ pub struct Config {
     #[serde(default)]
     pub scripts: Vec<Script>,
     /// AUR packages, in build order. They are not in the ISO: the installed system builds them at its
-    /// first boot (see `docs/aur.md`). Written as `aur_packages` in Lua.
+    /// first boot (see `plans-implement/aur.md`). Written as `aur_packages` in Lua.
     #[serde(default, rename = "aur_packages")]
     pub aur: Vec<AurPackage>,
 }
@@ -59,7 +59,7 @@ pub struct AurPackage {
     pub pkgbase: String,
     /// Full 40-digit lower-case hex commit of the reviewed recipe.
     pub commit: String,
-    /// SHA-256 over the reviewed tree (see `docs/aur.md`, "Pinning"), 64 lower-case hex digits.
+    /// SHA-256 over the reviewed tree (see `plans-implement/aur.md`, "Pinning"), 64 lower-case hex digits.
     pub sha256: String,
     /// The recipe builds from a VCS source that the commit does not pin (the user acknowledged it).
     #[serde(default)]

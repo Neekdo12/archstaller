@@ -24,7 +24,7 @@ Do not run `git commit` (or `git push`). Leave changes staged/unstaged for the u
   `crates/drivers/src/e1000.rs` / `nvme.rs` for new drivers.
 - `crates/*` are `no_std` + `alloc` unless they only run on the build host (`xtask`).
 - Nightly Rust is required (`rust-toolchain.toml`). `cargo xtask <cmd>` is the entry point for
-  everything (build, run, presets, e2e, size, keyring). See `README.md` for the full command list.
+  everything (build, run, presets, e2e, size, keyring). See `README.md` and `docs/building-and-running.md` for the full command list.
 - Config (`config/src/lib.rs`) is shared between `xtask` (serializes from Lua) and `kernel`
   (deserializes). Keep both sides and `config/src/lib.rs`'s validation in sync when changing the schema.
 - ISO size matters. Run `cargo xtask size` after changes that touch the kernel or ISO contents; see
@@ -32,4 +32,4 @@ Do not run `git commit` (or `git push`). Leave changes staged/unstaged for the u
 - Out of scope, do not implement unless a spec doc explicitly asks for it: Wi-Fi, SMP, Secure Boot,
   an interactive UI, filesystems other than ext4, architectures other than x86_64, and USB beyond the
   tethering paths (`crates/usb`, `crates/imobiledevice` for iPhone, `crates/usbnet` for Android). The spec
-  for future Wi-Fi work lives in `docs/wifi.md`.
+  for future Wi-Fi work lives in `plans-implement/wifi.md`.

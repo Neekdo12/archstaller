@@ -1,5 +1,5 @@
 //! `cargo xtask coverage [--pci FILE] [--usb FILE] [--missing N] [--era FROM-TO]`: wired-network coverage of the
-//! installer drivers against the corpora in `coverage/` (see `docs/network-driver-coverage.md`).
+//! installer drivers against the corpora in `coverage/` (see `plans-implement/network-driver-coverage.md`).
 //!
 //! A corpus is a tab-separated file, one hardware id per row, with a `weight` (how often the id turns up in
 //! the real world, 0 = unknown). "Recognized" is computed from the real
@@ -11,7 +11,7 @@ use crate::{root, Result};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-/// Validation ladder, lowest first (`docs/network-driver-coverage.md`, "Validation ladder").
+/// Validation ladder, lowest first (`plans-implement/network-driver-coverage.md`, "Validation ladder").
 const LEVELS: [&str; 6] = ["none", "decode", "probe", "link", "network", "e2e"];
 const COLUMNS: usize = 10;
 const CONFIDENCE: [&str; 3] = ["low", "medium", "high"];

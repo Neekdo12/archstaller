@@ -34,7 +34,7 @@ pub struct Live {
     media_progress: gtk::ProgressBar,
     media_cancel: gtk::Button,
     copy_btn: gtk::Button,
-    /// "Flash ISO to USB", offered only when no Ventoy volume is present.
+    /// "Flash ISO to USB", always offered (an empty or unformatted stick has no volume to list).
     flash_btn: Option<gtk::Button>,
     media_result: gtk::Label,
     drive_note: gtk::Label,
@@ -95,7 +95,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     let stick_idx = stick_pref.filter(|i| vv.contains(i)).or(vv.first().copied());
     let to_stick = !to_file && stick_idx.is_some();
     if vv.is_empty() {
-        ui::hint(&c, "No Ventoy drive found: the ISO is saved as a file. Plug one in and press Refresh drives.");
+        ui::hint(&c, "No Ventoy drive found: the ISO is saved as a file. Plug one in and press Refresh drives, or flash a blank stick under Put it on a stick.");
     } else {
         let r_stick = ui::check_button("Build straight onto the Ventoy drive (nothing is kept on this computer)");
         let r_file = ui::check_button("Save the ISO as a file instead");
@@ -316,26 +316,31 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         r.append(&dir_label);
         ui::row(&c, "Folder", &r);
     }
-    // Without Ventoy: the folder copy above, or (separately, never by default) a raw flash.
-    let flash_btn = if volumes.iter().any(|v| media::is_ventoy(v, &volumes)) {
-        None
-    } else {
+    // Always offered, never by default: an empty or unformatted stick has no volume above, so a raw
+    // flash is the only way to use it.
+    let flash_btn = {
         c.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-        c.append(&ui::strong("No Ventoy drive found"));
-        ui::hint(&c, "Copy the ISO into a folder of a mounted volume above, or write it over a whole USB stick. Flashing erases every partition and file on that stick.");
+        c.append(&ui::strong("Write to a whole USB stick"));
+        let any_removable = volumes.iter().any(|v| v.removable);
+        ui::hint(&c, if any_removable { "Or write the ISO over a whole USB stick. Flashing erases every partition and file on that stick." } else { "No USB volume with a file system was found. A blank or unformatted stick is not listed above; write the ISO over the whole stick instead. Flashing erases every partition and file on it." });
         let b = gtk::Button::with_label("Flash ISO to USB (erases device)…");
         b.add_css_class("destructive-action");
         b.set_halign(gtk::Align::Start);
         let a = app.clone();
         b.connect_clicked(move |_| {
-            let iso = {
-                let st = a.st.borrow();
-                st.media.iso_override.clone().or_else(|| st.build.iso.as_ref().map(|i| i.0.clone()))
-            };
-            match iso {
-                Some(iso) => flash_dialog(&a, iso),
-                None => a.set_status("build an ISO first, or pick one"),
+            // An ISO picked by hand is flashed as it is; otherwise the flash builds one from this config first.
+            let iso = a.st.borrow().media.iso_override.clone();
+            if iso.is_none() {
+                if a.st.borrow().build.running.is_some() {
+                    a.set_status("a build is already running");
+                    return;
+                }
+                if !a.st.borrow().model.problems().is_empty() {
+                    a.set_status("the config is invalid; see the problem bar");
+                    return;
+                }
             }
+            flash_dialog(&a, iso);
         });
         c.append(&b);
         Some(b)
@@ -441,7 +446,7 @@ pub fn live_refresh(app: &Rc<App>) {
     let busy = st.media.rx.is_some();
     l.copy_btn.set_sensitive(iso.is_some() && st.media.selected.is_some() && !busy);
     if let Some(b) = &l.flash_btn {
-        b.set_sensitive(iso.is_some() && !busy);
+        b.set_sensitive(!busy && st.build.running.is_none());
     }
     l.media_cancel.set_visible(busy);
     match (st.media.progress, busy) {
@@ -537,6 +542,39 @@ pub fn start_from_action(app: &Rc<App>) {
     });
 }
 
+/// "Flash" without an ISO: save the config (a temporary copy while it has no file), build the ISO in the
+/// scratch workspace, then `pump_copy` writes it to `dev` and deletes the workspace.
+fn start_build_and_flash(app: &Rc<App>, dev: flash::RawDevice) {
+    let a = app.clone();
+    glib::spawn_future_local(async move {
+        let path = a.st.borrow().model.path.clone();
+        let cfg = match path {
+            Some(p) => {
+                if !a.save_async().await {
+                    return;
+                }
+                Ok(p)
+            }
+            None => {
+                let p = std::env::temp_dir().join(format!("archstaler-{}.lua", std::process::id()));
+                let text = a.st.borrow().model.lua();
+                std::fs::write(&p, text).map(|_| p).map_err(|e| format!("cannot write the temporary config: {e}"))
+            }
+        };
+        match cfg {
+            Ok(cfg) => {
+                let out = std::env::temp_dir().join("archstaler-flash.iso");
+                start_build(&a, cfg, out);
+                let mut st = a.st.borrow_mut();
+                if st.build.running.is_some() {
+                    st.build.flash = Some(dev);
+                }
+            }
+            Err(e) => a.st.borrow_mut().build.error = Some(e),
+        }
+    });
+}
+
 fn start_build(app: &Rc<App>, cfg: PathBuf, out: PathBuf) {
     let root = match build::find_root() {
         Ok(r) => r,
@@ -595,6 +633,13 @@ pub fn pump(app: &Rc<App>) -> bool {
             let b = st.build.running.take().unwrap();
             let _ = std::fs::write(&b.log_path, st.build.log.join("\n"));
             match (ok, st.build.done.take()) {
+                (true, Some((path, size, sha))) if st.build.flash.is_some() && build::usable(std::path::Path::new(&path), size) => {
+                    let dev = st.build.flash.take().unwrap();
+                    st.media.cleanup = Some(b.workdir.clone());
+                    st.build.iso = Some((PathBuf::from(&path), size, sha));
+                    st.media.result = None;
+                    st.build.flash_pending = Some((PathBuf::from(path), dev));
+                }
                 (true, Some((path, size, sha))) if st.build.stick.is_some() && build::usable(std::path::Path::new(&path), size) => {
                     let (v, name) = st.build.stick.clone().unwrap();
                     st.media.cleanup = Some(b.workdir.clone());
@@ -640,6 +685,11 @@ pub fn pump(app: &Rc<App>) -> bool {
 }
 
 fn pump_copy(app: &Rc<App>, start_copy_after: Option<(PathBuf, Volume, PathBuf, String)>, mut changed: bool) -> bool {
+    let pending = app.st.borrow_mut().build.flash_pending.take();
+    if let Some((iso, dev)) = pending {
+        start_flash(app, iso, dev);
+        changed = true;
+    }
     {
         let mut st = app.st.borrow_mut();
         let mut finished = false;
@@ -653,7 +703,8 @@ fn pump_copy(app: &Rc<App>, start_copy_after: Option<(PathBuf, Volume, PathBuf, 
                 match m {
                     MediaMsg::Progress(p, d, t) => st.media.progress = Some((p, d, t)),
                     MediaMsg::Done(r) => {
-                        if r.is_ok() {
+                        // A flash built its ISO only for this write: the workspace goes whether or not it worked.
+                        if r.is_ok() || st.media.flashing {
                             if let Some(d) = st.media.cleanup.take() {
                                 let _ = std::fs::remove_dir_all(d);
                                 st.build.iso = None;
@@ -826,8 +877,8 @@ fn run_drive(app: &Rc<App>, dev: String, mount: bool) {
 /// Raw flash: a dialog that looks for USB drives off the main thread, lists the ones that may be flashed
 /// (none preselected) and the external ones that may not, with the reasons, and starts only after the
 /// user selected a drive and typed its kernel name.
-fn flash_dialog(app: &Rc<App>, iso: PathBuf) {
-    let win = gtk::Window::builder().title("Flash ISO to USB").modal(true).transient_for(&app.window()).default_width(560).build();
+fn flash_dialog(app: &Rc<App>, iso: Option<PathBuf>) {
+    let win = gtk::Window::builder().title("Flash ISO to USB").modal(true).transient_for(&app.window()).default_width(560).default_height(420).build();
     let body = ui::vbox(8);
     body.set_margin_top(14);
     body.set_margin_bottom(14);
@@ -838,14 +889,18 @@ fn flash_dialog(app: &Rc<App>, iso: PathBuf) {
     flash_scan(app, &win, &body, iso);
 }
 
-fn flash_scan(app: &Rc<App>, win: &gtk::Window, body: &gtk::Box, iso: PathBuf) {
+fn flash_scan(app: &Rc<App>, win: &gtk::Window, body: &gtk::Box, iso: Option<PathBuf>) {
     ui::clear(body);
     body.append(&ui::spinner_row("Looking for USB drives…").0);
     let (a, w, b) = (app.clone(), win.clone(), body.clone());
     glib::spawn_future_local(async move {
         let path = iso.clone();
         let found = gtk::gio::spawn_blocking(move || {
-            let src = flash::Source::of(&path)?;
+            // No ISO yet (it is built after the drive is chosen): the real checks run again on the built file.
+            let src = match &path {
+                Some(p) => flash::Source::of(p)?,
+                None => flash::Source { path: PathBuf::new(), len: 0, dev: (0, 0) },
+            };
             flash::UDisks::ready()?;
             let list = flash::scan(&src)?;
             Ok::<_, String>((src, list))
@@ -856,7 +911,7 @@ fn flash_scan(app: &Rc<App>, win: &gtk::Window, body: &gtk::Box, iso: PathBuf) {
     });
 }
 
-fn flash_show(app: &Rc<App>, win: &gtk::Window, body: &gtk::Box, iso: PathBuf, found: Result<(flash::Source, Vec<Candidate>), String>) {
+fn flash_show(app: &Rc<App>, win: &gtk::Window, body: &gtk::Box, iso: Option<PathBuf>, found: Result<(flash::Source, Vec<Candidate>), String>) {
     ui::clear(body);
     body.append(&ui::strong("Write the ISO over a whole USB stick"));
     let buttons = ui::hbox(8);
@@ -882,7 +937,11 @@ fn flash_show(app: &Rc<App>, win: &gtk::Window, body: &gtk::Box, iso: PathBuf, f
             return;
         }
     };
-    ui::hint(body, &format!("{} ({}) is written from the first byte of the device. Every partition and file on the stick is destroyed; this cannot be undone.", src.path.display(), flash::human(src.len)));
+    if iso.is_some() {
+        ui::hint(body, &format!("{} ({}) is written from the first byte of the device. Every partition and file on the stick is destroyed; this cannot be undone.", src.path.display(), flash::human(src.len)));
+    } else {
+        ui::hint(body, "The config is saved, the ISO is built, written from the first byte of the device and checked, then the built ISO is deleted. Every partition and file on the stick is destroyed; this cannot be undone.");
+    }
     let (ok, rest): (Vec<Candidate>, Vec<Candidate>) = list.into_iter().partition(|c| c.eligible());
     if ok.is_empty() {
         ui::note(body, Kind::Warn, "No USB drive can be flashed. Plug one in and press Refresh.");
@@ -950,6 +1009,9 @@ fn flash_show(app: &Rc<App>, win: &gtk::Window, body: &gtk::Box, iso: PathBuf, f
             return;
         }
         w.close();
-        start_flash(&a, iso.clone(), d);
+        match iso.clone() {
+            Some(iso) => start_flash(&a, iso, d),
+            None => start_build_and_flash(&a, d),
+        }
     });
 }

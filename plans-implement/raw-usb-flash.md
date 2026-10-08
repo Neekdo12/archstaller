@@ -8,7 +8,7 @@ compiled, its unit tests have not run, and no real stick has been flashed. Befor
   for the USB ancestry, `holders/`); `problems()` holds the eligibility rules; `RawBlockFlash` is the `MediaTarget`;
   `Backend` is the injectable device interface, `UDisks` the real one (gio's D-Bus client, already linked by GTK, no new
   D-Bus crate; `libc` for `posix_fadvise`). Tests use an lsblk fixture and a regular file as the device.
-- `gui/src/pages/iso.rs`: the "Flash ISO to USB (erases device)" button (only when no Ventoy volume is present) and the
+- `gui/src/pages/iso.rs`: the "Flash ISO to USB (erases device)" button (always offered) and the
   dialog (`flash_dialog`, `flash_scan`, `flash_show`).
 
 Decisions the text below left open:
@@ -155,3 +155,9 @@ handles and locks without touching another device.
   that previously stored data can be recovered.
 - `README.md`, the GUI documentation, and `OVERVIEW.md` clearly distinguish Ventoy file-copy from
   destructive raw flashing and state which platforms support each path.
+
+## Authentication agent
+
+Opening the drive makes UDisks2 ask polkit for the user's password, which needs an authentication agent in the session.
+On a full desktop one runs already. Otherwise `gui/src/polkit.rs` starts an installed agent at launch and stops it on
+exit (an agent that was already running is left alone). With none installed the flash fails with a message that says so.

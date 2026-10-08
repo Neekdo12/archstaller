@@ -96,7 +96,7 @@ pub struct Packages {
     /// Dependency name to the package that provides it, for example `{ initramfs = "mkinitcpio" }`.
     #[serde(default)]
     pub providers: BTreeMap<String, String>,
-    /// AUR packages, in build order, pinned to the reviewed recipe (see `docs/aur.md`).
+    /// AUR packages, in build order, pinned to the reviewed recipe (see `plans-implement/aur.md`).
     #[serde(default)]
     pub aur: Vec<Aur>,
 }

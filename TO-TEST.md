@@ -6,7 +6,7 @@ under it. When a section passes completely, update the status line in its spec d
 
 Everything here needs Linux with the nightly toolchain from `rust-toolchain.toml`.
 
-## 1. Raw USB flashing (`docs/raw-usb-flash.md`)
+## 1. Raw USB flashing (`plans-implement/raw-usb-flash.md`)
 
 Code: `gui/src/flash.rs`, the flash dialog at the end of `gui/src/pages/iso.rs`, the new `Phase` variants and
 `Report` fields in `gui/src/media.rs`. It has never been compiled.
@@ -59,7 +59,7 @@ Write down the desktop, UDisks2 version (`udisksctl status` or `busctl get-prope
 /org/freedesktop/UDisks2/Manager org.freedesktop.UDisks2.Manager Version`), util-linux version, and the stick's
 model in the spec doc once it passes.
 
-## 2. Sway preset (`docs/sway-preset.md`)
+## 2. Sway preset (`plans-implement/sway-preset.md`)
 
 Code: `configs/sway.lua`, `configs/sway-config.sh`, and the new `scripts` field in `configs/common.lua`. The package
 names were checked against the Arch databases of 2026-10-07; nothing was resolved, built or installed.
