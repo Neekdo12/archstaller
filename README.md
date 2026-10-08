@@ -244,3 +244,9 @@ More detailed stuff lives here:
 The README is intentionally short.
 
 **If you need the 400-line version, that's what `docs/` is for.**
+
+---
+
+## License
+
+[MIT](LICENSE).
