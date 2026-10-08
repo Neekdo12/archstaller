@@ -45,7 +45,7 @@ check and e2e run on a schedule because Arch changes under us.
 
 ## Rules that are easy to miss
 
-- **`OVERVIEW.md` is documentation-as-code.** Edit it in place in the same change as the code (no changelog style).
+- **`OVERVIEW.md` is documentation-as-code.** Edit it in place in the same change as the code (no changelog style). CI fails a pull request that changes source without touching it; put `[skip-overview]` in a commit message for refactors, comments and tests.
 - **Shared formats change on every side at once.** `crates/bootinfo` payload and BIOS patch formats are shared with
   `xtask` (`iso.rs`, `bios.rs`) and `kernel/src/install.rs`. `config/src/lib.rs` is shared between `xtask` and the
   kernel, and the Lua schema, `configs/archstaller.lua` and its test must follow.

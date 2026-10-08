@@ -129,7 +129,8 @@ jobs:
       - name: Relative links in Markdown resolve
         run: python3 .github/scripts/check-links.py
 
-  # Only on pull requests: the rules in AGENTS.md ask for OVERVIEW.md to follow every behaviour change.
+  # Only on pull requests: AGENTS.md requires OVERVIEW.md to follow every behaviour change. A commit whose
+  # message contains [skip-overview] opts out (refactors, comments, tests).
   overview:
     name: OVERVIEW.md follows code changes
     if: github.event_name == 'pull_request'
@@ -150,14 +151,14 @@ jobs:
           if [ -z "$code" ]; then echo "No source changes."; exit 0; fi
           if echo "$changed" | grep -qx 'OVERVIEW.md'; then echo "OVERVIEW.md was updated."; exit 0; fi
           if git log --format=%B "$BASE..$HEAD" | grep -qi '\[skip-overview\]'; then echo "Skipped by commit message."; exit 0; fi
-          echo "::warning title=OVERVIEW.md::Source files changed but OVERVIEW.md did not. AGENTS.md asks for OVERVIEW.md to be updated in the same change (add [skip-overview] to a commit message if nothing user-visible changed)."
-          exit 0
+          echo "::error title=OVERVIEW.md::Source files changed but OVERVIEW.md did not. AGENTS.md requires OVERVIEW.md to be updated in the same change (add [skip-overview] to a commit message if nothing user-visible changed)."
+          exit 1
 
   # One required status for branch protection.
   ci-ok:
     name: CI passed
     if: always()
-    needs: [test, iso, build-profiles, docs]
+    needs: [test, iso, build-profiles, docs, overview]
     runs-on: ubuntu-latest
     steps:
       - name: Verify

@@ -1,6 +1,7 @@
 //! Reviewing a recipe and planning the install of a set of pinned AUR packages.
 use crate::digest::{tree_digest, Files};
 use crate::srcinfo::{self, dep_name, SrcInfo};
+use pkg::desc::{Dep, Op};
 use crate::Result;
 use std::collections::BTreeMap;
 
@@ -87,41 +88,83 @@ pub fn risky_lines(files: &Files) -> Vec<(String, usize, String)> {
     out
 }
 
+/// What a name in the official repositories stands for: the version it has, when that is known.
+enum Have {
+    /// A name given without databases (`Official::from_names`): the version is unknown and always accepted.
+    Unknown,
+    /// A `provides` entry without a version: it cannot satisfy a versioned dependency.
+    Unversioned,
+    Version(String),
+}
+
+struct Entry {
+    provider: String,
+    have: Have,
+}
+
 /// What the official repositories can provide, by name or by `provides`, in repository priority order.
 pub struct Official {
-    by_name: BTreeMap<String, String>,
+    by_name: BTreeMap<String, Vec<Entry>>,
+}
+
+/// A dependency string as `Dep`, with the name cleaned the way `dep_name` does.
+fn parse_dep(dep: &str) -> Dep {
+    let mut d = Dep::parse(dep);
+    d.name = dep_name(dep).to_string();
+    d
+}
+
+/// Does something called `d.name` that has `have` satisfy the dependency `d`? Same rule as `pkg::desc::Package::satisfies`.
+fn accepts(d: &Dep, have: &Have) -> bool {
+    match (d.op, have) {
+        (Op::Any, _) | (_, Have::Unknown) => true,
+        (_, Have::Version(v)) => d.accepts_version(v),
+        (_, Have::Unversioned) => false,
+    }
 }
 
 impl Official {
     pub fn new(dbs: &[pkg::db::Db]) -> Official {
-        let mut by_name = BTreeMap::new();
+        let mut by_name: BTreeMap<String, Vec<Entry>> = BTreeMap::new();
+        // The first repository that has a name decides, like the resolver's `find`.
         for p in dbs.iter().flat_map(|d| d.packages.iter()) {
-            by_name.entry(p.name.clone()).or_insert_with(|| p.name.clone());
+            let e = by_name.entry(p.name.clone()).or_default();
+            if e.is_empty() {
+                e.push(Entry { provider: p.name.clone(), have: Have::Version(p.version.clone()) });
+            }
         }
         // Real names win over `provides`, so a second pass.
         for p in dbs.iter().flat_map(|d| d.packages.iter()) {
             for pr in &p.provides {
-                by_name.entry(pr.name.clone()).or_insert_with(|| p.name.clone());
+                let have = if pr.op == Op::Eq { Have::Version(pr.version.clone()) } else { Have::Unversioned };
+                by_name.entry(pr.name.clone()).or_default().push(Entry { provider: p.name.clone(), have });
             }
         }
         Official { by_name }
     }
 
-    /// For tests and for callers without databases.
+    /// For tests and for callers without databases (versions are not known, so constraints are not checked).
     pub fn from_names(names: &[&str]) -> Official {
-        Official { by_name: names.iter().map(|n| (n.to_string(), n.to_string())).collect() }
+        Official { by_name: names.iter().map(|n| (n.to_string(), vec![Entry { provider: n.to_string(), have: Have::Unknown }])).collect() }
     }
 
-    /// The package that satisfies the dependency `dep` (a version constraint is not checked).
+    /// The package that satisfies the dependency `dep`, constraint included (`go>=1.24` needs a `go` that is
+    /// at least that new, or a package providing `go=1.24` or newer).
     pub fn provider(&self, dep: &str) -> Option<&str> {
-        self.by_name.get(dep_name(dep)).map(String::as_str)
+        let d = parse_dep(dep);
+        self.by_name.get(&d.name)?.iter().find(|e| accepts(&d, &e.have)).map(|e| e.provider.as_str())
     }
 }
 
-/// Does this review's package satisfy the dependency `dep` (by name, or through `provides`)?
+/// Does this review's package satisfy the dependency `dep` (by name or through `provides`, constraint included)?
 fn aur_provides(r: &Review, dep: &str) -> bool {
-    let d = dep_name(dep);
-    r.srcinfo.packages.iter().any(|p| p.name == d || p.get("provides").iter().any(|x| dep_name(x) == d)) || r.srcinfo.base.get("provides").iter().any(|x| dep_name(x) == d)
+    let d = parse_dep(dep);
+    let version = r.srcinfo.version();
+    let provides = |x: &String| {
+        let pr = Dep::parse(x);
+        pr.name == d.name && accepts(&d, &if pr.op == Op::Eq { Have::Version(pr.version) } else { Have::Unversioned })
+    };
+    r.srcinfo.packages.iter().any(|p| (p.name == d.name && accepts(&d, &Have::Version(version.clone()))) || p.get("provides").iter().any(provides)) || r.srcinfo.base.get("provides").iter().any(provides)
 }
 
 /// All dependencies of a review, with whether only the build needs them.
@@ -131,15 +174,15 @@ fn all_deps(r: &Review) -> Vec<(String, bool)> {
     v
 }
 
-/// Dependencies that neither the official repositories nor the other reviews provide: `(package, dependency)`.
+/// Dependencies that neither the official repositories nor the other reviews provide: `(package, dependency)`,
+/// the dependency as written (`go>=1.24`).
 /// The GUI looks these up on the AUR and offers to pin them.
 pub fn unresolved(reviews: &[Review], official: &Official) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for r in reviews {
         for (d, _) in all_deps(r) {
-            let n = dep_name(&d).to_string();
-            if official.provider(&n).is_none() && !reviews.iter().any(|o| o.name != r.name && aur_provides(o, &n)) && !out.contains(&(r.name.clone(), n.clone())) {
-                out.push((r.name.clone(), n));
+            if official.provider(&d).is_none() && !reviews.iter().any(|o| o.name != r.name && aur_provides(o, &d)) && !out.contains(&(r.name.clone(), d.clone())) {
+                out.push((r.name.clone(), d));
             }
         }
     }
@@ -170,11 +213,10 @@ pub fn plan(reviews: &[Review], explicit: &[String], official: &Official) -> Res
         }
         state[i] = 1;
         for (d, _) in all_deps(&reviews[i]) {
-            let n = dep_name(&d);
-            if official.provider(n).is_some() {
+            if official.provider(&d).is_some() {
                 continue;
             }
-            if let Some(j) = (0..reviews.len()).find(|&j| j != i && aur_provides(&reviews[j], n)) {
+            if let Some(j) = (0..reviews.len()).find(|&j| j != i && aur_provides(&reviews[j], &d)) {
                 visit(j, reviews, official, state, order)?;
             }
         }
@@ -212,7 +254,7 @@ pub fn plan(reviews: &[Review], explicit: &[String], official: &Official) -> Res
         // A package that is also needed at run time is not a build-only one.
         let runtime: Vec<String> = r.srcinfo.depends(&r.name).iter().filter_map(|d| official.provider(d).map(String::from)).collect();
         build.retain(|b| !runtime.contains(b));
-        let needed_by_other = reviews.iter().any(|o| o.name != r.name && all_deps(o).iter().any(|(d, _)| aur_provides(r, dep_name(d)) && official.provider(dep_name(d)).is_none()));
+        let needed_by_other = reviews.iter().any(|o| o.name != r.name && all_deps(o).iter().any(|(d, _)| aur_provides(r, d) && official.provider(d).is_none()));
         out.push(config::AurPackage {
             name: r.name.clone(),
             pkgbase: r.pkgbase.clone(),
@@ -340,5 +382,59 @@ mod tests {
         let o = Official::new(&[db]);
         assert_eq!(o.provider("ttf-font"), Some("ttf-font"));
         assert_eq!(o.provider("a>=1"), Some("a"));
+    }
+
+    fn official_with(pkgs: &[(&str, &str, &[&str])]) -> Official {
+        let packages = pkgs
+            .iter()
+            .map(|(name, version, provides)| {
+                let mut d = format!("%NAME%\n{name}\n\n%VERSION%\n{version}\n\n%FILENAME%\n{name}.pkg.tar.zst\n\n");
+                if !provides.is_empty() {
+                    d.push_str("%PROVIDES%\n");
+                    for p in *provides {
+                        d.push_str(&format!("{p}\n"));
+                    }
+                }
+                pkg::desc::Package::parse("core", &d).unwrap()
+            })
+            .collect();
+        Official::new(&[pkg::db::Db { name: "core".into(), packages }])
+    }
+
+    #[test]
+    fn official_checks_version_constraints() {
+        let o = official_with(&[("go", "2:1.23.4-1", &[]), ("gcc-go", "14.2-1", &["go=1.24"]), ("libfoo", "6-1", &["libfoo.so=6-64", "libbar"])]);
+        assert_eq!(o.provider("go"), Some("go"));
+        assert_eq!(o.provider("go>=1.20"), Some("go"));
+        // The epoch counts: 2:1.23.4 is newer than 1.30.
+        assert_eq!(o.provider("go>=1.30"), Some("go"));
+        assert_eq!(o.provider("go>=3:1"), None);
+        // A real `go` that is too old does not hide a provide that is new enough.
+        let o2 = official_with(&[("go", "1.23-1", &[]), ("gcc-go", "14.2-1", &["go=1.24"])]);
+        assert_eq!(o2.provider("go>=1.24"), Some("gcc-go"));
+        assert_eq!(o2.provider("go>=1.25"), None);
+        // Versioned provides.
+        assert_eq!(o.provider("libfoo.so=6-64"), Some("libfoo"));
+        assert_eq!(o.provider("libfoo.so=7-64"), None);
+        // An unversioned provide cannot satisfy a versioned dependency, but satisfies a plain one.
+        assert_eq!(o.provider("libbar"), Some("libfoo"));
+        assert_eq!(o.provider("libbar>=1"), None);
+        // Without databases versions are unknown and accepted.
+        assert_eq!(Official::from_names(&["go"]).provider("go>=99"), Some("go"));
+    }
+
+    #[test]
+    fn unmet_constraints_are_unresolved() {
+        let o = official_with(&[("base-devel", "1-1", &[]), ("git", "2-1", &[]), ("foo", "1.0-1", &[])]);
+        let top = rev("top", "\tdepends = foo>=2\n");
+        assert_eq!(unresolved(&[top.clone()], &o), [("top".to_string(), "foo>=2".to_string())]);
+        assert!(plan(&[top], &["top".into()], &o).unwrap_err().contains("foo>=2"));
+        assert!(unresolved(&[rev("top", "\tdepends = foo>=1\n")], &o).is_empty());
+        // Another reviewed AUR package must be new enough too (the helper's version is 1-1).
+        let lib = rev("foo2", "\tprovides = libx=1\n");
+        let needs_new = rev("top", "\tdepends = libx>=2\n");
+        assert_eq!(unresolved(&[needs_new, lib.clone()], &o).len(), 1);
+        let needs_ok = rev("top", "\tdepends = libx>=1\n");
+        assert!(unresolved(&[needs_ok, lib], &o).is_empty());
     }
 }

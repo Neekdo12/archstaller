@@ -7,7 +7,7 @@ stick. The list of network ids is in [`network-driver-coverage.md`](../plans-imp
 
 - Firmware: BIOS or UEFI both work; **Secure Boot must be off** (neither the ISO nor the installed system
   supports it). Only x86_64 is supported; there is no ARM or Raspberry Pi support.
-- The installer has **no USB storage drivers**. It sees NVMe, AHCI/SATA and virtio disks only, so an installer USB
+- The installer has **no USB storage drivers**. It sees NVMe, AHCI/SATA, legacy IDE-mode ATA and virtio disks only, so an installer USB
   stick is never a candidate for `auto_largest`. It also means it cannot install onto a USB disk. The only
   USB code is the optional phone tethering described under Networking.
 - Everything the installer needs is loaded into RAM by the boot loader before the kernel starts, and

@@ -13,6 +13,6 @@ the journal and is not persisted.
 
 USB tethering: the iPhone path worked on real hardware (an ASUS ExpertBook with an unlocked iPhone); the Android path (RNDIS, CDC-ECM) worked on one real phone and in QEMU's emulated adapters; the AX88179 dongle worked on real hardware. `xtask e2e` does not exercise tethering.
 
-Not supported: Wi-Fi, USB devices other than tethering phones and Ethernet dongles, ARM and Raspberry Pi, and installing onto anything but NVMe, SATA/AHCI and virtio
+Not supported: Wi-Fi, USB devices other than tethering phones and Ethernet dongles, ARM and Raspberry Pi, and installing onto anything but NVMe, SATA/AHCI, IDE-mode ATA and virtio
 disks. The ISO is about 0.7 MB (`super-small`) to 0.8 MB (`large`); tethering adds about 105 KiB; the design notes in `PLAN.md` describe what was
 aimed at and what remains.

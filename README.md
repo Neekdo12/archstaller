@@ -170,7 +170,7 @@ archstaller currently targets:
 
 * x86_64
 * NVMe
-* SATA/AHCI
+* SATA/AHCI and legacy IDE-mode ATA
 * virtio disks
 * BIOS and UEFI
 

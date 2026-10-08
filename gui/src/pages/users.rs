@@ -92,10 +92,12 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     ui::hint(&hash_row, "A $6$ SHA-512 crypt hash, for example from `openssl passwd -6`.");
     hash_row.set_visible(cfg.root_password_hash.is_some());
     let locked = ui::check("Leave root locked (use sudo)", cfg.root_password_hash.is_none(), {
-        let (a, hash_row) = (app.clone(), hash_row.clone());
+        let (a, hash_row, hash) = (app.clone(), hash_row.clone(), hash.clone());
         move |locked| {
             hash_row.set_visible(!locked);
-            a.edit(move |m| m.cfg.root_password_hash = if locked { None } else { Some(String::new()) });
+            // Unlocking brings back what was typed before locking, not an empty (invalid) hash.
+            let value = if locked { None } else { Some(hash.borrow().clone()) };
+            a.edit(move |m| m.cfg.root_password_hash = value);
         }
     });
     c.append(&locked);

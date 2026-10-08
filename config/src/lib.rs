@@ -207,9 +207,13 @@ impl Config {
                 return bad("root_password_hash (need a $6$ SHA-512 crypt hash)", "<hidden>");
             }
         }
-        for u in &self.users {
+        for (i, u) in self.users.iter().enumerate() {
             if !ident(&u.name, "_-") || u.name.starts_with('-') || u.name == "root" {
                 return bad("user name", &u.name);
+            }
+            // The first-boot script runs `useradd` once per entry and stops at the second one for a name.
+            if self.users[..i].iter().any(|o| o.name == u.name) {
+                return bad("duplicate user name", &u.name);
             }
             if !crypt_hash(&u.password_hash) {
                 return bad("password_hash (need a $6$ SHA-512 crypt hash) for user", &u.name);
@@ -362,6 +366,17 @@ mod tests {
         f(&mut p);
         c.aur = vec![p];
         c.validate().unwrap_err().to_string()
+    }
+
+    #[test]
+    fn duplicate_user_names_are_refused() {
+        let user = |n: &str| User { name: n.into(), password_hash: format!("$6$abc${}", "a".repeat(86)), groups: vec!["wheel".into()], shell: "/bin/bash".into() };
+        let mut c = base();
+        c.users = vec![user("alice"), user("bob")];
+        assert!(c.validate().is_ok());
+        c.users.push(user("alice"));
+        let e = c.validate().unwrap_err().to_string();
+        assert!(e.contains("duplicate user name") && e.contains("alice"), "{e}");
     }
 
     #[test]
