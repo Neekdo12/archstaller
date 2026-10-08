@@ -68,7 +68,7 @@ jobs:
         run: cargo xtask size --limit 1048576
       - name: Checksum
         run: sha256sum target/archstaller.iso | tee target/archstaller.iso.sha256
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: archstaller-iso
           path: |

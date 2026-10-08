@@ -51,7 +51,7 @@ jobs:
         run: cargo xtask presets
       - name: Checksums
         run: cd target/isos && sha256sum *.iso | tee SHA256SUMS
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: archstaller-presets
           path: target/isos/
@@ -86,7 +86,7 @@ jobs:
         run: cargo xtask e2e --uefi --config "configs/${{ inputs.preset || 'e2e.lua' }}"
       - name: Serial logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: e2e-logs
           path: target/e2e/
