@@ -250,17 +250,17 @@ mod tests {
             let p = e.path();
             let text = std::fs::read_to_string(&p).unwrap();
             // The LuaLS definitions are not configs; the others (except the AUR e2e one, which needs nothing special) must load.
-            if p.file_name().is_some_and(|n| n == "archstaler.lua" || n == "common.lua") || p.extension().is_none_or(|x| x != "lua") {
+            if p.file_name().is_some_and(|n| n == "archstaller.lua" || n == "common.lua") || p.extension().is_none_or(|x| x != "lua") {
                 continue;
             }
-            assert!(crate::configs::kind_of(&text).is_some(), "{} has no `-- archstaler: kind=` marker", p.display());
+            assert!(crate::configs::kind_of(&text).is_some(), "{} has no `-- archstaller: kind=` marker", p.display());
             let l = load(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
             assert!(l.warnings.is_empty(), "{} still uses the legacy layout", p.display());
             seen += 1;
         }
         assert!(seen >= 8, "found only {seen} configs");
         // Generated types match the schema.
-        let generated = std::fs::read_to_string(dir.join("archstaler.lua")).unwrap();
+        let generated = std::fs::read_to_string(dir.join("archstaller.lua")).unwrap();
         assert_eq!(generated, crate::luals::annotations(&crate::asconfig::json_schema()), "run `cargo xtask gen-luals`");
     }
 

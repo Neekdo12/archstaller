@@ -2,7 +2,7 @@
 
 **Status: implemented.** The `as` loader (`crates/hostcfg/src/asconfig.rs`, `lua.rs`), the writer, the flat
 `configs/` directory with first-line markers (`crates/hostcfg/src/configs.rs`), the generated LuaLS types
-(`configs/archstaler.lua`, `cargo xtask gen-luals [--check]`) and `.luarc.json` exist, and every repository
+(`configs/archstaller.lua`, `cargo xtask gen-luals [--check]`) and `.luarc.json` exist, and every repository
 config uses the new layout. Decisions the text below left open:
 
 - The open question is settled as recommended: the legacy flat layout still loads with a warning
@@ -10,7 +10,7 @@ config uses the new layout. Decisions the text below left open:
 - Placement of fields the example did not show: `system.root_password_hash`, `install.dry_run`,
   `packages.aur`, `first_boot.user_files`, `first_boot.user_archives`, `build.installer_drivers`.
 - `packages.providers` is a table; it is normalized and written sorted by dependency name.
-- Preset marker: `-- archstaler: kind=preset|example|e2e|module` on line 1 (no manifest); the next comment line
+- Preset marker: `-- archstaller: kind=preset|example|e2e|module` on line 1 (no manifest); the next comment line
   is the description. A file with no marker is not listed anywhere.
 - Error paths count list positions from 1 (`as.users[1].groups`), like Lua and the existing domain messages.
 - `presets/common.lua` became `configs/common.lua`, a documented builder that returns a complete `{ as = ... }`.
@@ -22,7 +22,7 @@ config uses the new layout. Decisions the text below left open:
 
 This spec describes a new host-side Lua config model inspired by the structure of the local
 `~/.config/hypr/` setup: one root file composes focused modules, and settings live under a single
-namespace. Use `as` for Archstaler. The goal is convenient hand editing with useful Lua Language Server
+namespace. Use `as` for Archstaller. The goal is convenient hand editing with useful Lua Language Server
 diagnostics in VS Code and Neovim/LazyVim, while the CLI remains the final authority for accepting a
 config.
 
@@ -94,7 +94,7 @@ configs/
   config.lua             # documented default/example config, used by default CLI build
   e2e.lua                # serial-locked config for automated install testing
   common.lua             # shared helper, not a selectable preset
-  archstaler.lua         # LuaLS API/type definitions, not a selectable preset
+  archstaller.lua         # LuaLS API/type definitions, not a selectable preset
   minimal.lua            # selectable preset
   server.lua             # selectable preset
   hyprland.lua           # selectable preset
@@ -134,7 +134,7 @@ with existing `dofile(CONFIG_DIR .. "/common.lua")` modules during migration.
 - Put default/example configs, e2e configs, shared helpers, LuaLS definitions, and presets in the same
   `configs/` directory. Do not treat every `*.lua` file there as a preset.
 - Mark selectable preset entry files explicitly, preferably with a first-line metadata comment such as
-  `-- archstaler: kind=preset` plus an optional display name/description, or use one explicit manifest
+  `-- archstaller: kind=preset` plus an optional display name/description, or use one explicit manifest
   in the same directory. Choose one source of truth and have both `xtask` and the GUI consume it.
 - Mark `config.lua` as the default example, `e2e.lua` as an automated test config, and helpers/type
   definition files as non-presets. The preset build/check commands and GUI preset menu must list only
@@ -165,7 +165,7 @@ with existing `dofile(CONFIG_DIR .. "/common.lua")` modules during migration.
   extension and `lua-language-server` in Neovim/LazyVim use the same project definitions.
 - Document the minimal Neovim/LazyVim setup when the server does not automatically load project
   `.luarc.json`: configure the standard `lua_ls` server to use the workspace root and the same
-  `configs/` library path. Do not require a custom Archstaler Neovim plugin.
+  `configs/` library path. Do not require a custom Archstaller Neovim plugin.
 - Enable diagnostics for undefined fields, invalid field types, missing required fields, and invalid
   function/module return types. Do not suppress these errors globally to make old config files appear
   clean.

@@ -1,4 +1,4 @@
--- archstaler: kind=preset
+-- archstaller: kind=preset
 -- Minimal: console-only system with networkd. Needs a disk of about 4 GiB or more.
 local common = require("common")
 

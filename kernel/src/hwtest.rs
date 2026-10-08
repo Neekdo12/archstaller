@@ -76,11 +76,11 @@ impl Report {
 
 pub fn run(cfg: &Config, devs: Devices, keyring: Option<&Keyring>) {
     let mut r = Report::default();
-    println!("\n=============== archstaler hardware test (READ-ONLY, no disk is written) ===============");
+    println!("\n=============== archstaller hardware test (READ-ONLY, no disk is written) ===============");
     test(cfg, devs, keyring, &mut r);
     println!("=========================================================================================");
     println!("RESULT: {}   ({} ok, {} warnings, {} failed)", if r.fail == 0 { "PASS" } else { "FAIL" }, r.pass, r.warn, r.fail);
-    println!("archstaler-hwtest: done");
+    println!("archstaller-hwtest: done");
     println!("--- driver and device log (repeated here so it stays on screen) ---");
     crate::digest::print_all();
     // After a failure stay up longer, so the screen can be read or photographed.

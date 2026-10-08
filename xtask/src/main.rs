@@ -37,7 +37,7 @@ pub struct Options {
     pub legacy_small: bool,
     /// `xtask size` fails when the ISO exceeds this many bytes.
     pub limit: u64,
-    /// Output path of the ISO (default target/archstaler.iso).
+    /// Output path of the ISO (default target/archstaller.iso).
     pub out: Option<PathBuf>,
     /// Appended to the config's kernel command line (used by e2e for a serial console).
     pub extra_kernel_params: Vec<String>,
@@ -114,9 +114,9 @@ fn parse(args: &[String]) -> Result<Options> {
     Ok(o)
 }
 
-/// Writes `configs/archstaler.lua` (LuaLS types) from the Rust schema; with `--check` only compares.
+/// Writes `configs/archstaller.lua` (LuaLS types) from the Rust schema; with `--check` only compares.
 fn luals(check: bool) -> Result<()> {
-    let path = root().join(hostcfg::configs::DIR).join("archstaler.lua");
+    let path = root().join(hostcfg::configs::DIR).join("archstaller.lua");
     let text = hostcfg::luals::annotations(&hostcfg::asconfig::json_schema());
     if check {
         if std::fs::read_to_string(&path).map_or(true, |t| t != text) {

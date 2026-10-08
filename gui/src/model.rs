@@ -180,7 +180,7 @@ impl Model {
 
     fn evaluate(&self, text: &str, validate: bool) -> Result<hostcfg::lua::Loaded, String> {
         let dir = self.path.as_deref().and_then(Path::parent).map(Path::to_path_buf).unwrap_or_else(std::env::temp_dir);
-        let tmp = dir.join(format!(".archstaler-check-{}.lua", std::process::id()));
+        let tmp = dir.join(format!(".archstaller-check-{}.lua", std::process::id()));
         std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
         // The messages name the temporary file; the user knows it as the text in the editor.
         let r = if validate { hostcfg::lua::load(&tmp) } else { hostcfg::lua::load_unvalidated(&tmp) };
@@ -224,7 +224,7 @@ pub fn located(msg: &str) -> Option<usize> {
     None
 }
 
-/// The presets under `<root>/configs` (files marked `-- archstaler: kind=preset`), by name.
+/// The presets under `<root>/configs` (files marked `-- archstaller: kind=preset`), by name.
 pub fn presets(root: &Path) -> Vec<Preset> {
     hostcfg::configs::presets(&root.join(hostcfg::configs::DIR))
 }
@@ -234,7 +234,7 @@ mod tests {
     use super::*;
 
     fn tmp(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("archstaler-gui-{}-{name}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("archstaller-gui-{}-{name}", std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
         d
     }
@@ -304,7 +304,7 @@ mod tests {
             assert!(m.raw.is_none() && m.path.is_none() && m.dirty);
             assert!(m.problems().is_empty(), "{}: {:?}", p.name, m.problems().first().map(|x| &x.message));
             // Saved as plain Lua, it loads back to the same thing.
-            let dir = std::env::temp_dir().join(format!("archstaler-preset-{}-{}", std::process::id(), p.name));
+            let dir = std::env::temp_dir().join(format!("archstaller-preset-{}-{}", std::process::id(), p.name));
             std::fs::create_dir_all(&dir).unwrap();
             let mut m = m;
             m.save(&dir.join("c.lua")).unwrap();
@@ -318,7 +318,7 @@ mod tests {
     #[test]
     fn error_lines_are_found_only_when_the_message_has_one() {
         assert_eq!(located("syntax error: /tmp/c.lua:12: unexpected symbol near '}'"), Some(12));
-        assert_eq!(located("runtime error: /home/x/.archstaler-check-1.lua:3: boom\nstack traceback:"), Some(3));
+        assert_eq!(located("runtime error: /home/x/.archstaller-check-1.lua:3: boom\nstack traceback:"), Some(3));
         assert_eq!(located("as.system.hostname: invalid type: integer `5`, expected a string"), None);
         assert_eq!(located("invalid hostname: \"x\""), None);
         assert_eq!(located("file.lua:abc: nope"), None);

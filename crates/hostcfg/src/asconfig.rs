@@ -4,7 +4,7 @@
 //! while deserializing, then [`AsConfig::into_parts`] normalizes them into the installer's
 //! [`config::Config`] and the host-only [`HostConfig`]; the values are validated there, by the same
 //! code as before. [`AsConfig::from_parts`] goes the other way for the writer. The LuaLS annotations
-//! in `configs/archstaler.lua` are generated from these types (`cargo xtask gen-luals`).
+//! in `configs/archstaller.lua` are generated from these types (`cargo xtask gen-luals`).
 use crate::host::{Build, HostConfig, DRIVERS};
 use schemars::{json_schema, JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,7 @@ pub struct Envelope {
     pub as_: AsConfig,
 }
 
-/// An Archstaler configuration.
+/// An Archstaller configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AsConfig {

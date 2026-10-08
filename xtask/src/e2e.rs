@@ -67,7 +67,7 @@ fn wait_for(child: &mut Child, log: &Path, marker: &str, abort: &[&str], timeout
         let text = String::from_utf8_lossy(&std::fs::read(log).unwrap_or_default()).replace('\r', "");
         // Echo interesting new lines as they arrive.
         for line in text.lines().skip(shown) {
-            if line.contains("archstaler") || line.starts_with('[') && line.contains('/') || line.contains("INSTALL") || line.contains("login:") || line.contains("Kernel panic") || line.contains("FAILED") || line.contains("FATAL") {
+            if line.contains("archstaller") || line.starts_with('[') && line.contains('/') || line.contains("INSTALL") || line.contains("login:") || line.contains("Kernel panic") || line.contains("FAILED") || line.contains("FATAL") {
                 println!("  | {line}");
             }
         }
@@ -139,7 +139,7 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
     let log = dir.join(format!("firstboot-{mode}.log"));
     let _ = std::fs::remove_file(&log);
     let mut child = qemu(&o, &disk, None, &log)?;
-    wait_for(&mut child, &log, "archstaler-firstboot: done", &["archstaler-firstboot: FAILED", "Kernel panic", "FATAL"], Duration::from_secs(30 * 60))?;
+    wait_for(&mut child, &log, "archstaller-firstboot: done", &["archstaller-firstboot: FAILED", "Kernel panic", "FATAL"], Duration::from_secs(30 * 60))?;
     let _ = child.wait();
     let fb = String::from_utf8_lossy(&std::fs::read(&log).unwrap_or_default()).to_string();
     let mut wants: Vec<String> = cfg.users.iter().map(|u| format!("user {} created", u.name)).collect();
@@ -168,11 +168,11 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
     let log = dir.join(format!("secondboot-{mode}.log"));
     let _ = std::fs::remove_file(&log);
     let mut child = qemu(&o, &disk, None, &log)?;
-    // AUR packages are built by archstaler-aur.service on this boot (plans-implement/aur.md); wait for it first.
+    // AUR packages are built by archstaller-aur.service on this boot (plans-implement/aur.md); wait for it first.
     let aur_log;
     if !cfg.aur.is_empty() {
         println!("== [{mode}] AUR build on the installed system");
-        let r = wait_for(&mut child, &log, "archstaler-aur: done", &["archstaler-aur: REFUSED", "archstaler-aur: warning", "archstaler-aur: FAILED", "Kernel panic", "FATAL"], Duration::from_secs(60 * 60));
+        let r = wait_for(&mut child, &log, "archstaller-aur: done", &["archstaller-aur: REFUSED", "archstaller-aur: warning", "archstaller-aur: FAILED", "Kernel panic", "FATAL"], Duration::from_secs(60 * 60));
         match r {
             Ok(t) => aur_log = t,
             Err(e) => {
@@ -182,7 +182,7 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
             }
         }
         for a in &cfg.aur {
-            if !aur_log.contains(&format!("archstaler-aur: package {}: installed", a.name)) {
+            if !aur_log.contains(&format!("archstaller-aur: package {}: installed", a.name)) {
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(format!("the AUR service did not report {} installed (log: {})", a.name, log.display()).into());

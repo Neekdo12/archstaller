@@ -411,7 +411,7 @@ impl Stack {
         let result = (|| {
             let sock = self.sockets.get_mut::<icmp::Socket>(h);
             sock.bind(icmp::Endpoint::Ident(ident)).ok()?;
-            let repr = Icmpv4Repr::EchoRequest { ident, seq_no: 1, data: b"archstaler" };
+            let repr = Icmpv4Repr::EchoRequest { ident, seq_no: 1, data: b"archstaller" };
             let buf = sock.send(repr.buffer_len(), dst).ok()?;
             repr.emit(&mut Icmpv4Packet::new_unchecked(buf), &caps);
             let start = (self.now_ms)();

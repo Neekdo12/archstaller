@@ -2,8 +2,8 @@
 
 Status: implemented. `aur_packages` in the config pins reviewed AUR recipes; `crates/aurbuild` searches,
 reviews and plans on the host (used by `cargo xtask aur-pin` and the GUI's AUR group); the installer adds the
-official packages the recipes need and writes `aur.list`; `firstboot/archstaler-aur.service` and
-`archstaler-aur.sh` build and install the packages on the boot after the first one. Checked by unit tests
+official packages the recipes need and writes `aur.list`; `firstboot/archstaller-aur.service` and
+`archstaller-aur.sh` build and install the packages on the boot after the first one. Checked by unit tests
 (`cargo test -p aurbuild`, including a run of the real shell script against local git repositories with
 stand-ins for `pacman`, `makepkg` and the other root-only commands) and by an end-to-end QEMU install
 (`cargo xtask e2e --config configs/e2e-aur.lua`). Differences from the first draft of this plan are listed
@@ -57,8 +57,8 @@ Checked live against aurweb on 2026-10-05, unless marked otherwise.
   records for the recipe.
 - How the installer works today (`kernel/src/install.rs`, `firstboot/firstboot.sh`): the installer resolves
   and downloads repository packages with a pinned SHA-256 each, writes them to `/var/cache/pacman/pkg`,
-  lists them in `/var/lib/archstaler/packages.list`, writes validated data files into
-  `/var/lib/archstaler`, and the first boot runs one `pacman -U` and then configures the system from those
+  lists them in `/var/lib/archstaller/packages.list`, writes validated data files into
+  `/var/lib/archstaller`, and the first boot runs one `pacman -U` and then configures the system from those
   files. Third-party data has a precedent: `user_archives` and `user_files` are fetched over HTTPS, and
   scripts from a URL need a mandatory SHA-256.
 - The first boot does not need a network today, so a network on the target at that moment is a new
@@ -75,7 +75,7 @@ Checked live against aurweb on 2026-10-05, unless marked otherwise.
 |---|---|
 | Host (GUI or `xtask`), any OS | Search, review, pin, dependency plan, validation. Needs only HTTPS. No `makepkg`, no container, no Arch |
 | ISO | A short validated list: package, pinned commit, pinned content hash, order |
-| Installer (kernel) | Adds the needed official packages to the normal package plan, writes the list to `/var/lib/archstaler/aur.list` |
+| Installer (kernel) | Adds the needed official packages to the normal package plan, writes the list to `/var/lib/archstaller/aur.list` |
 | Target, first boot | Installs a one-shot service that waits for the network, then builds and installs each package |
 
 Because no build happens on the host, the GUI stays cross-platform and no Arch host or container runtime is
@@ -145,18 +145,18 @@ New host-only crate `crates/aurbuild` (std, no GUI dependencies):
 
 In `kernel/src/install.rs`: the official dependencies and build dependencies from the plan are resolved and
 downloaded like any other package, so they are installed by the existing `pacman -U` step. The kernel writes
-`/var/lib/archstaler/aur.list` (one validated `pkgbase:commit:sha256:name:vcs` line per package, in build
+`/var/lib/archstaller/aur.list` (one validated `pkgbase:commit:sha256:name:vcs` line per package, in build
 order) and a list of the build-only dependencies (`aur_builddeps.list`) so they can be removed afterwards.
 It also installs the one-shot service and its script from the overlay. Nothing is downloaded from the AUR by
 the installer itself.
 
 ### First boot and the build service
 
-`firstboot/firstboot.sh` enables `archstaler-aur.service` (a one-shot unit, `After=network-online.target`,
-`Wants=network-online.target`, `ConditionPathExists=/var/lib/archstaler/aur.list`) and does not wait for it,
-so a missing network never blocks or fails the first boot. `firstboot/archstaler-aur.sh` does the work:
+`firstboot/firstboot.sh` enables `archstaller-aur.service` (a one-shot unit, `After=network-online.target`,
+`Wants=network-online.target`, `ConditionPathExists=/var/lib/archstaller/aur.list`) and does not wait for it,
+so a missing network never blocks or fails the first boot. `firstboot/archstaller-aur.sh` does the work:
 
-1. Create a dedicated unprivileged user (`archstaler-build`, home under `/var/lib/archstaler/aur-build`,
+1. Create a dedicated unprivileged user (`archstaller-build`, home under `/var/lib/archstaller/aur-build`,
    no password, no login shell, no sudo).
 2. For each line, in order: as that user, `git clone https://aur.archlinux.org/<pkgbase>.git`, `git checkout
    <commit>`, recompute the reviewed-tree digest and compare it with the pin. Mismatch: skip this package and
@@ -170,7 +170,7 @@ so a missing network never blocks or fails the first boot. `firstboot/archstaler
    removing `base-devel` is surprising), and disable the service. On a failure caused by the network, keep
    the list and let the service run again on the next boot, at most five times, then stop and write the
    reason to the log.
-6. Log to `/var/log/archstaler-aur.log` and the console; every failure is a warning, never a failed
+6. Log to `/var/log/archstaller-aur.log` and the console; every failure is a warning, never a failed
    installation or a boot blocker. Names come from the validated list, never interpolated into shell source
    (the rule of `firstboot.sh`).
 
@@ -229,7 +229,7 @@ message, because the build needs a network.
 3. **xtask**: add the plan's official and build dependencies to the package plan, write the list into the
    config payload, `cargo xtask aur-plan --config X.lua` that prints the plan without building an ISO.
 4. **Installer**: `aur.list`, `aur_builddeps.list`, overlay with the service and script.
-5. **First-boot script**: `archstaler-aur.sh` and the unit, tested in isolation first (shell test with a
+5. **First-boot script**: `archstaller-aur.sh` and the unit, tested in isolation first (shell test with a
    local git repository standing in for the AUR, run in a throwaway Arch container or chroot), then
    end to end in QEMU (`cargo xtask e2e`) with one small real `-bin` package pinned in a test config. Extra
    runs: a wrong digest must skip the package and leave the base system intact; no network must leave the
@@ -257,7 +257,7 @@ message, because the build needs a network.
 - **No RPC cache.** The GUI only calls the AUR when the user presses Search, Review or Pin, so the RPC client
   does not cache. The sync databases for dependency resolution are cached for an hour like the resolve preview.
 - **Build-only packages stay installed.** `build_deps` is recorded in the config and written to
-  `/var/lib/archstaler/aur_builddeps.list`, but nothing removes `base-devel` afterwards yet; that needs an
+  `/var/lib/archstaller/aur_builddeps.list`, but nothing removes `base-devel` afterwards yet; that needs an
   option in the config first.
 - **Digest rule.** The reviewed-tree digest is computed from the cgit snapshot on the host and from the
   `git clone` checkout on the target. Both give the same result for the packages tried (`zen-browser-bin`,
@@ -268,8 +268,8 @@ message, because the build needs a network.
   are not checked on the host; `pacman` checks them on the target.
 - **Per-package units.** `services` of a pinned package are enabled right after that package is installed;
   they are edited in the GUI next to the package.
-- **Test hooks of the script.** `archstaler-aur.sh` reads `ARCHSTALER_STATE`, `ARCHSTALER_LOG`,
-  `ARCHSTALER_AUR_BASE` and `ARCHSTALER_CACHE`, which exist for the tests; the systemd unit sets none of them.
+- **Test hooks of the script.** `archstaller-aur.sh` reads `ARCHSTALLER_STATE`, `ARCHSTALLER_LOG`,
+  `ARCHSTALLER_AUR_BASE` and `ARCHSTALLER_CACHE`, which exist for the tests; the systemd unit sets none of them.
 - **Reaching a network in the QEMU test.** QEMU's user-mode network takes DNS from the host's
   `/etc/resolv.conf`. On a host whose resolv.conf names no nameserver, `cargo xtask e2e` runs QEMU inside
   `bwrap` with a resolv.conf that names a public resolver.

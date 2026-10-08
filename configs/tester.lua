@@ -1,4 +1,4 @@
--- archstaler: kind=preset
+-- archstaller: kind=preset
 -- Tester: READ-ONLY hardware test. Boots the installer kernel in dry-run mode: probes PCI, reads
 -- every disk (writes are refused by the kernel), brings up the network, downloads and resolves the
 -- package databases, prints a PASS/FAIL report and reboots after 60 seconds.

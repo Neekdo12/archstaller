@@ -1,4 +1,4 @@
--- archstaler: kind=preset
+-- archstaller: kind=preset
 -- KDE Plasma (Wayland session) with NetworkManager, PipeWire and Firefox; ly starts the session.
 -- The biggest preset (well over 1 GiB to download); use a disk of 20 GiB or more.
 local common = require("common")

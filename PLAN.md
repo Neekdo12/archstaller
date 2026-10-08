@@ -1,4 +1,4 @@
-# archstaler – an Arch installer in Rust without the Linux kernel
+# archstaller – an Arch installer in Rust without the Linux kernel
 
 A hybrid ISO (BIOS + UEFI) with Limine that starts our own `no_std` mini-kernel in Rust (one core, polling drivers).
 It installs Arch from a mirror onto ext4 according to a pre-built Lua config. Everything that needs a running Linux
@@ -64,10 +64,10 @@ It installs Arch from a mirror onto ext4 according to a pre-built Lua config. Ev
 13. Partitioning + formatting.
 14. For every package: download into `/var/cache/pacman/pkg` on ext4, stream the sha256 + PGP hash → verify → only then extract.
 15. `/etc`: `fstab`, `hostname`, `locale.conf`, `vconsole.conf`, `localtime`, `pacman.d/mirrorlist`.
-16. Initramfs + Limine on the ESP, a default entry with `systemd.unit=archstaler-firstboot.target` → reboot.
+16. Initramfs + Limine on the ESP, a default entry with `systemd.unit=archstaller-firstboot.target` → reboot.
 
 ### 6. First boot (in parallel with 5)
-17. `archstaler-firstboot.target` + `.service`:
+17. `archstaller-firstboot.target` + `.service`:
     `pacman-key --init` / `--populate archlinux`,
     `pacman -U --overwrite '*'` from the cache (explicit / `--asdeps`) – runs scriptlets and hooks and writes the local DB,
     `locale-gen`, `useradd` with the password hashes from the config, enable services, `tune2fs -j`, `mkinitcpio -P`,

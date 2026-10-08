@@ -5,7 +5,7 @@ is gone. Decisions and differences from the text below:
 
 - **Platform:** Linux only. Windows and macOS support of the old GUI was dropped on purpose (the Lua editor and
   the volume handling use `lsblk`, `udisksctl` and GtkSourceView).
-- **Dark by default** (`ARCHSTALER_THEME=system|light` overrides), check and radio indicators are pinned to 16 px so a
+- **Dark by default** (`ARCHSTALLER_THEME=system|light` overrides), check and radio indicators are pinned to 16 px so a
   theme or scale cannot blow them up, and no page widens the window: long labels wrap and the stack is not
   homogeneous. The AUR group was reduced to one search row, compact result rows and a review panel with the
   automatic checks folded behind a count.
@@ -14,7 +14,7 @@ is gone. Decisions and differences from the text below:
 - **Phases 1-5 are done**, including the Ctrl+K / `/` launcher, the source and form modes, completion, diagnostics
   and the verified Ventoy copy. The AUR group, the home-directory zip and the first-boot script pages were ported
   as they were.
-- **Verification:** `cargo test -p archstaler-gui` covers the model (including source mode and line lookup) and the
+- **Verification:** `cargo test -p archstaller-gui` covers the model (including source mode and line lookup) and the
   completion logic without a display. The windows, the launcher, the editor and a real ISO build from a preset were
   exercised by hand under X11 with a dark theme; see "Manual smoke test" in `docs/gui-app.md`. Not exercised: a light theme beyond one page,
   Wayland, a screen reader, high-contrast mode, and a build onto a real Ventoy stick.
@@ -23,7 +23,7 @@ is gone. Decisions and differences from the text below:
   later as a separate `MediaTarget`, see `plans-implement/raw-usb-flash.md`.
 
 This is the implementation spec for replacing the current egui desktop frontend with a GTK application.
-The GUI remains a host-side tool for editing Archstaler configs, validating them, building installer
+The GUI remains a host-side tool for editing Archstaller configs, validating them, building installer
 ISOs, and copying an ISO file to a Ventoy data volume. It is not an installer UI and does not flash raw
 devices.
 
@@ -107,7 +107,7 @@ command discovery; the product remains a configuration/build utility.
 ## Styling and theming
 
 Use GTK's normal theme and widget rendering as the foundation. Add a small application stylesheet only
-for Archstaler-specific hierarchy, spacing, selected navigation, status severity, and progress emphasis.
+for Archstaller-specific hierarchy, spacing, selected navigation, status severity, and progress emphasis.
 Use named CSS colors/design tokens consistently; avoid a large global stylesheet that fights the active
 GTK theme or hard-codes every widget's colors.
 
@@ -207,7 +207,7 @@ chosen targets.
 
 ## Validation and acceptance
 
-- Keep `cargo test -p archstaler-gui` passing, including existing model, build, and media tests. Add
+- Keep `cargo test -p archstaller-gui` passing, including existing model, build, and media tests. Add
   focused tests for any new controller/state transitions without requiring a display server.
 - Add a smoke test or documented manual check that launches the app, opens a config, creates a preset
   document, saves/reopens Lua, and shows validation errors at the correct page.

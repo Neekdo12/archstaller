@@ -1,5 +1,5 @@
--- archstaler: kind=module
--- LuaLS type definitions for the Archstaler `as` config.
+-- archstaller: kind=module
+-- LuaLS type definitions for the Archstaller `as` config.
 -- GENERATED from the Rust schema (crates/hostcfg/src/asconfig.rs) by `cargo xtask gen-luals`; do not edit.
 ---@meta
 
@@ -7,7 +7,7 @@
 ---@class (exact) AsEnvelope
 ---@field as AsConfig
 
----An Archstaler configuration.
+---An Archstaller configuration.
 ---@class (exact) AsConfig
 ---@field schema integer Schema version; must be 1.
 ---@field system AsSystem Identity and locale of the installed system.

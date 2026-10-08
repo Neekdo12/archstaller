@@ -1,4 +1,4 @@
--- archstaler: kind=e2e
+-- archstaller: kind=e2e
 -- Configuration for `cargo xtask e2e --config configs/e2e-aur.lua`: the e2e system plus one AUR package
 -- (yay-bin, a prebuilt binary, so the build is quick). The second boot must build and install it.
 local cfg = require("e2e").as

@@ -13,12 +13,12 @@ Code: `gui/src/flash.rs`, the flash dialog at the end of `gui/src/pages/iso.rs`,
 
 ### Build and unit tests
 
-- [ ] `cargo build -p archstaler-gui` compiles. The riskiest parts are the gio D-Bus calls in `UDisks`
+- [ ] `cargo build -p archstaller-gui` compiles. The riskiest parts are the gio D-Bus calls in `UDisks`
       (`call_sync`, `call_with_unix_fd_list_sync`, `UnixFDList::get`), checked against the gio 0.22.10 source
       but never built.
-- [ ] `Cargo.lock` is still valid: `libc` was added to the `archstaler-gui` entry by hand. `cargo build --locked`
+- [ ] `Cargo.lock` is still valid: `libc` was added to the `archstaller-gui` entry by hand. `cargo build --locked`
       should not want to change it.
-- [ ] `cargo test -p archstaler-gui` passes, in particular the `flash::tests` (lsblk fixture, eligibility rules,
+- [ ] `cargo test -p archstaller-gui` passes, in particular the `flash::tests` (lsblk fixture, eligibility rules,
       identity check, writer against a temp file, cancel, read-back mismatch, a device that changes mid-way is
       never written).
 
@@ -73,7 +73,7 @@ names were checked against the Arch databases of 2026-10-07; nothing was resolve
 - [ ] `cargo xtask check-presets` resolves `sway` with no missing package and with `jack` coming from
       `pipewire-jack`. Write the real package count and download size into the preset tables in
       `docs/lua-config.md` and `README.md` (they now say "~1.1 GiB (estimate)").
-- [ ] `cargo xtask presets` builds `target/isos/archstaler-sway.iso`.
+- [ ] `cargo xtask presets` builds `target/isos/archstaller-sway.iso`.
 - [ ] `bash -n configs/sway-config.sh` and, if installed, `shellcheck configs/sway-config.sh` are clean.
 
 ### Install in QEMU

@@ -68,7 +68,7 @@ pub fn run_test() -> Result<()> {
     w.write_file(&payload).map_err(|e| format!("{e:?}"))?;
     w.end_file().map_err(|e| format!("{e:?}"))?;
     let reg = Meta { mode: 0o644, mtime: 1_790_000_000, ..Default::default() };
-    w.begin_file("etc/archstaler-marker", &reg).map_err(|e| format!("{e:?}"))?;
+    w.begin_file("etc/archstaller-marker", &reg).map_err(|e| format!("{e:?}"))?;
     w.write_file(b"HELLO-FROM-EXT4W\n").map_err(|e| format!("{e:?}"))?;
     w.end_file().map_err(|e| format!("{e:?}"))?;
     w.finish().map_err(|e| format!("{e:?}"))?;

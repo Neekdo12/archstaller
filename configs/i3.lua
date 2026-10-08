@@ -1,4 +1,4 @@
--- archstaler: kind=preset
+-- archstaller: kind=preset
 -- i3 on Xorg with NetworkManager, PipeWire and Firefox; ly starts the session. 10 GiB+ disk.
 local common = require("common")
 

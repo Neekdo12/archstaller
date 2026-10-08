@@ -553,7 +553,7 @@ mod tests {
     }
 
     fn src(len: u64) -> Source {
-        Source { path: PathBuf::from("/home/u/archstaler.iso"), len, dev: (259, 2) }
+        Source { path: PathBuf::from("/home/u/archstaller.iso"), len, dev: (259, 2) }
     }
 
     #[test]
@@ -625,7 +625,7 @@ mod tests {
     }
 
     fn tmp(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("archstaler-flash-{}-{name}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("archstaller-flash-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d

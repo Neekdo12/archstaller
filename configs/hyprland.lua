@@ -1,4 +1,4 @@
--- archstaler: kind=preset
+-- archstaller: kind=preset
 -- Hyprland (Wayland) with NetworkManager, PipeWire and Firefox; ly starts the session.
 -- Needs a GPU with working KMS; in a VM enable 3D acceleration (virtio-gpu with virgl). 15 GiB+ disk.
 local common = require("common")

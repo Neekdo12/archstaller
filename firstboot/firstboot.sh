@@ -1,9 +1,9 @@
 #!/bin/bash
-# Runs once on the first boot of a system laid down by archstaler. All configuration comes from
-# data files in /var/lib/archstaler; nothing from the config is interpolated into this script.
+# Runs once on the first boot of a system laid down by archstaller. All configuration comes from
+# data files in /var/lib/archstaller; nothing from the config is interpolated into this script.
 set -u
-D=/var/lib/archstaler
-say() { echo "archstaler-firstboot: $*" | tee /dev/console; }
+D=/var/lib/archstaller
+say() { echo "archstaller-firstboot: $*" | tee /dev/console; }
 fail() { say "FAILED: $*"; exit 1; }
 
 say "initializing pacman keyring"
@@ -22,8 +22,8 @@ cp -a "$D/overlay/." / || fail "overlay"
 locale-gen || say "warning: locale-gen failed"
 
 # The ly login manager: show the banner above the login box (a .dur file drawn as ly's background).
-if [ -f /etc/ly/config.ini ] && [ -f /etc/ly/archstaler.dur ]; then
-    sed -i -E 's|^animation = .*|animation = dur_file|; s|^dur_file_path = .*|dur_file_path = /etc/ly/archstaler.dur|; s|^dur_offset_alignment = .*|dur_offset_alignment = topcenter|; s|^dur_y_offset = .*|dur_y_offset = 2|' /etc/ly/config.ini ||
+if [ -f /etc/ly/config.ini ] && [ -f /etc/ly/archstaller.dur ]; then
+    sed -i -E 's|^animation = .*|animation = dur_file|; s|^dur_file_path = .*|dur_file_path = /etc/ly/archstaller.dur|; s|^dur_offset_alignment = .*|dur_offset_alignment = topcenter|; s|^dur_y_offset = .*|dur_y_offset = 2|' /etc/ly/config.ini ||
         say "warning: could not set up the ly banner"
 fi
 
@@ -72,10 +72,10 @@ if [ -s "$D/userarchives.list" ]; then
     done < "$D/users.list"
 fi
 
-# AUR packages are built on the next boot by archstaler-aur.service, once the network is up; enabling it here
+# AUR packages are built on the next boot by archstaller-aur.service, once the network is up; enabling it here
 # does not wait for it, so a missing network never blocks this first boot.
 if [ -s "$D/aur.list" ]; then
-    systemctl enable archstaler-aur.service || say "warning: could not enable the AUR build service"
+    systemctl enable archstaller-aur.service || say "warning: could not enable the AUR build service"
 fi
 
 if [ -s "$D/services.list" ]; then

@@ -1,7 +1,7 @@
 //! The reviewed-tree digest and a reader for the AUR snapshot tarballs.
 //!
 //! The digest is what the installed system recomputes before it builds anything (`tree_digest` in
-//! `firstboot/archstaler-aur.sh` implements the same rule): SHA-256 over the lines
+//! `firstboot/archstaller-aur.sh` implements the same rule): SHA-256 over the lines
 //! `<sha256 of the file>  <path>\n` for every regular file but `.git`, sorted by path bytes.
 use crate::Result;
 use flate2::read::GzDecoder;
@@ -198,7 +198,7 @@ mod tests {
             std::fs::write(dir.join(p), c).unwrap();
             f.insert(p.to_string(), c.as_bytes().to_vec());
         }
-        let script = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../firstboot/archstaler-aur.sh")).unwrap();
+        let script = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../firstboot/archstaller-aur.sh")).unwrap();
         let func = script.split("tree_digest() {").nth(1).unwrap().split("\n}\n").next().unwrap();
         let sh = format!("tree_digest() {{{func}\n}}\ntree_digest \"{}\"", dir.display());
         let out = std::process::Command::new("bash").arg("-c").arg(sh).output();

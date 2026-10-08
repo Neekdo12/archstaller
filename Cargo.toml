@@ -19,7 +19,7 @@ inherits = "release"
 panic = "immediate-abort"
 
 # The desktop GUI wants speed, not the installer's size-optimized settings:
-#   cargo build --profile gui -p archstaler-gui   ->  target/gui/archstaler-gui
+#   cargo build --profile gui -p archstaller-gui   ->  target/gui/archstaller-gui
 [profile.gui]
 inherits = "release"
 opt-level = 3

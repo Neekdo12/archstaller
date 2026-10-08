@@ -2,7 +2,7 @@
 
 **Status: implemented, not tested.** No Rust toolchain was available when it was written, so it has not been
 compiled, its unit tests have not run, and no real stick has been flashed. Before calling it supported: `cargo test
--p archstaler-gui`, then the manual tests below on a disposable stick. Where the code is:
+-p archstaller-gui`, then the manual tests below on a disposable stick. Where the code is:
 
 - `gui/src/flash.rs`: devices from `lsblk -J -b` (util-linux 2.37+, for `MOUNTPOINTS`) plus sysfs (`/sys/dev/block/M:m`
   for the USB ancestry, `holders/`); `problems()` holds the eligibility rules; `RawBlockFlash` is the `MediaTarget`;
@@ -30,7 +30,7 @@ Decisions the text below left open:
 - **Eject** is `Drive.PowerOff`, falling back to `Drive.Eject`; when both fail the result still reports a verified
   flash and tells the user to use the desktop's safe removal.
 
-This document specifies a future GUI feature that writes the Archstaler hybrid ISO directly to a USB
+This document specifies a future GUI feature that writes the Archstaller hybrid ISO directly to a USB
 block device. It is offered when no Ventoy data volume is detected. The operation erases the selected
 USB device; it must never start automatically because Ventoy is missing.
 
@@ -83,7 +83,7 @@ Raw flashing must have stricter device checks than the existing mounted-volume c
 
 ## Writing and verification
 
-Archstaler's ISO is a hybrid BIOS/UEFI boot image. Write its bytes starting at byte offset zero of the
+Archstaller's ISO is a hybrid BIOS/UEFI boot image. Write its bytes starting at byte offset zero of the
 whole target device; do not create a filesystem, partition the device separately, or write to a mounted
 partition. The ISO's own partition/boot layout is the output.
 

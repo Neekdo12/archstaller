@@ -9,21 +9,21 @@ passes in QEMU (BIOS, virtio): install, first boot (`pacman -U` of all 906 packa
 Use a disk of 24 GiB or more.
 
 This document describes how to support Arch-based systems that ship only a different package selection
-and configuration, such as Omarchy. Distributions with their own repositories or keys are out of scope. The installer kernel remains Archstaler's own, while package selection and
+and configuration, such as Omarchy. Distributions with their own repositories or keys are out of scope. The installer kernel remains Archstaller's own, while package selection and
 system configuration vary by preset.
 
 ## Decide what "same kernel" means
 
-Keep the **Archstaler installer kernel** the same for every preset. It is the `no_std` kernel built for
+Keep the **Archstaller installer kernel** the same for every preset. It is the `no_std` kernel built for
 `x86_64-unknown-none`; it does not become an Arch or Omarchy kernel. The installed system
 still needs its own bootable Linux kernel and matching initramfs.
 
-Omarchy is an Arch-based system and should start as a normal Archstaler preset: same installer kernel,
+Omarchy is an Arch-based system and should start as a normal Archstaller preset: same installer kernel,
 Arch package pipeline, different package selection and system configuration.
 
 ## Current boundary
 
-The existing preset mechanism is the files marked `-- archstaler: kind=preset` in `configs/`, with shared defaults in `configs/common.lua`. The
+The existing preset mechanism is the files marked `-- archstaller: kind=preset` in `configs/`, with shared defaults in `configs/common.lua`. The
 presets supply package names and system configuration; they do not select a different installer kernel.
 The GUI and CLI already load these configs through `hostcfg`.
 
@@ -42,7 +42,7 @@ Several current assumptions must be addressed when adding Arch-derived distribut
 
 Implement Omarchy first, reusing the Arch backend and adding no new kernel code.
 
-1. Add `configs/omarchy.lua` (first line `-- archstaler: kind=preset`). Reuse `configs/common.lua` for shared Arch packages, users, disk setup,
+1. Add `configs/omarchy.lua` (first line `-- archstaller: kind=preset`). Reuse `configs/common.lua` for shared Arch packages, users, disk setup,
    and standard configuration. Keep the Omarchy package list and any supported configuration files in
    the Omarchy preset or small shared Lua modules; do not fork all common defaults.
 2. Derive the package list and configuration from a documented, pinned Omarchy release. Prefer normal
@@ -52,7 +52,7 @@ Implement Omarchy first, reusing the Arch backend and adding no new kernel code.
    configuration only where they are appropriate. Pin remote content by hash when the mechanism
    supports it; treat unpinned desktop configuration as executable code and do not fetch it implicitly.
 4. Ensure the selected installed kernel, boot package, initramfs generator, login manager, and enabled
-   services agree. Do not assume that an Omarchy desktop package set also provides Archstaler's current
+   services agree. Do not assume that an Omarchy desktop package set also provides Archstaller's current
    `linux`, `mkinitcpio`, or `grub` package choices.
 5. Add the preset to the preset build/check path and GUI preset menu through the existing preset
    discovery mechanism. Update examples only if they document preset selection.
@@ -60,7 +60,7 @@ Implement Omarchy first, reusing the Arch backend and adding no new kernel code.
    install. Inspect first-boot logs and verify that the installed machine reaches the intended login
    session with the expected user configuration.
 
-Omarchy support is a preset, not a claim that Archstaler reproduces every step of the upstream Omarchy
+Omarchy support is a preset, not a claim that Archstaller reproduces every step of the upstream Omarchy
 installer. Document omissions and the upstream release used to derive the package/configuration set.
 
 ## Shared completion criteria

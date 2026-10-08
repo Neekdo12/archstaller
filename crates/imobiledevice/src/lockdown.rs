@@ -9,7 +9,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use hal::{Error, Result};
 
-const LABEL: &str = "archstaler";
+const LABEL: &str = "archstaller";
 const PROTOCOL_VERSION: &str = "2";
 
 /// How lockdownd answered a Pair request.

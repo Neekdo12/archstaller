@@ -1,12 +1,12 @@
-# Archstaler Lua configuration reference
+# Archstaller Lua configuration reference
 
 This file is written to be pasted whole into a chatbot, or read by a person, with no access to the source code. It
-describes every setting of an Archstaler config, the rules the build enforces, what the installer does with each
+describes every setting of an Archstaller config, the rules the build enforces, what the installer does with each
 value, and complete working examples. If you are a chatbot: read "Rules for whoever writes a config" first.
 
-## What Archstaler is
+## What Archstaller is
 
-Archstaler builds a bootable ISO that installs Arch Linux **unattended**. Everything the installer needs to know
+Archstaller builds a bootable ISO that installs Arch Linux **unattended**. Everything the installer needs to know
 comes from one Lua file, the *config*, evaluated on the machine that builds the ISO. There is no interactive
 installer: the machine boots the ISO, picks a disk, downloads packages from an Arch mirror, writes the system and
 reboots. A config therefore decides, among other things, **which disk is erased**.
@@ -21,7 +21,7 @@ How a config is used:
 cargo xtask build --config my.lua --out my.iso    # command line, from the repository checkout
 ```
 
-or open the file in the `archstaler-gui` desktop app (Linux), which edits the same files, checks them with the same
+or open the file in the `archstaller-gui` desktop app (Linux), which edits the same files, checks them with the same
 code and builds the ISO. The build rejects an invalid config with a message that names the field, for example
 `as.system.hostname: invalid type: integer 5, expected a string`.
 
@@ -282,7 +282,7 @@ full` and passed on 24 GiB. The preset table below gives the disk each preset wa
 
 ## Presets (ready starting points)
 
-The repository's `configs/` directory holds configs that start with the line `-- archstaler: kind=preset`. They
+The repository's `configs/` directory holds configs that start with the line `-- archstaller: kind=preset`. They
 install onto the **largest disk without asking** (`auto_largest = true`), create the user `passwd_is_passwd` with
 password `passwd` (change it before connecting the machine to a network) and keep root locked.
 

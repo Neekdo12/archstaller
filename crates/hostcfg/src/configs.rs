@@ -1,6 +1,6 @@
 //! The repository's `configs/` directory: example, e2e, shared modules, the LuaLS definitions and
 //! the selectable presets, all flat in one folder. A file says what it is on its first line:
-//! `-- archstaler: kind=preset`. Only `kind=preset` files are presets; everything else (including
+//! `-- archstaller: kind=preset`. Only `kind=preset` files are presets; everything else (including
 //! files with no marker) is left alone. `xtask` and the GUI both list presets through [`presets`].
 use std::path::{Path, PathBuf};
 
@@ -22,7 +22,7 @@ pub enum Kind {
 
 /// The kind named by a file's first line, if it has a marker.
 pub fn kind_of(text: &str) -> Option<Kind> {
-    let rest = text.lines().next()?.trim().strip_prefix("--")?.trim().strip_prefix("archstaler:")?;
+    let rest = text.lines().next()?.trim().strip_prefix("--")?.trim().strip_prefix("archstaller:")?;
     let value = rest.split_whitespace().find_map(|t| t.strip_prefix("kind="))?;
     match value {
         "preset" => Some(Kind::Preset),
@@ -69,10 +69,10 @@ mod tests {
 
     #[test]
     fn markers() {
-        assert_eq!(kind_of("-- archstaler: kind=preset\n-- x"), Some(Kind::Preset));
-        assert_eq!(kind_of("--archstaler:kind=module"), Some(Kind::Module));
-        assert_eq!(kind_of("-- archstaler: kind=e2e extra"), Some(Kind::E2e));
-        assert_eq!(kind_of("-- archstaler: kind=nope"), None);
+        assert_eq!(kind_of("-- archstaller: kind=preset\n-- x"), Some(Kind::Preset));
+        assert_eq!(kind_of("--archstaller:kind=module"), Some(Kind::Module));
+        assert_eq!(kind_of("-- archstaller: kind=e2e extra"), Some(Kind::E2e));
+        assert_eq!(kind_of("-- archstaller: kind=nope"), None);
         assert_eq!(kind_of("-- just a comment"), None);
         assert_eq!(kind_of("return {}"), None);
         assert_eq!(kind_of(""), None);
@@ -82,11 +82,11 @@ mod tests {
     fn only_marked_files_are_presets() {
         let dir = std::env::temp_dir().join(format!("hostcfg-configs-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("a.lua"), "-- archstaler: kind=preset\n-- First.\nreturn {}").unwrap();
-        std::fs::write(dir.join("common.lua"), "-- archstaler: kind=module\nreturn {}").unwrap();
-        std::fs::write(dir.join("config.lua"), "-- archstaler: kind=example\nreturn {}").unwrap();
+        std::fs::write(dir.join("a.lua"), "-- archstaller: kind=preset\n-- First.\nreturn {}").unwrap();
+        std::fs::write(dir.join("common.lua"), "-- archstaller: kind=module\nreturn {}").unwrap();
+        std::fs::write(dir.join("config.lua"), "-- archstaller: kind=example\nreturn {}").unwrap();
         std::fs::write(dir.join("unmarked.lua"), "-- not marked\nreturn {}").unwrap();
-        std::fs::write(dir.join("notes.txt"), "-- archstaler: kind=preset").unwrap();
+        std::fs::write(dir.join("notes.txt"), "-- archstaller: kind=preset").unwrap();
         let list = presets(&dir);
         assert_eq!(list.len(), 1);
         assert_eq!((list[0].name.as_str(), list[0].description.as_str()), ("a", "First."));

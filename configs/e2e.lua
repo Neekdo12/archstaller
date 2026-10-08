@@ -1,4 +1,4 @@
--- archstaler: kind=e2e
+-- archstaller: kind=e2e
 -- Configuration for `cargo xtask e2e`: a minimal system installed onto the QEMU test disk.
 ---@type AsConfig
 local as = {

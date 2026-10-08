@@ -38,7 +38,7 @@ cargo xtask build
 cargo xtask build --profile large
 
 # Start the GTK app
-cargo run -p archstaler-gui
+cargo run -p archstaller-gui
 
 # Build an ISO from a custom Lua config
 cargo xtask build --config path/to/my.lua --out my.iso
@@ -57,7 +57,7 @@ cargo xtask run --uefi --disk nvme --nic e1000e
 ## Testing
 
 ```sh
-cargo test --release -p pgp-lite --features std -p pkg -p ext4w -p disk -p initrd -p hostcfg -p archstaler-gui -p loadcore
+cargo test --release -p pgp-lite --features std -p pkg -p ext4w -p disk -p initrd -p hostcfg -p archstaller-gui -p loadcore
 cargo xtask linux-test                       # boots the host kernel with our initramfs and an ext4w root
 cargo xtask e2e [--uefi] [--disk ahci|nvme|ide --nic e1000]   # install onto a blank disk, then boot twice
 cargo xtask e2e --config configs/i3.lua      # the same for a preset
@@ -68,7 +68,7 @@ cargo xtask run --selftest --headless --nic usb-rndis   # DHCP + HTTPS + 1 MB ov
 cargo xtask size [--profile large] [--limit BYTES]   # ISO contents and size limit check
 cargo xtask check-presets                    # resolve every preset against the local pacman databases
 cargo xtask coverage [--era 2010-2019]     # wired-network id coverage of the installer drivers, by entry, popularity weight and estimated hardware era (coverage/*.tsv)
-cargo xtask gen-luals --check                # configs/archstaler.lua matches the Rust schema
+cargo xtask gen-luals --check                # configs/archstaller.lua matches the Rust schema
 cargo xtask update-keyring                   # move the keyring pin to the newest release
 ```
 

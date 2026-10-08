@@ -42,7 +42,7 @@ pub struct Live {
 }
 
 fn file_stem(p: &std::path::Path) -> String {
-    p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "archstaler".into())
+    p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "archstaller".into())
 }
 
 fn label_of(v: &Volume) -> String {
@@ -507,7 +507,7 @@ pub fn start_from_action(app: &Rc<App>) {
                 return;
             }
             // Straight to the stick: an unsaved config is built from a temporary copy, no dialog.
-            let name = path.as_ref().map(|p| file_stem(p)).unwrap_or_else(|| "archstaler".into());
+            let name = path.as_ref().map(|p| file_stem(p)).unwrap_or_else(|| "archstaller".into());
             let cfg = match path {
                 Some(p) => {
                     if !a.save_async().await {
@@ -516,7 +516,7 @@ pub fn start_from_action(app: &Rc<App>) {
                     Ok(p)
                 }
                 None => {
-                    let p = std::env::temp_dir().join(format!("archstaler-{}.lua", std::process::id()));
+                    let p = std::env::temp_dir().join(format!("archstaller-{}.lua", std::process::id()));
                     let text = a.st.borrow().model.lua();
                     std::fs::write(&p, text).map(|_| p).map_err(|e| format!("cannot write the temporary config: {e}"))
                 }
@@ -556,14 +556,14 @@ fn start_build_and_flash(app: &Rc<App>, dev: flash::RawDevice) {
                 Ok(p)
             }
             None => {
-                let p = std::env::temp_dir().join(format!("archstaler-{}.lua", std::process::id()));
+                let p = std::env::temp_dir().join(format!("archstaller-{}.lua", std::process::id()));
                 let text = a.st.borrow().model.lua();
                 std::fs::write(&p, text).map(|_| p).map_err(|e| format!("cannot write the temporary config: {e}"))
             }
         };
         match cfg {
             Ok(cfg) => {
-                let out = std::env::temp_dir().join("archstaler-flash.iso");
+                let out = std::env::temp_dir().join("archstaller-flash.iso");
                 start_build(&a, cfg, out);
                 let mut st = a.st.borrow_mut();
                 if st.build.running.is_some() {

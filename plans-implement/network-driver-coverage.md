@@ -1,6 +1,6 @@
 # Network driver coverage roadmap
 
-This document defines a practical path to broaden wired networking support in Archstaler's installer.
+This document defines a practical path to broaden wired networking support in Archstaller's installer.
 Targets are **at least 95% coverage of a documented x86_64 PCI Ethernet hardware cohort** and **at least
 70% coverage of a documented USB Ethernet/tethering cohort**. These percentages are goals to measure,
 not claims about every computer or network adapter made from 2000 to the present.

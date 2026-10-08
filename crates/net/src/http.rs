@@ -22,7 +22,7 @@ pub fn get<S: Stream>(
     req.push_str(path);
     req.push_str(" HTTP/1.1\r\nHost: ");
     req.push_str(host);
-    req.push_str("\r\nUser-Agent: archstaler\r\nAccept: */*\r\nConnection: close\r\n\r\n");
+    req.push_str("\r\nUser-Agent: archstaller\r\nAccept: */*\r\nConnection: close\r\n\r\n");
     s.write_all(req.as_bytes())?;
 
     let mut buf: Vec<u8> = Vec::new();

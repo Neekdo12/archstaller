@@ -171,7 +171,7 @@ fn make_efi_image(efi: &std::path::Path, payload: &std::path::Path, out: &std::p
 }
 
 pub fn iso_path() -> PathBuf {
-    root().join("target/archstaler.iso")
+    root().join("target/archstaller.iso")
 }
 
 /// Prints a progress event when `--progress json` was given.

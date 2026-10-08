@@ -1,10 +1,10 @@
-# archstaler
+# archstaller
 
 ### Wanted to install Arch without babysitting an installer?
 
 **Fear no more.**
 
-**archstaler** is a tiny, unattended Arch Linux installer written in Rust.
+**archstaller** is a tiny, unattended Arch Linux installer written in Rust.
 
 And by tiny, I mean **the installer ISO can be smaller than a single photo you took today.**
 
@@ -66,7 +66,7 @@ Every preset comes with `ly` and a default user.
 
 ## The fun part
 
-archstaler doesn't rely on Linux being already there.
+archstaller doesn't rely on Linux being already there.
 
 The installer has its own:
 
@@ -122,7 +122,7 @@ cargo xtask build --config path/to/my.lua --out my.iso
 The GUI is available too:
 
 ```sh
-cargo run -p archstaler-gui
+cargo run -p archstaller-gui
 ```
 
 ---
@@ -163,7 +163,7 @@ So yes, in the right setup, you can install Arch through your **phone's USB conn
 
 ## Hardware support
 
-archstaler currently targets:
+archstaller currently targets:
 
 * x86_64
 * NVMe
@@ -198,7 +198,7 @@ cargo xtask check-presets
 There is also a hardware tester ISO which probes storage/network hardware without touching the disk:
 
 ```text
-archstaler-tester.iso
+archstaller-tester.iso
 ```
 
 ---
@@ -215,7 +215,7 @@ So that's what happened.
 
 ## Status
 
-archstaler is a **proof of concept / very much a work in progress**.
+archstaller is a **proof of concept / very much a work in progress**.
 
 It already installs Arch in QEMU and has been tested on real hardware, including USB tethering and USB Ethernet.
 

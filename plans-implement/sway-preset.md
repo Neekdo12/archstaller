@@ -1,7 +1,7 @@
 # Sway desktop preset implementation
 
 **Status: written, not tested.** `configs/sway.lua` exists (paths below say `presets/`; the presets now live
-in `configs/`, marked `-- archstaler: kind=preset`). Its packages were checked by name against the `core`/`extra`
+in `configs/`, marked `-- archstaller: kind=preset`). Its packages were checked by name against the `core`/`extra`
 databases of 2026-10-07; `waybar` needs `jack`, so it pins `jack = pipewire-jack`. The user config is a local
 first-boot script, `configs/sway-config.sh` (embedded at build time, no download; `common.build` gained a `scripts`
 field for it): it writes `~/.config/sway/config` for every regular user that has none and puts the same file in
@@ -11,11 +11,11 @@ the session environment. Lock-on-idle is present but commented out until it is t
 below (`check-presets`, QEMU install with ly starting sway, real hardware); the download size in the preset
 tables is an estimate.
 
-This document specifies a future Sway desktop preset for Archstaler.
+This document specifies a future Sway desktop preset for Archstaller.
 
 Sway is an i3-compatible Wayland compositor. The intended result is a conventional Arch desktop that
 uses Sway for the session, NetworkManager for networking, PipeWire for audio, and a small set of
-Wayland utilities. Reuse the Archstaler installer and common preset defaults; do not add installer
+Wayland utilities. Reuse the Archstaller installer and common preset defaults; do not add installer
 kernel code or a new distribution backend.
 
 ## Existing patterns
@@ -30,7 +30,7 @@ Follow the existing preset conventions:
 - Keep the config as an ordinary Arch package preset and resolve packages using the existing Arch
   `core`/`extra` databases.
 - Use `common.build{ ... }` for shared defaults; do not duplicate the shared setup.
-- Keep Sway configuration per-user under `~/.config/sway/`. Do not replace the system-wide Archstaler
+- Keep Sway configuration per-user under `~/.config/sway/`. Do not replace the system-wide Archstaller
   first-boot flow or add desktop-specific behavior to the installer kernel.
 - Use only official Arch repository packages for the initial preset. Do not silently add AUR helpers or
   run an upstream installer script as root.

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Builds and installs the AUR packages of the config on the installed system. Runs from
-# archstaler-aur.service after the first boot, once the network is up. Everything comes from data files in
-# /var/lib/archstaler; nothing from the config is interpolated into this script.
+# archstaller-aur.service after the first boot, once the network is up. Everything comes from data files in
+# /var/lib/archstaller; nothing from the config is interpolated into this script.
 #
 # Per package (aur.list, in build order): fetch the pinned commit of the AUR repository, check that the tree
 # is the one the user reviewed (a SHA-256 over every file), build it as an unprivileged user, install the
@@ -9,18 +9,18 @@
 # and is tried again on the next boot, at most five times in all; a tree that does not match its digest is
 # refused for good.
 set -u
-D=${ARCHSTALER_STATE:-/var/lib/archstaler}
+D=${ARCHSTALLER_STATE:-/var/lib/archstaller}
 LIST=$D/aur.list
 PENDING=$D/aur.pending
 TRIES=$D/aur.tries
-LOG=${ARCHSTALER_LOG:-/var/log/archstaler-aur.log}
-BU=archstaler-build
+LOG=${ARCHSTALLER_LOG:-/var/log/archstaller-aur.log}
+BU=archstaller-build
 BH=$D/aur-build
 MAXTRIES=5
 # The two overrides below exist for the tests (a local directory of repositories); the service sets neither.
-AUR=${ARCHSTALER_AUR_BASE:-https://aur.archlinux.org}
-CACHE=${ARCHSTALER_CACHE:-/var/cache/pacman/pkg}
-say() { echo "archstaler-aur: $*" | tee -a "$LOG"; }
+AUR=${ARCHSTALLER_AUR_BASE:-https://aur.archlinux.org}
+CACHE=${ARCHSTALLER_CACHE:-/var/cache/pacman/pkg}
+say() { echo "archstaller-aur: $*" | tee -a "$LOG"; }
 as_build() { runuser -u "$BU" -- env HOME="$BH" LC_ALL=C.UTF-8 "$@"; }
 
 # SHA-256 over the sorted lines "<sha256 of file>  <path>" of every file but .git (plans-implement/aur.md, "Pinning").
@@ -30,7 +30,7 @@ tree_digest() {
 }
 
 finish() {
-    systemctl disable archstaler-aur.service >/dev/null 2>&1
+    systemctl disable archstaller-aur.service >/dev/null 2>&1
     rm -f "$PENDING" "$PENDING.new" "$TRIES"
     rm -rf "$BH"
     userdel "$BU" >/dev/null 2>&1

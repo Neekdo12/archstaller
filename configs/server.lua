@@ -1,4 +1,4 @@
--- archstaler: kind=preset
+-- archstaller: kind=preset
 -- Server: minimal plus OpenSSH and a few admin tools.
 -- WARNING: sshd is enabled and the default login is passwd_is_passwd / passwd. Change the
 -- password (or replace the hash in configs/common.lua) before connecting this to a network.

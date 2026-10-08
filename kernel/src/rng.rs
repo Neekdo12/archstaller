@@ -54,7 +54,7 @@ fn jitter_fill(buf: &mut [u8]) {
     let mut guard = DRBG.lock();
     let d = guard.get_or_insert_with(|| {
         let mut h = Sha256::new();
-        h.update(b"archstaler jitter seed");
+        h.update(b"archstaller jitter seed");
         gather_jitter(&mut h, 4096);
         Drbg { state: h.finalize().into(), counter: 0 }
     });

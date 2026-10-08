@@ -55,7 +55,7 @@ stick. The list of network ids is in [`network-driver-coverage.md`](../plans-imp
 
 ## Ventoy
 
-The ISOs boot from [Ventoy](https://www.ventoy.net): copy the `archstaler-*.iso` files to the Ventoy data
+The ISOs boot from [Ventoy](https://www.ventoy.net): copy the `archstaller-*.iso` files to the Ventoy data
 partition, boot the stick, pick an ISO, and choose **Boot in normal mode** (the first entry of the boot
 mode menu that Ventoy shows; grub2 and memdisk mode are not needed).
 

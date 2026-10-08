@@ -319,7 +319,7 @@ mod tests {
     use super::*;
 
     fn tmp(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("archstaler-media-{}-{name}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("archstaller-media-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
@@ -368,12 +368,12 @@ mod tests {
     #[test]
     fn finds_older_builds_and_names_the_new_one() {
         let d = tmp("older");
-        for n in ["archstaler.iso", "archstaler-2.iso", "Archstaler_20260101.ISO", "ubuntu.iso", ".archstaler.iso.part", "archstaler.txt"] {
+        for n in ["archstaller.iso", "archstaller-2.iso", "Archstaller_20260101.ISO", "ubuntu.iso", ".archstaller.iso.part", "archstaller.txt"] {
             std::fs::write(d.join(n), b"x").unwrap();
         }
-        let names: Vec<String> = older_isos(&d, "archstaler.iso").iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
-        assert_eq!(names, ["Archstaler_20260101.ISO", "archstaler-2.iso", "archstaler.iso"]);
-        assert_eq!(free_name(&d, "archstaler.iso"), "archstaler-3.iso");
+        let names: Vec<String> = older_isos(&d, "archstaller.iso").iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        assert_eq!(names, ["Archstaller_20260101.ISO", "archstaller-2.iso", "archstaller.iso"]);
+        assert_eq!(free_name(&d, "archstaller.iso"), "archstaller-3.iso");
         assert_eq!(free_name(&d, "new.iso"), "new.iso");
         let _ = std::fs::remove_dir_all(&d);
     }

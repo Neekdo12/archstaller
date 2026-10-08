@@ -1,4 +1,4 @@
--- archstaler: kind=module
+-- archstaller: kind=module
 -- Shared defaults for the presets. A preset calls  common.build{ packages = {...}, ... }  and returns
 -- the result, a complete `{ as = ... }` config.
 local M = {}

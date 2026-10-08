@@ -4,13 +4,13 @@ The ISOs built by `cargo xtask presets`. Shared defaults live in `configs/common
 
 | ISO | What you get | Download | Disk |
 |---|---|---|---|
-| `archstaler-minimal.iso` | console system, systemd-networkd | ~0.4 GiB | 4 GiB+ |
-| `archstaler-server.iso` | minimal + OpenSSH, htop, tmux, rsync, vim | ~0.4 GiB | 4 GiB+ |
-| `archstaler-i3.iso` | Xorg + i3, NetworkManager, PipeWire, Firefox | ~1.0 GiB | 10 GiB+ |
-| `archstaler-sway.iso` | Sway (Wayland) with waybar, wofi, foot, mako, swaylock/swayidle, portals, NetworkManager, PipeWire, Firefox; a first-boot script writes `~/.config/sway/config` (`configs/sway-config.sh`). Not yet resolved or install-tested | ~1.1 GiB (estimate) | 10 GiB+ |
-| `archstaler-hyprland.iso` | Hyprland (Wayland) with kitty, rofi, waybar, quickshell, hyprlock/hypridle, Neovim (LazyVim) and Nerd fonts (FantasqueSansM, JetBrains Mono, Iosevka), plus the downloaded config zip | ~1.4 GiB | 15 GiB+ |
-| `archstaler-plasma.iso` | KDE Plasma (Wayland session), same extras | ~1.3 GiB | 20 GiB+ |
-| `archstaler-omarchy.iso` | Hyprland with the application set of Omarchy v4.0.4, official-repository packages only (not Omarchy itself: no Omarchy scripts, themes or dotfiles; the omitted packages are listed in `configs/omarchy.lua`). Installs and boots to the login prompt in QEMU | ~2.4 GiB | 24 GiB+ |
+| `archstaller-minimal.iso` | console system, systemd-networkd | ~0.4 GiB | 4 GiB+ |
+| `archstaller-server.iso` | minimal + OpenSSH, htop, tmux, rsync, vim | ~0.4 GiB | 4 GiB+ |
+| `archstaller-i3.iso` | Xorg + i3, NetworkManager, PipeWire, Firefox | ~1.0 GiB | 10 GiB+ |
+| `archstaller-sway.iso` | Sway (Wayland) with waybar, wofi, foot, mako, swaylock/swayidle, portals, NetworkManager, PipeWire, Firefox; a first-boot script writes `~/.config/sway/config` (`configs/sway-config.sh`). Not yet resolved or install-tested | ~1.1 GiB (estimate) | 10 GiB+ |
+| `archstaller-hyprland.iso` | Hyprland (Wayland) with kitty, rofi, waybar, quickshell, hyprlock/hypridle, Neovim (LazyVim) and Nerd fonts (FantasqueSansM, JetBrains Mono, Iosevka), plus the downloaded config zip | ~1.4 GiB | 15 GiB+ |
+| `archstaller-plasma.iso` | KDE Plasma (Wayland session), same extras | ~1.3 GiB | 20 GiB+ |
+| `archstaller-omarchy.iso` | Hyprland with the application set of Omarchy v4.0.4, official-repository packages only (not Omarchy itself: no Omarchy scripts, themes or dotfiles; the omitted packages are listed in `configs/omarchy.lua`). Installs and boots to the login prompt in QEMU | ~2.4 GiB | 24 GiB+ |
 
 Every preset installs the `ly` login manager (`ly@tty2.service`) and creates the user `passwd_is_passwd`
 with the password `passwd` in group `wheel` (sudo works; root is locked). **Change that password** before
@@ -36,7 +36,7 @@ and the three Nerd fonts). Things the config refers to that are **not** installe
 quickshell config, `zen-browser` and the `macOS` cursor theme (AUR only; Firefox is installed instead),
 `code`, `kitty-themes`, the wallpaper `~/Images/Wallpapers/special.jpg` and `~/.local/bin/satty-screenshot`.
 
-`configs/tester.lua` is not an installer: it is a read-only hardware test (`archstaler-tester.iso`). It probes the
+`configs/tester.lua` is not an installer: it is a read-only hardware test (`archstaller-tester.iso`). It probes the
 machine, brings up the network, downloads the package databases, pings the gateway and 1.1.1.1, runs a download speed
 test, prints PASS/FAIL with full debug output, and reboots. It never writes a disk. Use it to check whether a machine's
 NIC, tethering phone or dongle works before installing.

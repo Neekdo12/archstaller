@@ -39,7 +39,7 @@ countdowns, or abort keys on purpose.
    blob derived from the pinned `archlinux-keyring`). Only after verification is it extracted.
 7. **Boot setup.** `/etc` files, a first-boot service and a small initramfs (`tiny-init` plus the kernel
    modules it needs) are written; our boot loader (first boot only) goes onto the ESP and, for BIOS, into the MBR and BIOS boot partition.
-8. **First boot.** The system boots into `archstaler-firstboot.target`: it initializes the pacman keyring,
+8. **First boot.** The system boots into `archstaller-firstboot.target`: it initializes the pacman keyring,
    runs `pacman -U` on the cached packages (which runs every scriptlet and hook), re-applies the
    configuration, creates users, enables services, builds the real initramfs, writes
    GRUB (`grub-install`, from the `grub` package, replacing our loader) and reboots into the installed system.
@@ -86,5 +86,5 @@ countdowns, or abort keys on purpose.
 | `firstboot/` | systemd units and script for the first boot |
 | `crates/aurbuild` | host-only AUR support: search, review, pin and plan (the packages are built on the installed system, see `plans-implement/aur.md`) |
 | `crates/hostcfg` | host-only config model shared by `xtask` and the GUI: Lua loading, build profiles, driver and script catalogues, Lua writer, package resolution preview, build progress events |
-| `gui/` | `archstaler-gui`, the GTK4 desktop app (Linux): config editor, Lua source editor, ISO build, Ventoy copy, raw USB flash |
+| `gui/` | `archstaller-gui`, the GTK4 desktop app (Linux): config editor, Lua source editor, ISO build, Ventoy copy, raw USB flash |
 | `configs/` | Lua configs: example, e2e, presets, shared modules, generated LuaLS types |

@@ -163,7 +163,7 @@ extern "C" fn entry(_sp: *const usize) -> ! {
             unsafe { syscall(33, con as usize, fd, 0, 0, 0) }; // dup2
         }
     }
-    log!("init: archstaler initramfs");
+    log!("init: archstaller initramfs");
 
     load_modules();
 

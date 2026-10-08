@@ -1,4 +1,4 @@
--- archstaler: kind=preset
+-- archstaller: kind=preset
 -- Sway (Wayland) with waybar, wofi, foot, NetworkManager, PipeWire and Firefox; ly starts the session. 10 GiB+ disk.
 -- Needs a GPU with working KMS; in a VM enable 3D acceleration (virtio-gpu with virgl).
 local common = require("common")

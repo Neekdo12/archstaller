@@ -1,8 +1,8 @@
 [package]
-name = "archstaler-gui"
+name = "archstaller-gui"
 version = "0.1.0"
 edition = "2021"
-description = "GTK4 desktop app to compose an archstaler config, build the ISO and copy it to a Ventoy stick or flash a USB stick (host only, Linux)"
+description = "GTK4 desktop app to compose an archstaller config, build the ISO and copy it to a Ventoy stick or flash a USB stick (host only, Linux)"
 
 [dependencies]
 hostcfg = { path = "../crates/hostcfg", features = ["net"] }

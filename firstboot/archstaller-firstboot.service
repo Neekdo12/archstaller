@@ -1,11 +1,11 @@
 [Unit]
-Description=archstaler first boot configuration
+Description=archstaller first boot configuration
 After=local-fs.target
-ConditionPathExists=/var/lib/archstaler/firstboot
+ConditionPathExists=/var/lib/archstaller/firstboot
 
 [Service]
 Type=oneshot
-ExecStart=/usr/lib/archstaler/firstboot.sh
+ExecStart=/usr/lib/archstaller/firstboot.sh
 StandardOutput=journal+console
 StandardError=journal+console
 TimeoutStartSec=infinity

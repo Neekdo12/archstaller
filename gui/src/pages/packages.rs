@@ -45,7 +45,7 @@ fn resolution_card(app: &Rc<App>, d: &gtk::Box) {
         move || {
             let cfg = a.st.borrow().model.cfg.clone();
             let mirror = cfg.mirrors.first().cloned().unwrap_or_default();
-            let cache = dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("archstaler-gui");
+            let cache = dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("archstaller-gui");
             let (tx, rx) = channel();
             a.st.borrow_mut().resolve_rx = Some(rx);
             std::thread::spawn(move || {
@@ -364,7 +364,7 @@ fn review(app: &Rc<App>, c: &gtk::Box, busy: bool) {
                 let st = a.st.borrow();
                 (st.model.cfg.mirrors.first().cloned().unwrap_or_default(), st.model.cfg.aur.clone())
             };
-            let cache = dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("archstaler-gui");
+            let cache = dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("archstaller-gui");
             {
                 let mut st = a.st.borrow_mut();
                 st.aur.ack_reviewed = true;

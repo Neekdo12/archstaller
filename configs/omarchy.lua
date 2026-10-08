@@ -1,9 +1,9 @@
--- archstaler: kind=preset
+-- archstaller: kind=preset
 -- Omarchy package set on Hyprland, from the official Arch repositories only (a subset of Omarchy, see below).
 --
 -- Derived from Omarchy v4.0.4 (basecamp/omarchy, install/omarchy-base.packages plus the generic entries of
 -- install/omarchy-other.packages). This is NOT Omarchy: it has no Omarchy scripts, themes or dotfiles and does
--- not run Omarchy's installer. It is the same application set on Archstaler's own Arch pipeline: linux,
+-- not run Omarchy's installer. It is the same application set on Archstaller's own Arch pipeline: linux,
 -- mkinitcpio and grub as in every preset, and ly as the login manager (pick the Hyprland session).
 --
 -- Left out on purpose:

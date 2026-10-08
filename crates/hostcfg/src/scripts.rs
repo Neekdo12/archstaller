@@ -3,7 +3,7 @@ use crate::Result;
 use config::{Config, Script, SCRIPT_MAX};
 use std::path::Path;
 
-/// A script that ships with archstaler.
+/// A script that ships with archstaller.
 pub struct Builtin {
     pub id: &'static str,
     pub description: &'static str,

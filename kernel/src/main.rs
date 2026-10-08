@@ -72,7 +72,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 #[no_mangle]
 extern "C" fn _start(info: &'static BootInfo) -> ! {
     console::init_serial();
-    println!("archstaler kernel starting");
+    println!("archstaller kernel starting");
     if info.magic != bootinfo::MAGIC {
         println!("boot info has a bad magic number");
         halt();
@@ -86,7 +86,7 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
     let hhdm = info.hhdm;
     if let Some(c) = fb::FbConsole::new(hhdm, &info.fb) {
         console::init_fb(c);
-        println!("archstaler kernel starting");
+        println!("archstaller kernel starting");
     }
     banner::show("ARCHSTALLER");
 

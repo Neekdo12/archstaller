@@ -49,7 +49,7 @@ struct Answer {
 }
 
 fn get(url: &str, limit: u64) -> Result<Vec<u8>> {
-    let mut resp = ureq::get(url).header("User-Agent", "archstaler-gui").call().map_err(|e| format!("{url}: {e}"))?;
+    let mut resp = ureq::get(url).header("User-Agent", "archstaller-gui").call().map_err(|e| format!("{url}: {e}"))?;
     resp.body_mut().with_config().limit(limit).read_to_vec().map_err(|e| format!("{url}: {e}"))
 }
 
@@ -159,10 +159,10 @@ mod tests {
         assert_eq!(pct("a b+c"), "a%20b%2Bc");
     }
 
-    /// Hits the real AUR; run with `ARCHSTALER_NET_TESTS=1 cargo test -p aurbuild --features net`.
+    /// Hits the real AUR; run with `ARCHSTALLER_NET_TESTS=1 cargo test -p aurbuild --features net`.
     #[test]
     fn live_review_of_a_real_package() {
-        if std::env::var_os("ARCHSTALER_NET_TESTS").is_none() {
+        if std::env::var_os("ARCHSTALLER_NET_TESTS").is_none() {
             return;
         }
         let i = info(&["yay".to_string()]).unwrap();

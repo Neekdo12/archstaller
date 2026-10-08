@@ -1,6 +1,6 @@
 //! Lua Language Server annotations for the `as` config, generated from the JSON Schema of
 //! [`crate::asconfig`] so that the editor types and the Rust loader cannot drift apart.
-//! `cargo xtask gen-luals` writes `configs/archstaler.lua`; `--check` fails when it is stale.
+//! `cargo xtask gen-luals` writes `configs/archstaller.lua`; `--check` fails when it is stale.
 use serde_json::Value;
 use std::fmt::Write;
 
@@ -84,11 +84,11 @@ fn comment(desc: Option<&str>, prefix: &str, out: &mut String) {
     }
 }
 
-/// The text of `configs/archstaler.lua`.
+/// The text of `configs/archstaller.lua`.
 pub fn annotations(schema: &Value) -> String {
     let mut o = String::new();
-    writeln!(o, "-- archstaler: kind=module").unwrap();
-    writeln!(o, "-- LuaLS type definitions for the Archstaler `as` config.").unwrap();
+    writeln!(o, "-- archstaller: kind=module").unwrap();
+    writeln!(o, "-- LuaLS type definitions for the Archstaller `as` config.").unwrap();
     writeln!(o, "-- GENERATED from the Rust schema (crates/hostcfg/src/asconfig.rs) by `cargo xtask gen-luals`; do not edit.").unwrap();
     writeln!(o, "---@meta").unwrap();
     let defs = schema.get("$defs").and_then(Value::as_object);

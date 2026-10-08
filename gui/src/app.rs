@@ -69,7 +69,7 @@ impl App {
             w = w.min(g.width() * 9 / 10);
             h = h.min(g.height() * 85 / 100);
         }
-        let win = gtk::ApplicationWindow::builder().application(gapp).title("Archstaler").default_width(w).default_height(h).build();
+        let win = gtk::ApplicationWindow::builder().application(gapp).title("Archstaller").default_width(w).default_height(h).build();
 
         // Header bar: file and tools menus, the sidebar toggle, the document name.
         let header = gtk::HeaderBar::new();
@@ -99,7 +99,7 @@ impl App {
         }
         let menu_btn = gtk::MenuButton::builder().icon_name("open-menu-symbolic").menu_model(&menu).tooltip_text("Menu").build();
         header.pack_end(&menu_btn);
-        let preset_btn = gtk::MenuButton::builder().label("From preset").menu_model(&presets).sensitive(!preset_list.is_empty()).tooltip_text(if preset_list.is_empty() { "No presets found (run from the checkout or set ARCHSTALER_ROOT)" } else { "Start a new, unsaved config from one of the repository's presets" }).build();
+        let preset_btn = gtk::MenuButton::builder().label("From preset").menu_model(&presets).sensitive(!preset_list.is_empty()).tooltip_text(if preset_list.is_empty() { "No presets found (run from the checkout or set ARCHSTALLER_ROOT)" } else { "Start a new, unsaved config from one of the repository's presets" }).build();
         header.pack_end(&preset_btn);
         win.set_titlebar(Some(&header));
 
@@ -321,7 +321,7 @@ impl App {
         };
         let shown = format!("{name}{}", if dirty { " •" } else { "" });
         self.title.set_text(&shown);
-        self.win.set_title(Some(&format!("{shown} — Archstaler")));
+        self.win.set_title(Some(&format!("{shown} — Archstaller")));
         for (i, (_, _, _, area)) in PAGES.iter().enumerate() {
             let bad = area.is_some_and(|a| problems.iter().any(|p| p.area == a));
             self.nav_marks[i].set_text(if bad { "●" } else { "" });
@@ -410,7 +410,7 @@ impl App {
         let path = self.st.borrow().model.path.clone();
         let path = match path {
             Some(p) => p,
-            None => match dialogs::save_file(self.win.upcast_ref(), "Save the config", "archstaler.lua", Some(("Lua config", "*.lua"))).await {
+            None => match dialogs::save_file(self.win.upcast_ref(), "Save the config", "archstaller.lua", Some(("Lua config", "*.lua"))).await {
                 Some(p) => p,
                 None => return false,
             },
@@ -439,7 +439,7 @@ impl App {
     pub fn save_as(self: &Rc<Self>) {
         let a = self.clone();
         glib::spawn_future_local(async move {
-            let Some(p) = dialogs::save_file(a.win.upcast_ref(), "Save the config as", "archstaler.lua", Some(("Lua config", "*.lua"))).await else { return };
+            let Some(p) = dialogs::save_file(a.win.upcast_ref(), "Save the config as", "archstaller.lua", Some(("Lua config", "*.lua"))).await else { return };
             let r = a.st.borrow_mut().model.save(&p);
             match r {
                 Ok(()) => a.set_status(format!("Saved {}", p.display())),

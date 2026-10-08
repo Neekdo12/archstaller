@@ -1,5 +1,5 @@
--- archstaler: kind=example
--- Example archstaler config. Evaluated on the host at ISO build time.
+-- archstaller: kind=example
+-- Example archstaller config. Evaluated on the host at ISO build time.
 -- Generate password hashes with:  openssl passwd -6
 ---@type AsConfig
 local as = {

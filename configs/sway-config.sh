@@ -7,7 +7,7 @@ set -u
 conf=$(mktemp)
 trap 'rm -f "$conf"' EXIT
 cat > "$conf" <<'EOF'
-# Sway config written by the archstaler sway preset. `man 5 sway`; the stock config is /etc/sway/config.
+# Sway config written by the archstaller sway preset. `man 5 sway`; the stock config is /etc/sway/config.
 set $mod Mod4
 set $left h
 set $down j

@@ -1,15 +1,15 @@
 # The desktop app
 
-`archstaler-gui` is a GTK 4 app for Linux (Windows and macOS are not supported). It needs the `gtk4` and
+`archstaller-gui` is a GTK 4 app for Linux (Windows and macOS are not supported). It needs the `gtk4` and
 `gtksourceview5` libraries at runtime (Arch: `pacman -S gtk4 gtksourceview5`) and their development files plus
-`pkg-config` to build it. Run it from inside the checkout, or set `ARCHSTALER_ROOT`; it finds the presets and
+`pkg-config` to build it. Run it from inside the checkout, or set `ARCHSTALLER_ROOT`; it finds the presets and
 builds the ISO through `cargo xtask`.
 
 With a prebuilt binary:
 
 ```sh
-cargo build --profile gui -p archstaler-gui
-target/gui/archstaler-gui
+cargo build --profile gui -p archstaller-gui
+target/gui/archstaller-gui
 ```
 
 Rebuild after every code change.
@@ -42,14 +42,14 @@ Rebuild after every code change.
   SHA-256, then powered off. This erases everything on the stick and is Linux only; it needs UDisks2 2.7.3 or
   newer and util-linux 2.37 or newer. Not yet tested on a real stick.
 - **Theme and size:** the window is dark by default, whatever the system theme says
-  (it sets `GTK_THEME=Adwaita:dark` at start unless you set `GTK_THEME` yourself; `ARCHSTALER_THEME=system` follows the system, `ARCHSTALER_THEME=light` forces light). Its default size is
+  (it sets `GTK_THEME=Adwaita:dark` at start unless you set `GTK_THEME` yourself; `ARCHSTALLER_THEME=system` follows the system, `ARCHSTALLER_THEME=light` forces light). Its default size is
   90% of the screen at most. A window narrower than 760 px hides the sidebar (the header's toggle brings it
   back), and long labels wrap, so it works in a tiling-window-manager tile or a small laptop screen; the
   narrowest tested width was 600 px. A second copy can be started next to the first.
 - **AUR packages:** one compact card: search, a result row with Review, then the recipe with its automatic
   checks folded behind a count, risky lines highlighted, and one acknowledgement before "Pin and add". NetworkManager is added automatically when no network
   service is enabled, because the build needs one.
-- `ARCHSTALER_PAGE=<id>` (`system disk packages users services build scripts lua iso`) opens the window on a page.
+- `ARCHSTALLER_PAGE=<id>` (`system disk packages users services build scripts lua iso`) opens the window on a page.
 
 ## Manual smoke test
 

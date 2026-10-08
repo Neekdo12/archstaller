@@ -1,4 +1,4 @@
-//! Runs `firstboot/archstaler-aur.sh` against a local directory of git repositories, with stand-ins for
+//! Runs `firstboot/archstaller-aur.sh` against a local directory of git repositories, with stand-ins for
 //! the commands that need root or Arch (`runuser`, `useradd`, `pacman`, `makepkg`, `systemctl`, ...).
 use aurbuild::digest::{tree_digest, Files};
 use std::path::{Path, PathBuf};
@@ -25,7 +25,7 @@ impl Env {
         let stubs: &[(&str, &str)] = &[
             ("runuser", "shift 2; exec \"$@\""), // runuser -u USER -- cmd...
             ("id", "exit 1"),
-            ("useradd", "echo useradd \"$@\" >> \"$CALLS/useradd\"; mkdir -p \"$ARCHSTALER_STATE/aur-build\""),
+            ("useradd", "echo useradd \"$@\" >> \"$CALLS/useradd\"; mkdir -p \"$ARCHSTALLER_STATE/aur-build\""),
             ("userdel", "echo userdel >> \"$CALLS/userdel\""),
             ("install", "mkdir -p \"${@: -1}\""),
             ("systemctl", "echo \"$@\" >> \"$CALLS/systemctl\""),
@@ -59,15 +59,15 @@ impl Env {
 
     fn run(&self, list: &str) -> (i32, String) {
         std::fs::write(self.root.join("state/aur.list"), list).unwrap();
-        let script = concat!(env!("CARGO_MANIFEST_DIR"), "/../../firstboot/archstaler-aur.sh");
+        let script = concat!(env!("CARGO_MANIFEST_DIR"), "/../../firstboot/archstaller-aur.sh");
         let path = format!("{}:{}", self.root.join("bin").display(), std::env::var("PATH").unwrap());
         let o = Command::new("bash")
             .arg(script)
             .env("PATH", path)
-            .env("ARCHSTALER_STATE", self.root.join("state"))
-            .env("ARCHSTALER_LOG", self.root.join("log"))
-            .env("ARCHSTALER_AUR_BASE", self.root.join("repos"))
-            .env("ARCHSTALER_CACHE", self.root.join("cache"))
+            .env("ARCHSTALLER_STATE", self.root.join("state"))
+            .env("ARCHSTALLER_LOG", self.root.join("log"))
+            .env("ARCHSTALLER_AUR_BASE", self.root.join("repos"))
+            .env("ARCHSTALLER_CACHE", self.root.join("cache"))
             .env("CALLS", self.root.join("calls"))
             .output()
             .unwrap();
@@ -104,7 +104,7 @@ fn builds_installs_and_cleans_up() {
     let p = e.calls("pacman");
     assert!(p.contains("-U --noconfirm --needed") && p.contains("foo-1-1-x86_64.pkg.tar.zst") && !p.contains("--asdeps"), "{p}");
     assert!(e.calls("systemctl").contains("enable foo.service"));
-    assert!(e.calls("systemctl").contains("disable archstaler-aur.service"), "the service switches itself off when done");
+    assert!(e.calls("systemctl").contains("disable archstaller-aur.service"), "the service switches itself off when done");
     assert!(e.root.join("cache/foo-1-1-x86_64.pkg.tar.zst").exists());
     assert!(!e.root.join("state/aur.pending").exists() && !e.root.join("state/aur-build").exists());
 }
@@ -166,7 +166,7 @@ fn an_unreachable_repository_stays_pending_and_gives_up_after_five_attempts() {
     let (code, out) = e.run(&line);
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("giving up"), "{out}");
-    assert!(e.calls("systemctl").contains("disable archstaler-aur.service"));
+    assert!(e.calls("systemctl").contains("disable archstaller-aur.service"));
     assert!(!e.root.join("state/aur.pending").exists());
 }
 
