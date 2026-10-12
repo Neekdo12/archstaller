@@ -45,7 +45,8 @@ commits and pushes; leave changes uncommitted. (From the agent's shell, `git pus
 - Unhandled PIC spurious IRQ7 gave `#GP` error code 0x13b; `idt.rs` has gates for 0x20..0x2f and 0xff.
 - RTL8168evl needs its own setup (`hw_start_8168e_2`, TX config, link-change patch); the rx ring was too small.
 - School DHCP offered an address owned by a static host: `Stack::dhcp` ARP-probes and sends DHCPDECLINE.
-- DNS from DHCP may not answer: 1.1.1.1 and 8.8.8.8 are appended.
+- DNS from DHCP may not answer: 1.1.1.1 and 8.8.8.8 are appended. (smoltcp's default build keeps only one DNS server, so the
+  fallbacks were silently dropped until `Stack::resolve` started trying the servers itself.)
 - xHCI: a multi-TRB transfer misreports the length on a short packet; one TRB up to 64 KiB, aligned buffers.
 - iPhone: device-side usbmux protocol, `ipheth` data path, a Pair reply may carry only an `EscrowBag`.
 

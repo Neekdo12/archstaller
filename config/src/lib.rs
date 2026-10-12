@@ -155,6 +155,15 @@ pub struct User {
     pub shell: String,
 }
 
+/// Services that give the installed system a network (AUR packages are built once it has one).
+pub const NETWORK_SERVICES: &[&str] = &["NetworkManager.service", "systemd-networkd.service", "dhcpcd.service", "connman.service"];
+
+/// Room for `kernel_params` (each with its separating space) on the first boot's command line: the BIOS
+/// stage 2 holds `bootinfo::bios::CMDLINE_MAX` (512) bytes including a NUL, and the installer adds
+/// `root=UUID=<36 characters> rw` (49) and ` systemd.unit=archstaller-firstboot.target` (42). Checked
+/// here so that an install does not fail at its very end, after every package was downloaded.
+pub const KERNEL_PARAMS_MAX: usize = 512 - 1 - 49 - 42;
+
 fn ident(s: &str, extra: &str) -> bool {
     !s.is_empty() && s.len() <= 64 && s.chars().all(|c| c.is_ascii_alphanumeric() || extra.contains(c))
 }
@@ -168,7 +177,8 @@ impl Config {
     /// (they end up in shell-read data files, unit files and boot loader configuration).
     pub fn validate(&self) -> Result<(), String> {
         let bad = |what: &str, v: &str| Err(format!("invalid {what}: {v:?}"));
-        if !ident(&self.hostname, ".-") {
+        // systemd ignores /etc/hostname unless it is dot-separated non-empty labels.
+        if !ident(&self.hostname, ".-") || self.hostname.split('.').any(|l| l.is_empty() || l.starts_with('-')) {
             return bad("hostname", &self.hostname);
         }
         if !ident(&self.timezone, "/_+-") || self.timezone.contains("..") {
@@ -208,7 +218,9 @@ impl Config {
             }
         }
         for (i, u) in self.users.iter().enumerate() {
-            if !ident(&u.name, "_-") || u.name.starts_with('-') || u.name == "root" {
+            // useradd refuses names longer than 32 characters and all-digit ones, and the first boot stops
+            // at a user it cannot create.
+            if !ident(&u.name, "_-") || u.name.starts_with('-') || u.name == "root" || u.name.len() > 32 || u.name.bytes().all(|b| b.is_ascii_digit()) {
                 return bad("user name", &u.name);
             }
             // The first-boot script runs `useradd` once per entry and stops at the second one for a name.
@@ -236,6 +248,10 @@ impl Config {
             if k.is_empty() || k.chars().any(|c| c.is_whitespace() || c.is_control() || c == '"') {
                 return bad("kernel parameter", k);
             }
+        }
+        let params_len: usize = self.kernel_params.iter().map(|k| k.len() + 1).sum();
+        if params_len > KERNEL_PARAMS_MAX {
+            return Err(format!("kernel_params are {params_len} bytes long with their spaces; at most {KERNEL_PARAMS_MAX} fit the first boot's command line"));
         }
         for f in &self.user_files {
             if !f.url.starts_with("https://") || f.url.chars().any(|c| c.is_whitespace() || c == '\'' || c == '"') {
@@ -284,7 +300,7 @@ impl Config {
                 return at("services must be at most 16 systemd unit names");
             }
         }
-        if !self.aur.is_empty() && !self.services.iter().any(|u| ["NetworkManager.service", "systemd-networkd.service", "dhcpcd.service", "connman.service"].contains(&u.as_str())) {
+        if !self.aur.is_empty() && !self.services.iter().any(|u| NETWORK_SERVICES.contains(&u.as_str())) {
             return Err("aur_packages: the installed system builds them at its first boot and needs a network then; enable NetworkManager.service (or another network service) in services".into());
         }
         if self.scripts.len() > 32 {
@@ -377,6 +393,33 @@ mod tests {
         c.users.push(user("alice"));
         let e = c.validate().unwrap_err().to_string();
         assert!(e.contains("duplicate user name") && e.contains("alice"), "{e}");
+    }
+
+    #[test]
+    fn user_names_and_hostnames_useradd_and_systemd_accept() {
+        let user = |n: &str| User { name: n.into(), password_hash: format!("$6$abc${}", "a".repeat(86)), groups: vec![], shell: "/bin/bash".into() };
+        let with_user = |n: &str| Config { users: vec![user(n)], ..base() };
+        assert!(with_user("alice_2-x").validate().is_ok());
+        assert!(with_user(&"a".repeat(32)).validate().is_ok());
+        for bad in ["1234", &"a".repeat(33), "-x", "root"] {
+            assert!(with_user(bad).validate().is_err(), "user name {bad:?}");
+        }
+        let with_host = |h: &str| Config { hostname: h.into(), ..base() };
+        assert!(with_host("box").validate().is_ok());
+        assert!(with_host("my-box.lan").validate().is_ok());
+        for bad in [".box", "box.", "a..b", "-box", "a.-b"] {
+            assert!(with_host(bad).validate().is_err(), "hostname {bad:?}");
+        }
+    }
+
+    #[test]
+    fn kernel_params_fit_the_first_boot_command_line() {
+        // One parameter of n bytes takes n + 1 with its space.
+        let with = |n: usize| Config { kernel_params: vec!["x".repeat(n)], ..base() };
+        assert!(with(KERNEL_PARAMS_MAX - 1).validate().is_ok());
+        assert!(with(KERNEL_PARAMS_MAX).validate().unwrap_err().contains("kernel_params"));
+        let full = format!("root=UUID={} rw {} systemd.unit=archstaller-firstboot.target", "0".repeat(36), "x".repeat(KERNEL_PARAMS_MAX - 1));
+        assert_eq!(full.len(), 511, "the longest accepted command line leaves exactly the NUL of the 512-byte field");
     }
 
     #[test]

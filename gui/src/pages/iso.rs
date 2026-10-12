@@ -172,6 +172,8 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
             let mut st = a.st.borrow_mut();
             if let Some(b) = st.build.running.take() {
                 b.cancel();
+                // The log is otherwise only written when a build exits, which a cancelled one is no longer watched for.
+                let _ = std::fs::write(&b.log_path, st.build.log.join("\n"));
                 st.build.error = Some(format!("Cancelled. Log kept at {}", b.log_path.display()));
                 st.build.iso = None;
             }

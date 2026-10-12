@@ -91,15 +91,22 @@ fn download(mirror: &str, cache: &std::path::Path) -> Result<Vec<(&'static str, 
         return Err("no mirror is configured (add one under Mirrors)".into());
     }
     std::fs::create_dir_all(cache)?;
+    // Keyed by the mirror as well, so switching mirrors does not keep serving the previous one's files.
+    let key = mirror.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
     let mut out = Vec::new();
     for repo in ["core", "extra"] {
-        let file = cache.join(format!("{repo}.db"));
+        let file = cache.join(format!("{repo}-{key:016x}.db"));
         let fresh = std::fs::metadata(&file).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age.as_secs() < 3600);
         if !fresh {
             let url = format!("{}/{repo}.db", mirror.replace("$repo", repo).replace("$arch", "x86_64").trim_end_matches('/'));
             let mut resp = ureq::get(&url).call().map_err(|e| format!("{url}: {e}"))?;
             let data = resp.body_mut().with_config().limit(128 << 20).read_to_vec().map_err(|e| format!("{url}: {e}"))?;
-            std::fs::write(&file, data)?;
+            // Written beside it and renamed into place: the GUI's resolution preview and package search read
+            // the cache from two threads, and a half-written file looks fresh.
+            static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let tmp = cache.join(format!(".{repo}-{key:016x}.{}.{}.tmp", std::process::id(), SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+            std::fs::write(&tmp, data)?;
+            std::fs::rename(&tmp, &file)?;
         }
         out.push((repo, std::fs::read(&file)?));
     }

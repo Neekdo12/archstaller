@@ -74,8 +74,24 @@ impl Gate {
 
 static mut IDT: [Gate; 256] = [Gate::MISSING; 256];
 
+extern "C" {
+    static __text_start: u8;
+    static __text_end: u8;
+}
+
+/// Whether `rip` is a `ud2` in the kernel's code. The super-small profile builds with immediate-abort
+/// panics, which turns every panic (and failed allocation) into a bare `ud2`: it arrives here as #6
+/// with its message compiled out.
+fn is_panic_trap(rip: u64) -> bool {
+    let (start, end) = (&raw const __text_start as u64, &raw const __text_end as u64);
+    rip >= start && rip + 2 <= end && unsafe { core::ptr::read_unaligned(rip as *const [u8; 2]) } == [0x0f, 0x0b]
+}
+
 fn report(name: &str, vector: u8, code: Option<u64>, f: &InterruptStackFrame) -> ! {
     unsafe { crate::console::force_unlock() };
+    if vector == 6 && is_panic_trap(f.rip) {
+        crate::println!("\n*** KERNEL PANIC (message not compiled in; rebuild with build.profile = \"large\" to see it)");
+    }
     crate::println!("\n*** EXCEPTION #{vector} {name}");
     if let Some(c) = code {
         crate::println!("error code: {c:#x}");

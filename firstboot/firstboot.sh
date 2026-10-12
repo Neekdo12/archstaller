@@ -82,6 +82,11 @@ if [ -s "$D/services.list" ]; then
     xargs -a "$D/services.list" systemctl enable || say "warning: enabling some services failed"
     while read -r unit; do say "service $unit: $(systemctl is-enabled "$unit" 2>&1)"; done < "$D/services.list"
 fi
+# systemd-resolved only answers programs that read /etc/resolv.conf (most of them) when it points at its stub.
+if grep -qx 'systemd-resolved.service' "$D/services.list" 2>/dev/null; then
+    ln -sf ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf && say "/etc/resolv.conf points at systemd-resolved" ||
+        say "warning: could not point /etc/resolv.conf at systemd-resolved"
+fi
 
 # Configured scripts (config `scripts`), in order, as root. Each runs from a file under $D/scripts; its
 # arguments are plain words from scripts.list (validated: no spaces, quotes or shell syntax) passed as
@@ -91,7 +96,8 @@ if [ -s "$D/scripts.list" ]; then
         [ -n "$idx" ] || continue
         read -r -a sargv <<< "$sargs"
         say "running script $sid"
-        timeout 900 bash "$D/scripts/$idx.sh" "${sargv[@]}" 2>&1 | head -c 65536
+        # stdin is /dev/null: otherwise a script that reads input eats the rest of scripts.list.
+        timeout 900 bash "$D/scripts/$idx.sh" "${sargv[@]}" < /dev/null 2>&1 | head -c 65536
         rc=${PIPESTATUS[0]}
         if [ "$rc" -eq 0 ]; then say "script $sid: done"; else say "warning: script $sid exited with status $rc"; fi
     done < "$D/scripts.list"
@@ -111,8 +117,28 @@ fi
 say "building initramfs"
 mkinitcpio -P || fail "mkinitcpio"
 
+# The kernel to boot: `linux` if it is installed, else the first other kernel package (each installs a
+# mkinitcpio preset named after itself, and /boot/vmlinuz-<name> + initramfs-<name>.img). The installer made
+# the same choice for this first boot and put that kernel on the ESP as vmlinuz-linux.
+KERNEL=linux
+if [ ! -f /etc/mkinitcpio.d/linux.preset ]; then
+    for p in /etc/mkinitcpio.d/*.preset; do
+        [ -f "$p" ] && KERNEL=$(basename "$p" .preset) && break
+    done
+fi
+[ -f "/boot/vmlinuz-$KERNEL" ] && [ -f "/boot/initramfs-$KERNEL.img" ] || fail "no /boot/vmlinuz-$KERNEL or initramfs-$KERNEL.img to boot"
+say "boot kernel: $KERNEL"
+
 say "installing GRUB"
 ESP_DEV=$(findmnt -no SOURCE /boot)
+# GRUB finds /boot by its file system UUID: searching for a file name can land on another disk's ESP (an
+# older install, the installer stick) and boot that kernel with this system's command line.
+ESP_UUID=$(findmnt -no UUID /boot)
+if [ -n "$ESP_UUID" ]; then
+    SEARCH="--fs-uuid --set=root $ESP_UUID"
+else
+    SEARCH="--file --set=root /vmlinuz-$KERNEL"
+fi
 DISK=$(lsblk -no PKNAME "$ESP_DEV")
 mkdir -p /boot/grub
 {
@@ -120,9 +146,9 @@ mkdir -p /boot/grub
     echo "set default=0"
     echo
     echo "menuentry 'Arch Linux' {"
-    echo "    search --no-floppy --file --set=root /vmlinuz-linux"
-    echo "    linux /vmlinuz-linux $(cat "$D/cmdline")"
-    echo "    initrd /initramfs-linux.img"
+    echo "    search --no-floppy $SEARCH"
+    echo "    linux /vmlinuz-$KERNEL $(cat "$D/cmdline")"
+    echo "    initrd /initramfs-$KERNEL.img"
     echo "}"
 } > /boot/grub/grub.cfg || fail "grub.cfg"
 if [ -d /sys/firmware/efi ]; then
@@ -133,6 +159,10 @@ else
     grub-install --target=i386-pc --boot-directory=/boot "/dev/$DISK" || fail "grub-install (bios)"
 fi
 rm -rf /boot/limine
+# What only the first boot needed: archstaller's loader config and initramfs, and the installer's copy of a
+# kernel that is not `linux` (it was put on the ESP as vmlinuz-linux).
+rm -f /boot/archstaller.cfg /boot/initramfs-archstaller.img
+[ "$KERNEL" = linux ] || rm -f /boot/vmlinuz-linux
 
 rm -f "$D/firstboot"
 say "done"

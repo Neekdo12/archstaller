@@ -70,21 +70,28 @@ impl Queue {
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
         regs.write32(self.sq_db, self.tail as u32);
 
-        let entry = Mmio::new(self.cq.as_ptr()).offset(16 * self.head as usize);
-        let phase = self.phase;
-        platform::wait_until(5000, || (entry.read32(12) >> 16) & 1 == phase as u32)?;
-        let dw0 = entry.read32(0);
-        let status = entry.read32(12) >> 17;
-        self.head += 1;
-        if self.head == QSIZE {
-            self.head = 0;
-            self.phase = !self.phase;
+        loop {
+            let entry = Mmio::new(self.cq.as_ptr()).offset(16 * self.head as usize);
+            let phase = self.phase;
+            platform::wait_until(5000, || (entry.read32(12) >> 16) & 1 == phase as u32)?;
+            let dw0 = entry.read32(0);
+            let dw3 = entry.read32(12);
+            self.head += 1;
+            if self.head == QSIZE {
+                self.head = 0;
+                self.phase = !self.phase;
+            }
+            regs.write32(self.cq_db, self.head as u32);
+            // A command that timed out earlier can still complete; its entry must not be taken for
+            // this command's (every later command would then see its predecessor's completion).
+            if dw3 & 0xffff != cid as u32 {
+                continue;
+            }
+            if dw3 >> 17 != 0 {
+                return Err(Error::Io);
+            }
+            return Ok(dw0);
         }
-        regs.write32(self.cq_db, self.head as u32);
-        if status != 0 {
-            return Err(Error::Io);
-        }
-        Ok(dw0)
     }
 }
 

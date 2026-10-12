@@ -130,7 +130,7 @@ impl Model {
     }
 
     pub fn save(&mut self, path: &Path) -> Result<(), String> {
-        std::fs::write(path, self.lua()).map_err(|e| format!("{}: {e}", path.display()))?;
+        write_replacing(path, self.lua().as_bytes()).map_err(|e| format!("{}: {e}", path.display()))?;
         self.path = Some(path.to_path_buf());
         self.dirty = false;
         Ok(())
@@ -227,6 +227,28 @@ pub fn located(msg: &str) -> Option<usize> {
 /// The presets under `<root>/configs` (files marked `-- archstaller: kind=preset`), by name.
 pub fn presets(root: &Path) -> Vec<Preset> {
     hostcfg::configs::presets(&root.join(hostcfg::configs::DIR))
+}
+
+/// Replaces the file at `path` (through a symlink: the file it points to) by writing a sibling and renaming
+/// it over the old one, so a crash or a full disk never leaves a half-written config behind.
+fn write_replacing(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let tmp = target.with_file_name(format!(".{name}.{}.tmp", std::process::id()));
+    let result = (|| {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(data)?;
+        f.sync_all()?;
+        if let Ok(m) = std::fs::metadata(&target) {
+            std::fs::set_permissions(&tmp, m.permissions())?;
+        }
+        std::fs::rename(&tmp, &target)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
 }
 
 #[cfg(test)]

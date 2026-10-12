@@ -81,6 +81,7 @@ every run (a partition table left by an earlier run would make the firmware try 
 they see and are meant for QEMU scratch disks only.
 
 `super-small` (default profile) builds the kernel and the loaders with `build-std` and immediate-abort panics: smaller, but panic
-messages are lost. The payload is always stored deflate-compressed; the ISO is about 0.77 MiB. Both firmware
+messages are lost. A panic then shows as `*** KERNEL PANIC (message not compiled in; ...)` followed by `EXCEPTION #6 invalid
+opcode` (the `ud2` it compiles to); rebuild with `build.profile = "large"` and reproduce to see the message. The payload is always stored deflate-compressed; the ISO is about 0.77 MiB. Both firmware
 paths boot in QEMU, and the BIOS path also when the ISO is written to a disk or USB stick (hybrid MBR).
 

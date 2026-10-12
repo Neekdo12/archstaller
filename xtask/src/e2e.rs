@@ -56,7 +56,7 @@ fn qemu(opts: &Options, disk: &Path, cdrom: Option<&Path>, log: &Path) -> Result
         other => return Err(format!("unknown nic type {other}").into()),
     };
     cmd.stdout(Stdio::null()).stderr(Stdio::null());
-    Ok(cmd.spawn()?)
+    cmd.spawn().map_err(|e| format!("cannot run {}: {e}", cmd.get_program().to_string_lossy()).into())
 }
 
 /// Waits until `marker` shows up in the log; fails on `abort` markers, exit or timeout.

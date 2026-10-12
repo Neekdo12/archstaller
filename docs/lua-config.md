@@ -589,8 +589,9 @@ The build prints the first problem. Shape and type errors start with the path of
 | `the config mixes the `as` namespace with legacy top-level keys` | Something sits next to `as` in the returned table. Return only `{ as = as }`. |
 | `as.schema: this version reads schema 1` | `schema` is not `1`. |
 | `disk.confirm_serial must be set (or enable disk.auto_largest)` | No disk chosen. Give a serial or opt in to `auto_largest`. |
-| `invalid hostname: "..."` (also timezone, locale, keymap, service, group, shell, mirror, package name) | The value has a forbidden character or is too long; see the character sets above. |
+| `invalid hostname: "..."` (also timezone, locale, keymap, service, group, shell, mirror, package name) | The value has a forbidden character or is too long; see the character sets above. A hostname is also refused with an empty dot-separated part (`.box`, `a..b`, `box.`) or a part starting with `-`. |
 | `invalid user name: "root"` | `root` is configured through `system.root_password_hash`, not `users`. |
+| `invalid user name: "..."` | Longer than 32 characters, all digits, or starting with `-`: `useradd` would refuse it at the first boot. |
 | `invalid password_hash (need a $6$ SHA-512 crypt hash) for user ...` | Plaintext or another hash type. Run `openssl passwd -6`. |
 | `at least one mirror is required` / `invalid mirror` | `mirrors` is empty or an entry is not an `http(s)://` URL. |
 | `packages must not be empty` | `packages.explicit` is `{}`. |

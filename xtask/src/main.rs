@@ -19,7 +19,8 @@ pub fn root() -> PathBuf {
 }
 
 pub fn run(cmd: &mut Command) -> Result<()> {
-    let status = cmd.status()?;
+    // A missing tool (mtools, xorriso, ...) otherwise shows up as a bare "No such file or directory".
+    let status = cmd.status().map_err(|e| format!("cannot run {}: {e}", cmd.get_program().to_string_lossy()))?;
     if !status.success() {
         return Err(format!("{cmd:?} failed: {status}").into());
     }

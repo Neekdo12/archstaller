@@ -84,7 +84,9 @@ impl<S: Stream> TlsStream<S> {
         loop {
             match t.step(true)? {
                 Step::HandshakeDone => return Ok(t),
+                // A peer that closed mid-handshake would otherwise be read (0 bytes) forever.
                 Step::Eof => return Err(Error::Closed),
+                Step::NeedData if t.eof => return Err(Error::Closed),
                 Step::NeedData => t.fill()?,
                 Step::Continue => {}
             }

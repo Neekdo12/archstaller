@@ -2,7 +2,7 @@
 use crate::{root, run, Result};
 use pgp_lite::{KeyEntry, KeyMaterial, Keyring};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -41,7 +41,7 @@ fn fetch_package(version: &str, dest: &std::path::Path) -> Result<()> {
         format!("{MIRROR}/core/os/x86_64/{name}"),
     ];
     for url in &urls {
-        if Command::new("curl").args(["-fsSL", "-o"]).arg(dest).arg(url).status()?.success() {
+        if Command::new("curl").args(["-fsSL", "-o"]).arg(dest).arg(url).status().map_err(|e| format!("cannot run curl: {e}"))?.success() {
             return Ok(());
         }
     }
@@ -142,7 +142,17 @@ impl Key {
 struct Primary {
     key: Key,
     subs: Vec<Key>,
-    signers: BTreeSet<[u8; 20]>,
+    /// Per (user id, main key): the newest certification and the newest revocation of one (Unix times).
+    /// A main key that revoked its certification no longer counts, unless it certified again later.
+    certs: BTreeMap<(usize, [u8; 20]), (u64, u64)>,
+    uids: usize,
+}
+
+impl Primary {
+    /// The main keys whose certification of some user id of this key stands.
+    fn signers(&self) -> BTreeSet<[u8; 20]> {
+        self.certs.iter().filter(|(_, (cert, rev))| cert > rev).map(|((_, s), _)| *s).collect()
+    }
 }
 
 pub fn build() -> Result<Vec<u8>> {
@@ -186,7 +196,7 @@ pub fn build() -> Result<Vec<u8>> {
         std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700))?;
     }
     let gpg = |args: &[&str]| -> Result<Vec<u8>> {
-        let out = Command::new("gpg").args(["--homedir"]).arg(&home).args(["--batch", "--quiet", "--no-tty"]).args(args).output()?;
+        let out = Command::new("gpg").args(["--homedir"]).arg(&home).args(["--batch", "--quiet", "--no-tty"]).args(args).output().map_err(|e| format!("cannot run gpg: {e}"))?;
         if !out.status.success() {
             return Err(format!("gpg {args:?} failed: {}", String::from_utf8_lossy(&out.stderr)).into());
         }
@@ -211,7 +221,7 @@ pub fn build() -> Result<Vec<u8>> {
         };
         match f[0] {
             "pub" => {
-                primaries.push(Primary { key: parse_key(&f), subs: Vec::new(), signers: BTreeSet::new() });
+                primaries.push(Primary { key: parse_key(&f), subs: Vec::new(), certs: BTreeMap::new(), uids: 0 });
                 cur_is_sub = false;
                 uid_ok = true;
             }
@@ -233,13 +243,21 @@ pub fn build() -> Result<Vec<u8>> {
                     k.pkd.push(f.get(3).unwrap_or(&"").to_string());
                 }
             }
-            "uid" => uid_ok = !matches!(f.get(1).and_then(|v| v.chars().next()), Some('r' | 'e' | 'i' | 'd' | 'n')),
-            "sig" if !cur_is_sub && uid_ok && f.get(1) == Some(&"!") => {
+            "uid" => {
+                uid_ok = !matches!(f.get(1).and_then(|v| v.chars().next()), Some('r' | 'e' | 'i' | 'd' | 'n'));
+                if let Some(p) = primaries.last_mut() {
+                    p.uids += 1;
+                }
+            }
+            // Certifications (classes 10-13) and their revocations (class 30) of the current user id.
+            "sig" | "rev" if !cur_is_sub && uid_ok && f.get(1) == Some(&"!") => {
                 let class = f.get(10).copied().unwrap_or("");
-                let is_cert = ["10", "11", "12", "13"].iter().any(|c| class.starts_with(c));
-                if !is_cert {
+                let is_cert = f[0] == "sig" && ["10", "11", "12", "13"].iter().any(|c| class.starts_with(c));
+                let is_revocation = f[0] == "rev" && class.starts_with("30");
+                if !is_cert && !is_revocation {
                     continue;
                 }
+                let when: u64 = f.get(5).and_then(|t| t.parse().ok()).unwrap_or(0);
                 let Some(p) = primaries.last_mut() else { continue };
                 let issuer = f.get(12).and_then(|s| fpr_bytes(s));
                 let signer = match issuer {
@@ -248,7 +266,12 @@ pub fn build() -> Result<Vec<u8>> {
                 };
                 if let Some(s) = signer {
                     if Some(s) != p.key.fpr {
-                        p.signers.insert(s);
+                        let e = p.certs.entry((p.uids, s)).or_insert((0, 0));
+                        if is_cert {
+                            e.0 = e.0.max(when.max(1));
+                        } else {
+                            e.1 = e.1.max(when.max(1));
+                        }
                     }
                 }
             }
@@ -261,7 +284,7 @@ pub fn build() -> Result<Vec<u8>> {
     let (mut trusted, mut rejected) = (0, 0);
     for p in &primaries {
         let Some(pfpr) = p.key.fpr else { continue };
-        let ok = p.key.usable() && !revoked.contains(&pfpr) && (main.contains(&pfpr) || p.signers.len() >= MIN_MAIN_SIGS);
+        let ok = p.key.usable() && !revoked.contains(&pfpr) && (main.contains(&pfpr) || p.signers().len() >= MIN_MAIN_SIGS);
         if !ok {
             rejected += 1;
             continue;

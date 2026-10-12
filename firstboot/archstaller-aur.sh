@@ -57,7 +57,8 @@ id "$BU" >/dev/null 2>&1 || useradd -r -m -d "$BH" -s /usr/bin/nologin "$BU" || 
 install -d -o "$BU" -g "$BU" -m 700 "$BH"
 
 : > "$PENDING.new"
-while IFS= read -r line; do
+# The list comes in on fd 3: git, makepkg and the PKGBUILD's own build() must not read (and eat) it from stdin.
+while IFS= read -r line <&3; do
     [ -n "$line" ] || continue
     IFS=: read -r name pkgbase commit sha vcs asdep services <<< "$line"
     dir=$BH/$pkgbase
@@ -106,7 +107,7 @@ while IFS= read -r line; do
     for u in ${services//,/ }; do
         systemctl enable "$u" >>"$LOG" 2>&1 && say "service $u enabled" || say "warning: could not enable $u"
     done
-done < "$PENDING"
+done 3< "$PENDING"
 
 if [ -s "$PENDING.new" ]; then
     mv "$PENDING.new" "$PENDING"

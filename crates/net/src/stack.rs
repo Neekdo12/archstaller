@@ -154,6 +154,10 @@ pub struct Stack {
     next_port: u16,
     gateway: Option<[u8; 4]>,
     dns_servers: Vec<[u8; 4]>,
+    /// Resolvers in the order tried: the DHCP-provided ones, then `FALLBACK_DNS`.
+    resolvers: Vec<[u8; 4]>,
+    /// Index into `resolvers` of the one that answered last; lookups start there.
+    resolver: usize,
 }
 
 impl Stack {
@@ -167,7 +171,19 @@ impl Stack {
         let mut sockets = SocketSet::new(Vec::new());
         let dhcp = sockets.add(dhcpv4::Socket::new());
         let dns = sockets.add(dns::Socket::new(&[], [None, None]));
-        Stack { dev, iface, sockets, dhcp, dns, now_ms, next_port: 49152 + (seed % 10000) as u16, gateway: None, dns_servers: Vec::new() }
+        Stack {
+            dev,
+            iface,
+            sockets,
+            dhcp,
+            dns,
+            now_ms,
+            next_port: 49152 + (seed % 10000) as u16,
+            gateway: None,
+            dns_servers: Vec::new(),
+            resolvers: Vec::new(),
+            resolver: 0,
+        }
     }
 
     fn now(&self) -> Instant {
@@ -236,16 +252,15 @@ impl Stack {
                     router: router.map(|r| r.octets()),
                     dns: dhcp_dns.first().map(|d| d.octets()),
                 };
-                let mut dns: Vec<IpAddress> = dhcp_dns.iter().map(|d| IpAddress::Ipv4(*d)).collect();
+                let mut dns: Vec<[u8; 4]> = dhcp_dns.iter().map(|d| d.octets()).collect();
                 // Some networks hand out a resolver that never answers us (found on a campus network);
-                // fall back to public ones after the DHCP-provided servers.
+                // fall back to public ones after the DHCP-provided servers (`resolve` tries them in turn).
                 for fallback in FALLBACK_DNS {
-                    let a = IpAddress::Ipv4(Ipv4Address::from(fallback));
-                    if !dns.contains(&a) {
-                        dns.push(a);
+                    if !dns.contains(&fallback) {
+                        dns.push(fallback);
                     }
                 }
-                hal::log!("net: DNS servers {:?}", dns.iter().map(|d| alloc::format!("{d}")).collect::<Vec<_>>());
+                hal::log!("net: DNS servers {:?}", dns.iter().map(|d| alloc::format!("{}.{}.{}.{}", d[0], d[1], d[2], d[3])).collect::<Vec<_>>());
                 hal::log!("net: DHCP server {} (identifier {}), declined {declined} address(es)", server.address, server.identifier);
                 self.gateway = router.map(|r| r.octets());
                 self.dns_servers = dhcp_dns.iter().map(|d| d.octets()).collect();
@@ -256,13 +271,14 @@ impl Stack {
                 if let Some(r) = router {
                     let _ = self.iface.routes_mut().add_default_ipv4_route(r);
                 }
-                self.sockets.get_mut::<dns::Socket>(self.dns).update_servers(&dns);
+                self.resolvers = dns;
+                self.resolver = 0;
                 // Announce the address with a gratuitous ARP, as Linux's DHCP clients do, so switches
                 // and gateways learn this MAC/IP pairing before they see any other traffic from it.
                 self.announce(lease.address);
                 return Ok(lease);
             }
-            core::hint::spin_loop();
+            hal::idle();
         }
         Err(Error::Timeout)
     }
@@ -343,18 +359,50 @@ impl Stack {
     }
 
 
-    /// Resolves an IPv4 address (dotted quads are parsed directly).
+    /// Resolves an IPv4 address (dotted quads are parsed directly). The resolvers are tried one at a
+    /// time, starting with the one that answered last, each with an equal share of the time left:
+    /// smoltcp would only move on to the next server after 10 s, longer than a whole lookup may take.
     pub fn resolve(&mut self, name: &str, timeout_ms: u64) -> Result<[u8; 4]> {
         if let Some(ip) = parse_ipv4(name) {
             return Ok(ip);
         }
-        let h = self
-            .sockets
-            .get_mut::<dns::Socket>(self.dns)
-            .start_query(self.iface.context(), name, DnsQueryType::A)
-            .map_err(|_| Error::Dns)?;
+        let n = self.resolvers.len();
+        if n == 0 {
+            return Err(Error::Dns);
+        }
         let end = self.deadline(timeout_ms);
-        while (self.now_ms)() < end {
+        let mut last = Error::Timeout;
+        for k in 0..n {
+            let now = (self.now_ms)();
+            if now >= end {
+                break;
+            }
+            let i = (self.resolver + k) % n;
+            let server = self.resolvers[i];
+            match self.query(name, server, now + (end - now) / (n - k) as u64) {
+                Ok(ip) => {
+                    if i != self.resolver {
+                        hal::info!("net: DNS server {}.{}.{}.{} answered; using it from now on", server[0], server[1], server[2], server[3]);
+                        self.resolver = i;
+                    }
+                    return Ok(ip);
+                }
+                Err(e) => {
+                    hal::log!("net: DNS server {}.{}.{}.{} gave no answer for {name}: {e:?}", server[0], server[1], server[2], server[3]);
+                    last = e;
+                }
+            }
+        }
+        hal::info!("net: DNS query for {name} unanswered; {}", self.counters());
+        Err(last)
+    }
+
+    /// One lookup of `name` at `server`, given up at `until` (ms).
+    fn query(&mut self, name: &str, server: [u8; 4], until: u64) -> Result<[u8; 4]> {
+        let sock = self.sockets.get_mut::<dns::Socket>(self.dns);
+        sock.update_servers(&[IpAddress::Ipv4(Ipv4Address::from(server))]);
+        let h = sock.start_query(self.iface.context(), name, DnsQueryType::A).map_err(|_| Error::Dns)?;
+        while (self.now_ms)() < until {
             self.poll();
             match self.sockets.get_mut::<dns::Socket>(self.dns).get_query_result(h) {
                 Ok(addrs) => {
@@ -368,7 +416,6 @@ impl Stack {
             }
         }
         self.sockets.get_mut::<dns::Socket>(self.dns).cancel_query(h);
-        hal::info!("net: DNS query for {name} unanswered; {}", self.counters());
         Err(Error::Timeout)
     }
 
@@ -563,7 +610,8 @@ mod tests {
     extern crate std;
     use super::*;
     use core::sync::atomic::{AtomicU64, Ordering};
-    use smoltcp::wire::{DhcpMessageType, DhcpPacket, DhcpRepr, EthernetFrame, EthernetProtocol, IpProtocol, Ipv4Packet, UdpPacket};
+    use smoltcp::phy::ChecksumCapabilities;
+    use smoltcp::wire::{DhcpMessageType, DhcpPacket, DhcpRepr, EthernetFrame, EthernetProtocol, IpProtocol, Ipv4Packet, Ipv4Repr, UdpPacket, UdpRepr};
     use std::cell::RefCell;
     use std::rc::Rc;
 
@@ -578,6 +626,69 @@ mod tests {
         sent: std::vec::Vec<std::vec::Vec<u8>>,
         /// Frames to hand back from `receive`, one per call.
         inbox: std::collections::VecDeque<std::vec::Vec<u8>>,
+        /// When set, every ARP request is answered with this MAC.
+        arp_mac: Option<[u8; 6]>,
+        /// When set, DNS queries sent to the first address are answered with the second.
+        dns: Option<([u8; 4], [u8; 4])>,
+    }
+
+    impl Wire {
+        /// Answers what `frame` asks for, as configured.
+        fn respond(&mut self, f: &[u8]) {
+            if let Some(mac) = self.arp_mac {
+                if f.len() >= 42 && f[12..14] == [0x08, 0x06] && f[20..22] == [0, 1] {
+                    let mut r = arp_frame(mac, f[38..42].try_into().unwrap(), f[28..32].try_into().unwrap());
+                    r[0..6].copy_from_slice(&f[6..12]);
+                    r[32..38].copy_from_slice(&f[22..28]);
+                    self.inbox.push_back(r);
+                }
+            }
+            let Some((server, answer)) = self.dns else { return };
+            let Ok(eth) = EthernetFrame::new_checked(f) else { return };
+            let Ok(ip) = Ipv4Packet::new_checked(eth.payload()) else { return };
+            if eth.ethertype() != EthernetProtocol::Ipv4 || ip.next_header() != IpProtocol::Udp || ip.dst_addr().octets() != server {
+                return;
+            }
+            let Ok(udp) = UdpPacket::new_checked(ip.payload()) else { return };
+            if udp.dst_port() != 53 {
+                return;
+            }
+            // The query with the response flags, one answer count and an A record for the question's name.
+            let mut dns = udp.payload().to_vec();
+            dns[2..4].copy_from_slice(&[0x81, 0x80]);
+            dns[6..8].copy_from_slice(&1u16.to_be_bytes());
+            dns.extend_from_slice(&[0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4]);
+            dns.extend_from_slice(&answer);
+            let caps = ChecksumCapabilities::default();
+            let mut r = std::vec![0u8; 14 + 20 + 8 + dns.len()];
+            r[0..6].copy_from_slice(&f[6..12]);
+            r[6..12].copy_from_slice(&f[0..6]);
+            r[12..14].copy_from_slice(&0x0800u16.to_be_bytes());
+            let (src, dst) = (ip.dst_addr(), ip.src_addr());
+            Ipv4Repr { src_addr: src, dst_addr: dst, next_header: IpProtocol::Udp, payload_len: 8 + dns.len(), hop_limit: 64 }
+                .emit(&mut Ipv4Packet::new_unchecked(&mut r[14..]), &caps);
+            UdpRepr { src_port: 53, dst_port: udp.src_port() }.emit(
+                &mut UdpPacket::new_unchecked(&mut r[34..]),
+                &IpAddress::Ipv4(src),
+                &IpAddress::Ipv4(dst),
+                dns.len(),
+                |b| b.copy_from_slice(&dns),
+                &caps,
+            );
+            self.inbox.push_back(r);
+        }
+
+        /// Destination addresses of the DNS queries sent so far, in order.
+        fn dns_queries(&self) -> std::vec::Vec<[u8; 4]> {
+            self.sent
+                .iter()
+                .filter_map(|f| {
+                    let ip = Ipv4Packet::new_checked(EthernetFrame::new_checked(&f[..]).ok()?.payload()).ok()?;
+                    let udp = UdpPacket::new_checked(ip.payload()).ok()?;
+                    (ip.next_header() == IpProtocol::Udp && udp.dst_port() == 53).then(|| ip.dst_addr().octets())
+                })
+                .collect()
+        }
     }
 
     struct Mock(Rc<RefCell<Wire>>);
@@ -593,7 +704,9 @@ mod tests {
             true
         }
         fn transmit(&mut self, frame: &[u8]) -> hal::Result<()> {
-            self.0.borrow_mut().sent.push(frame.to_vec());
+            let mut w = self.0.borrow_mut();
+            w.sent.push(frame.to_vec());
+            w.respond(frame);
             Ok(())
         }
         fn receive(&mut self, buf: &mut [u8]) -> Option<usize> {
@@ -665,5 +778,46 @@ mod tests {
         // (The stack's own DHCP socket may also have sent a DISCOVER meanwhile; count only the probes.)
         let probes = wire.borrow().sent.iter().filter(|f| f[12..14] == [0x08, 0x06] && f[28..32] == [0, 0, 0, 0]).count();
         assert_eq!(probes, 3, "three ARP probes were sent");
+    }
+
+    #[test]
+    fn resolve_falls_back_to_the_next_server_and_keeps_using_it() {
+        let (mut s, wire) = stack();
+        s.iface.update_ip_addrs(|a| {
+            let _ = a.push(IpCidr::new(IpAddress::v4(10, 0, 0, 2), 24));
+        });
+        let _ = s.iface.routes_mut().add_default_ipv4_route(Ipv4Address::new(10, 0, 0, 1));
+        // The DHCP-provided resolver never answers; the first fallback does.
+        s.resolvers = std::vec![[10, 0, 0, 53], [1, 1, 1, 1], [8, 8, 8, 8]];
+        {
+            let mut w = wire.borrow_mut();
+            w.arp_mac = Some([2, 0, 0, 0, 0, 0xfe]);
+            w.dns = Some(([1, 1, 1, 1], [93, 184, 216, 34]));
+        }
+        assert_eq!(s.resolve("mirror.example.org", 6000), Ok([93, 184, 216, 34]));
+        let q = wire.borrow().dns_queries();
+        assert_eq!(q.first(), Some(&[10, 0, 0, 53]), "the DHCP-provided server is asked first");
+        assert_eq!(q.last(), Some(&[1, 1, 1, 1]));
+        assert!(!q.contains(&[8, 8, 8, 8]), "no need to ask the second fallback");
+
+        // The next lookup goes straight to the server that answered.
+        wire.borrow_mut().sent.clear();
+        assert_eq!(s.resolve("mirror.example.org", 6000), Ok([93, 184, 216, 34]));
+        assert_eq!(wire.borrow().dns_queries(), std::vec![[1, 1, 1, 1]]);
+    }
+
+    #[test]
+    fn resolve_without_any_answer_times_out_after_asking_every_server() {
+        let (mut s, wire) = stack();
+        s.iface.update_ip_addrs(|a| {
+            let _ = a.push(IpCidr::new(IpAddress::v4(10, 0, 0, 2), 24));
+        });
+        let _ = s.iface.routes_mut().add_default_ipv4_route(Ipv4Address::new(10, 0, 0, 1));
+        s.resolvers = std::vec![[10, 0, 0, 53], [1, 1, 1, 1]];
+        wire.borrow_mut().arp_mac = Some([2, 0, 0, 0, 0, 0xfe]);
+        assert_eq!(s.resolve("mirror.example.org", 6000), Err(Error::Timeout));
+        let mut q = wire.borrow().dns_queries();
+        q.dedup();
+        assert_eq!(q, std::vec![[10, 0, 0, 53], [1, 1, 1, 1]]);
     }
 }

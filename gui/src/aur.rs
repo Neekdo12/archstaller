@@ -146,7 +146,7 @@ pub fn pin(review: Review, existing: Vec<config::AurPackage>, mirror: &str, cach
 
 /// Whether the config has a network service the first boot build can rely on.
 pub fn has_network_service(services: &[String]) -> bool {
-    services.iter().any(|u| ["NetworkManager.service", "systemd-networkd.service", "dhcpcd.service", "connman.service"].contains(&u.as_str()))
+    services.iter().any(|u| config::NETWORK_SERVICES.contains(&u.as_str()))
 }
 
 #[cfg(test)]

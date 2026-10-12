@@ -103,7 +103,7 @@ pub fn run_iso(iso: &Path, opts: &Options) -> Result<()> {
     if let Ok(extra) = std::env::var("QEMU_EXTRA") {
         cmd.args(extra.split_whitespace());
     }
-    let status = cmd.status()?;
+    let status = cmd.status().map_err(|e| format!("cannot run {}: {e}", cmd.get_program().to_string_lossy()))?;
     // isa-debug-exit turns the kernel's `out 0xf4, 0` into exit code 1.
     match status.code() {
         Some(0) | Some(1) => Ok(()),

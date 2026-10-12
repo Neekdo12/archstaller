@@ -49,7 +49,10 @@ impl Build {
         let workdir = base.join(id);
         std::fs::create_dir_all(&workdir).map_err(|e| e.to_string())?;
         let log_path = base.join(format!("{id}.log"));
+        use std::os::unix::process::CommandExt;
         let mut child = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+            // Its own process group, so that cancelling stops xtask and the builds it runs, not only cargo.
+            .process_group(0)
             .current_dir(root)
             .args(["xtask", "build", "--config"])
             .arg(config)
@@ -100,9 +103,15 @@ impl Build {
         Ok(Build { rx, child, workdir, log_path })
     }
 
-    /// Stops the build. Only this build's workspace is removed; the log stays.
+    /// Stops the build: cargo, the xtask it runs and everything that starts (compilers, xorriso). Only this
+    /// build's workspace is removed; the log stays.
     pub fn cancel(&self) {
-        let _ = self.child.lock().unwrap().kill();
+        let mut child = self.child.lock().unwrap();
+        if child.try_wait().is_ok_and(|s| s.is_none()) {
+            // The group's id is cargo's pid (process_group(0)); killing only cargo left xtask running.
+            unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) };
+        }
+        let _ = child.kill();
         let _ = std::fs::remove_dir_all(&self.workdir);
     }
 }

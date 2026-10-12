@@ -293,15 +293,21 @@ fn read_file(root: *mut File, path: &str) -> Option<(*mut u8, usize)> {
     }
 }
 
+/// The root of the volume this image was loaded from.
+fn own_root(image: Handle) -> Option<*mut File> {
+    let mut li: *mut c_void = null_mut();
+    if (bs().handle_protocol)(image, &LOADED_IMAGE, &mut li) != 0 || li.is_null() {
+        return None;
+    }
+    open_root(unsafe { (*(li as *mut LoadedImage)).device_handle })
+}
+
 /// Where to look for files: the volume this image came from first, then every other volume.
 fn volumes(image: Handle, f: &mut dyn FnMut(*mut File) -> bool) {
     unsafe {
-        let mut li: *mut c_void = null_mut();
-        if (bs().handle_protocol)(image, &LOADED_IMAGE, &mut li) == 0 {
-            if let Some(root) = open_root((*(li as *mut LoadedImage)).device_handle) {
-                if f(root) {
-                    return;
-                }
+        if let Some(root) = own_root(image) {
+            if f(root) {
+                return;
             }
         }
         let mut count = 0usize;
@@ -569,6 +575,16 @@ extern "efiapi" fn efi_main(image: Handle, st: *mut SystemTable) -> Status {
     // A firmware watchdog resets the machine after five minutes by default; the installer runs longer.
     (bs().set_watchdog_timer)(0, 0, 0, null());
     log("boot: UEFI loader\n");
+    // The volume this loader came from decides first. Searching every volume for the first-boot config
+    // before the payload made an installer stick boot the first-boot setup of an earlier install whose
+    // ESP still held `archstaller.cfg`, instead of the installer.
+    if let Some(root) = own_root(image) {
+        if let Some((cfg, n)) = read_file(root, "\\archstaller.cfg") {
+            boot_linux(image, unsafe { core::slice::from_raw_parts(cfg, n) });
+        } else if let Some((p, n)) = read_file(root, "\\payload.bin") {
+            boot_installer(image, p, n);
+        }
+    }
     if let Some((_, cfg, n)) = find_file(image, "\\archstaller.cfg") {
         boot_linux(image, unsafe { core::slice::from_raw_parts(cfg, n) });
     } else if let Some((_, p, n)) = find_file(image, "\\payload.bin") {

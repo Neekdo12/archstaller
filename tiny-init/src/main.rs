@@ -52,7 +52,10 @@ fn load_modules() {
             log!("init: cannot open {path}");
             continue;
         }
-        let Some(size) = file_size(fd) else { continue };
+        let Some(size) = file_size(fd) else {
+            close(fd);
+            continue;
+        };
         let Some(image) = map_anon(size) else { fail("out of memory loading modules") };
         let mut got = 0;
         while got < size {

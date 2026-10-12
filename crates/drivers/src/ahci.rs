@@ -97,8 +97,16 @@ fn ata_string(words: &[u16]) -> String {
 
 impl AhciDisk {
     fn new(port: Mmio, s64: bool) -> Result<AhciDisk> {
-        let ssts = port.read32(P_SSTS);
-        if ssts & 0xf != 3 || (ssts >> 8) & 0xf != 1 || port.read32(P_SIG) != SIG_ATA {
+        if port.read32(P_SSTS) & 0xf != 3 {
+            return Err(Error::Unsupported);
+        }
+        // A link the firmware left in Partial or Slumber (link power management) is asked to become
+        // active (PxCMD.ICC = 1) instead of being skipped as if no disk were there.
+        if (port.read32(P_SSTS) >> 8) & 0xf != 1 {
+            port.write32(P_CMD, (port.read32(P_CMD) & !(0xf << 28)) | 1 << 28);
+            let _ = platform::wait_until(10, || (port.read32(P_SSTS) >> 8) & 0xf == 1);
+        }
+        if (port.read32(P_SSTS) >> 8) & 0xf != 1 || port.read32(P_SIG) != SIG_ATA {
             return Err(Error::Unsupported);
         }
         stop(&port)?;
