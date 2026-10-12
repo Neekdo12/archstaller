@@ -1,4 +1,4 @@
-use crate::{root, Options, Result};
+use crate::{target_dir, Options, Result};
 use std::path::Path;
 use std::process::Command;
 
@@ -49,7 +49,7 @@ pub fn run_iso(iso: &Path, opts: &Options) -> Result<()> {
         cmd.args(["-display", "none"]);
     }
     if opts.uefi {
-        let vars = root().join("target/ovmf_vars.fd");
+        let vars = target_dir().join("ovmf_vars.fd");
         std::fs::copy(format!("{OVMF_DIR}/OVMF_VARS.4m.fd"), &vars)?;
         cmd.arg("-drive")
             .arg(format!("if=pflash,format=raw,readonly=on,file={OVMF_DIR}/OVMF_CODE.4m.fd"));
@@ -59,7 +59,7 @@ pub fn run_iso(iso: &Path, opts: &Options) -> Result<()> {
     cmd.arg("-cdrom").arg(iso);
 
     // Blank test disk; the serial lets the installer's confirm_serial check be exercised.
-    let disk = root().join("target/test-disk.img");
+    let disk = target_dir().join("test-disk.img");
     // Always start from a blank disk: a partition table left by an earlier run would make the
     // firmware try the disk before the ISO.
     let f = std::fs::File::create(&disk)?;
@@ -90,7 +90,7 @@ pub fn run_iso(iso: &Path, opts: &Options) -> Result<()> {
     if opts.usb {
         // Generic USB device behind QEMU's xHCI, to smoke-test the installer's xHCI
         // driver (enumeration, descriptors, bulk transfers via BOT INQUIRY).
-        let img = root().join("target/usb-test.img");
+        let img = target_dir().join("usb-test.img");
         if !img.exists() {
             let f = std::fs::File::create(&img)?;
             f.set_len(8 << 20)?;

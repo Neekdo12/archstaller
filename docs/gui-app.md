@@ -2,8 +2,12 @@
 
 `archstaller-gui` is a GTK 4 app for Linux (Windows and macOS are not supported). It needs the `gtk4` and
 `gtksourceview5` libraries at runtime (Arch: `pacman -S gtk4 gtksourceview5`) and their development files plus
-`pkg-config` to build it. Run it from inside the checkout, or set `ARCHSTALLER_ROOT`; it finds the presets and
-builds the ISO through `cargo xtask`.
+`pkg-config` to build it. Mounting a stick and raw flashing go through UDisks2 (`pacman -S udisks2`), which GNOME
+and KDE install but minimal setups such as i3 or sway may not. On Arch, the AUR package `archstaller-git` installs it
+with a launcher entry and the source tree it builds from (see
+[Arch Linux package](building-and-running.md#arch-linux-package-aur)). Otherwise run it from inside the checkout, or
+set `ARCHSTALLER_ROOT`. It finds the presets and builds the ISO through `cargo xtask`, into the checkout's `target/`
+or, for the packaged tree, `~/.cache/archstaller/target`.
 
 With a prebuilt binary:
 

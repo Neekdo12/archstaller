@@ -44,6 +44,52 @@ cargo run -p archstaller-gui
 cargo xtask build --config path/to/my.lua --out my.iso
 ```
 
+## Arch Linux package (AUR)
+
+`packaging/aur/archstaller-git/` holds the `PKGBUILD` and `.SRCINFO` of the AUR package `archstaller-git`. It
+builds `master` from GitHub and installs:
+
+- `archstaller-gui`, the [desktop app](gui-app.md), with a launcher entry and an icon;
+- `archstaller`, which runs `cargo xtask` for the installed tree: `archstaller build --config my.lua --out my.iso`
+  does what `cargo xtask build ...` does in a checkout, and relative paths are taken from the directory you run it in;
+- `/usr/share/archstaller`, the source tree. Every ISO is built from source, because the installer kernel is compiled
+  for its config (drivers, profile, tethering).
+
+```sh
+paru -S archstaller-git        # or any AUR helper; by hand:
+git clone https://aur.archlinux.org/archstaller-git.git && cd archstaller-git && makepkg -si
+```
+
+The package depends on `rustup`, which replaces the `rust` package: the build needs nightly. The installed tree is
+read-only, so the app and `archstaller` both build into `~/.cache/archstaller/target` (`CARGO_TARGET_DIR` changes
+that); output without `--out`, such as `archstaller presets`, lands there too. On the first build rustup installs what
+`rust-toolchain.toml` names and it lacks (nightly, `rust-src`, `llvm-tools`, the `x86_64-unknown-none` target), then
+cargo compiles xtask and the kernel, which takes a few minutes. Like every build, it needs the network to download the pinned keyring. Neither the package nor the
+builds update a nightly that is already installed: when a build fails with a compiler error after an upgrade, run
+`rustup update nightly`. `xtask` commands that write into the tree (`gen-luals`, `update-keyring`) only work in a
+checkout.
+
+### Publishing to the AUR
+
+The AUR repository holds only `PKGBUILD` and `.SRCINFO`. The `archstaller` command, the desktop entry and the icon
+come from `packaging/` of the `master` the package clones, so push those to GitHub before a PKGBUILD that installs
+them. Publishing needs an AUR account with an SSH key:
+
+```sh
+cd packaging/aur/archstaller-git
+makepkg -f                                  # builds and tests the package; moves pkgver in the PKGBUILD
+makepkg --printsrcinfo > .SRCINFO
+git clone ssh://aur@aur.archlinux.org/archstaller-git.git ~/aur/archstaller-git   # empty the first time
+cp PKGBUILD .SRCINFO ~/aur/archstaller-git/
+cd ~/aur/archstaller-git
+git add PKGBUILD .SRCINFO
+git commit -m "Update PKGBUILD"
+git push origin HEAD:master                 # the AUR only accepts master
+```
+
+A `-git` package needs a new push only when the PKGBUILD changes (dependencies, install steps). Users get new
+commits by rebuilding it.
+
 ## Trying it in QEMU
 
 ```sh

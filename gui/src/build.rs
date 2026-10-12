@@ -20,32 +20,51 @@ pub struct Build {
     pub log_path: PathBuf,
 }
 
-/// The repository root: `ARCHSTALLER_ROOT`, else the nearest parent of the current directory or the
-/// executable that holds `rust-toolchain.toml` and `xtask/`.
+/// The source tree the ISO is built from: `ARCHSTALLER_ROOT`, else the checkout the executable was built in,
+/// else the tree the Arch package installs beside it (`/usr/bin/archstaller-gui` -> `/usr/share/archstaller`),
+/// else the checkout around the current directory.
 pub fn find_root() -> Result<PathBuf, String> {
     if let Ok(r) = std::env::var("ARCHSTALLER_ROOT") {
         return Ok(PathBuf::from(r));
     }
-    let starts = [std::env::current_dir().ok(), std::env::current_exe().ok()];
-    for s in starts.into_iter().flatten() {
-        let mut p: &Path = &s;
-        loop {
-            if p.join("rust-toolchain.toml").is_file() && p.join("xtask").is_dir() {
-                return Ok(p.to_path_buf());
-            }
-            match p.parent() {
-                Some(q) => p = q,
-                None => break,
-            }
-        }
+    search_root(std::env::current_exe().ok().as_deref(), std::env::current_dir().ok().as_deref())
+        .ok_or_else(|| "cannot find the archstaller source tree (install the package, run from inside a checkout or set ARCHSTALLER_ROOT)".into())
+}
+
+/// A source tree holds `rust-toolchain.toml` and `xtask/`.
+fn is_root(p: &Path) -> bool {
+    p.join("rust-toolchain.toml").is_file() && p.join("xtask").is_dir()
+}
+
+/// `find_root` without the environment. An installed executable takes its own tree before a checkout the
+/// current directory happens to be in.
+fn search_root(exe: Option<&Path>, cwd: Option<&Path>) -> Option<PathBuf> {
+    let checkout = |start: &Path| start.ancestors().find(|p| is_root(p)).map(Path::to_path_buf);
+    let installed = exe.and_then(|e| Some(e.parent()?.parent()?.join("share/archstaller"))).filter(|p| is_root(p));
+    exe.and_then(checkout).or(installed).or_else(|| cwd.and_then(checkout))
+}
+
+/// Cargo's build directory for `root`: `CARGO_TARGET_DIR`, else `target/` of a checkout we may write to, else
+/// `~/.cache/archstaller/target`, where the `archstaller` command builds too. Nothing is written under `/usr`
+/// (the tree the package installs), not even by root.
+pub fn target_dir(root: &Path) -> PathBuf {
+    if let Some(dir) = std::env::var_os("CARGO_TARGET_DIR") {
+        return root.join(dir);
     }
-    Err("cannot find the archstaller checkout (run from inside it or set ARCHSTALLER_ROOT)".into())
+    use std::os::unix::ffi::OsStrExt;
+    let writable = || std::ffi::CString::new(root.as_os_str().as_bytes()).is_ok_and(|p| unsafe { libc::access(p.as_ptr(), libc::W_OK) } == 0);
+    if !root.starts_with("/usr") && writable() {
+        root.join("target")
+    } else {
+        dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("archstaller/target")
+    }
 }
 
 impl Build {
-    /// Starts a build of `config` into a per-build workspace under `<root>/target/gui-builds/`.
+    /// Starts a build of `config` into a per-build workspace under `<target dir>/gui-builds/`.
     pub fn start(root: &Path, config: &Path, id: &str) -> Result<Build, String> {
-        let base = root.join("target/gui-builds");
+        let target = target_dir(root);
+        let base = target.join("gui-builds");
         let workdir = base.join(id);
         std::fs::create_dir_all(&workdir).map_err(|e| e.to_string())?;
         let log_path = base.join(format!("{id}.log"));
@@ -54,6 +73,8 @@ impl Build {
             // Its own process group, so that cancelling stops xtask and the builds it runs, not only cargo.
             .process_group(0)
             .current_dir(root)
+            // cargo and xtask must agree on where the builds land.
+            .env("CARGO_TARGET_DIR", &target)
             .args(["xtask", "build", "--config"])
             .arg(config)
             .arg("--out")
@@ -139,5 +160,21 @@ mod tests {
     fn finds_this_checkout() {
         let root = find_root().unwrap();
         assert!(root.join("rust-toolchain.toml").is_file());
+    }
+
+    #[test]
+    fn an_installed_executable_finds_the_tree_beside_it() {
+        let base = std::env::temp_dir().join(format!("archstaller-installed-{}", std::process::id()));
+        let tree = base.join("usr/share/archstaller");
+        std::fs::create_dir_all(tree.join("xtask")).unwrap();
+        std::fs::write(tree.join("rust-toolchain.toml"), "").unwrap();
+        let exe = base.join("usr/bin/archstaller-gui");
+        let checkout = find_root().unwrap();
+        assert_eq!(search_root(Some(&exe), None), Some(tree.clone()));
+        // Started inside a checkout, the installed executable still uses its own tree.
+        assert_eq!(search_root(Some(&exe), Some(&checkout.join("gui"))), Some(tree));
+        // A copied executable with no tree beside it falls back to the current directory.
+        assert_eq!(search_root(Some(&base.join("bin/archstaller-gui")), Some(&checkout.join("gui"))), Some(checkout));
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

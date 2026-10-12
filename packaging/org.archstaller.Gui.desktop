@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=archstaller
+GenericName=Arch Linux Installer Builder
+Comment=Compose an unattended Arch Linux install, build its ISO and put it on a USB stick
+Exec=archstaller-gui
+Icon=org.archstaller.Gui
+Terminal=false
+Categories=GTK;System;
+Keywords=arch;installer;iso;usb;ventoy;lua;
+StartupNotify=true

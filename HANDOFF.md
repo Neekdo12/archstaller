@@ -56,6 +56,15 @@ Our own loader replaced Limine (`boot/`, `crates/loadcore`, `crates/bootinfo`; s
 `--small`/`--super-small` are deprecated overrides of `--profile super-small` (the default profile); `configs/e2e.lua` and `configs/tester.lua` pin `build.profile = "large"`. Verified in QEMU: `cargo xtask e2e` and `e2e --uefi` pass (install, first boot through our loader, second boot through GRUB);
 the BIOS ISO also boots as a CD, an IDE disk and a USB stick (hybrid MBR). Not tested: real hardware, Ventoy. If the kernel image outgrows 4 MiB, raise `bootinfo::KERNEL_MAX`.
 
+## AUR package
+
+`packaging/aur/archstaller-git/` is ready to publish (steps in `docs/building-and-running.md`) but not on the AUR
+yet. It builds GitHub `master`, so `packaging/` and the changes it relies on (xtask's `CARGO_TARGET_DIR` and
+`ARCHSTALLER_CWD`, the GUI's lookup of `/usr/share/archstaller`) must be pushed first. Verified on this machine, not
+in a clean chroot: `makepkg` including `check()`, and an ISO built by the packaged `archstaller` command from the
+unpacked package with `/usr/share/archstaller` read-only. Not tried: the GUI started from the installed package (its
+tree lookup is unit-tested, its build directory is not), `extra-x86_64-build`.
+
 ## Debug flag
 
 Verbose tracing (`hal::log!`) is compiled out unless the kernel feature `debug` is on (`cargo xtask build --debug`;

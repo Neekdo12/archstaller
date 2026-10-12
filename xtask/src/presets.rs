@@ -1,5 +1,5 @@
 //! Preset configs in configs/ (files marked `-- archstaller: kind=preset`): dependency check and one ISO per preset.
-use crate::{iso, lua, root, Options, Result};
+use crate::{iso, lua, root, target_dir, Options, Result};
 use std::path::PathBuf;
 
 fn preset_files() -> Result<Vec<PathBuf>> {
@@ -37,7 +37,7 @@ pub fn check() -> Result<()> {
 
 /// Builds target/isos/archstaller-<preset>.iso for every preset.
 pub fn build_all(opts: &Options) -> Result<()> {
-    let dir = root().join("target/isos");
+    let dir = target_dir().join("isos");
     for f in preset_files()? {
         let name = stem(&f);
         let o = Options {

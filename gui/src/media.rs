@@ -56,9 +56,17 @@ fn lsblk_volumes() -> Option<Vec<Volume>> {
     Some(list)
 }
 
+/// Runs `udisksctl`, which comes with UDisks2 (minimal desktops such as i3 or sway often lack it).
+fn udisksctl(args: &[&str]) -> Result<std::process::Output, String> {
+    std::process::Command::new("udisksctl").args(args).output().map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => "udisksctl was not found: mounting without root needs UDisks2 (Arch: pacman -S udisks2)".to_string(),
+        _ => format!("udisksctl: {e}"),
+    })
+}
+
 /// Mounts `dev` the way a desktop does (udisks, no root needed) and returns its mount point.
 pub fn mount(dev: &str) -> Result<PathBuf, String> {
-    let out = std::process::Command::new("udisksctl").args(["mount", "--no-user-interaction", "-b", dev]).output().map_err(|e| format!("udisksctl: {e}"))?;
+    let out = udisksctl(&["mount", "--no-user-interaction", "-b", dev])?;
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
     if !out.status.success() {
         return Err(format!("could not mount {dev}: {}", String::from_utf8_lossy(&out.stderr).trim()));
@@ -70,7 +78,7 @@ pub fn mount(dev: &str) -> Result<PathBuf, String> {
 /// Flushes everything to the device, then unmounts it, so the stick can be pulled out.
 pub fn sync_and_unmount(dev: &str) -> Result<(), String> {
     let _ = std::process::Command::new("sync").status();
-    let out = std::process::Command::new("udisksctl").args(["unmount", "--no-user-interaction", "-b", dev]).output().map_err(|e| format!("udisksctl: {e}"))?;
+    let out = udisksctl(&["unmount", "--no-user-interaction", "-b", dev])?;
     if out.status.success() {
         Ok(())
     } else {

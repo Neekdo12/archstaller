@@ -127,6 +127,14 @@ The GUI is available too:
 cargo run -p archstaller-gui
 ```
 
+On Arch, the AUR package [`archstaller-git`](docs/building-and-running.md#arch-linux-package-aur) installs the GUI
+and an `archstaller` command that runs these commands without a checkout:
+
+```sh
+paru -S archstaller-git
+archstaller build --config my.lua --out my.iso
+```
+
 ---
 
 ## Configuration

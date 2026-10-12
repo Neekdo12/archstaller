@@ -1,4 +1,4 @@
-use crate::{keyring, root, run, Options, Result};
+use crate::{keyring, root, run, target_dir, Options, Result};
 use hostcfg::host::Profile;
 use hostcfg::progress::{Event, State};
 use sha2::Digest;
@@ -97,7 +97,7 @@ fn build_uefi_loader() -> Result<Vec<u8>> {
         "build", "-p", "boot-uefi", "--target", UEFI_TARGET, "--profile", "small",
         "-Z", "build-std=core,compiler_builtins", "-Z", "build-std-features=compiler-builtins-mem",
     ]))?;
-    Ok(std::fs::read(root().join("target").join(UEFI_TARGET).join("small/boot-uefi.efi"))?)
+    Ok(std::fs::read(target_dir().join(UEFI_TARGET).join("small/boot-uefi.efi"))?)
 }
 
 /// Where `needle` sits inside `hay` (sector aligned, the way `mcopy` lays out a file in a new image).
@@ -153,7 +153,7 @@ fn build_kernel(opts: &Options, loaded: &hostcfg::lua::Loaded, profile: Profile)
 }
 
 fn kernel_path(profile: Profile) -> PathBuf {
-    root().join("target").join(TARGET).join(match profile {
+    target_dir().join(TARGET).join(match profile {
         Profile::SuperSmall => "small/kernel",
         Profile::Large => "release/kernel",
     })
@@ -171,7 +171,7 @@ fn make_efi_image(efi: &std::path::Path, payload: &std::path::Path, out: &std::p
 }
 
 pub fn iso_path() -> PathBuf {
-    root().join("target/archstaller.iso")
+    target_dir().join("archstaller.iso")
 }
 
 /// Prints a progress event when `--progress json` was given.
@@ -189,9 +189,9 @@ fn stage<T>(opts: &Options, name: &str, f: impl FnOnce() -> Result<T>) -> Result
     r
 }
 
-/// Where this build keeps its scratch files (`--workdir`, default `target/`).
+/// Where this build keeps its scratch files (`--workdir`, default the target directory).
 fn workdir(opts: &Options) -> PathBuf {
-    opts.workdir.clone().unwrap_or_else(|| root().join("target"))
+    opts.workdir.clone().unwrap_or_else(target_dir)
 }
 
 pub fn build(opts: &Options) -> Result<PathBuf> {
@@ -222,7 +222,7 @@ fn build_inner(opts: &Options) -> Result<PathBuf> {
         run(Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
             .current_dir(root())
             .args(["build", "-p", "tiny-init", "--bin", "tiny-init", "--release", "--target", TARGET]))?;
-        Ok(std::fs::read(root().join("target").join(TARGET).join("release/tiny-init"))?)
+        Ok(std::fs::read(target_dir().join(TARGET).join("release/tiny-init"))?)
     })?;
     let efi = stage(opts, "uefi-loader", build_uefi_loader)?;
     let bios = stage(opts, "bios", crate::bios::build)?;

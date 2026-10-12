@@ -1,5 +1,5 @@
 //! Builds the compact signing-key blob from the pinned archlinux-keyring package.
-use crate::{root, run, Result};
+use crate::{root, run, target_dir, Result};
 use pgp_lite::{KeyEntry, KeyMaterial, Keyring};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -51,7 +51,7 @@ fn fetch_package(version: &str, dest: &std::path::Path) -> Result<()> {
 /// Moves the pin to the newest archlinux-keyring in the mirror's core database.
 pub fn update() -> Result<()> {
     use pkg::db::Db;
-    let dir = root().join("target/keyring");
+    let dir = target_dir().join("keyring");
     std::fs::create_dir_all(&dir)?;
     let db_path = dir.join("core.db");
     run(Command::new("curl").args(["-fsSL", "-o"]).arg(&db_path).arg(format!("{MIRROR}/core/os/x86_64/core.db")))?;
@@ -95,7 +95,7 @@ pub fn update() -> Result<()> {
 }
 
 pub fn blob_path() -> PathBuf {
-    root().join("target/keyring.bin")
+    target_dir().join("keyring.bin")
 }
 
 fn unhex(s: &str) -> Vec<u8> {
@@ -156,7 +156,7 @@ impl Primary {
 }
 
 pub fn build() -> Result<Vec<u8>> {
-    let dir = root().join("target/keyring");
+    let dir = target_dir().join("keyring");
     std::fs::create_dir_all(&dir)?;
     let pin = read_pin()?;
     let version = pin.version.as_str();

@@ -18,6 +18,25 @@ pub fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
 }
 
+/// Cargo's build directory: `CARGO_TARGET_DIR` (relative to the root, where every cargo run here starts),
+/// else `target/`. The installed `archstaller` command sets it to `~/.cache/archstaller/target`, because the
+/// source tree the package installs is read-only.
+pub fn target_dir() -> PathBuf {
+    match std::env::var_os("CARGO_TARGET_DIR") {
+        Some(dir) => root().join(dir),
+        None => root().join("target"),
+    }
+}
+
+/// A path given on the command line. The installed `archstaller` command runs this from the source tree and
+/// passes the directory it was started in as `ARCHSTALLER_CWD`; relative paths are taken from there.
+fn arg_path(s: &str) -> PathBuf {
+    match std::env::var_os("ARCHSTALLER_CWD") {
+        Some(cwd) => Path::new(&cwd).join(s),
+        None => s.into(),
+    }
+}
+
 pub fn run(cmd: &mut Command) -> Result<()> {
     // A missing tool (mtools, xorriso, ...) otherwise shows up as a bare "No such file or directory".
     let status = cmd.status().map_err(|e| format!("cannot run {}: {e}", cmd.get_program().to_string_lossy()))?;
@@ -87,10 +106,10 @@ fn parse(args: &[String]) -> Result<Options> {
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
-            "--config" => o.config = it.next().ok_or("--config needs a path")?.into(),
+            "--config" => o.config = arg_path(it.next().ok_or("--config needs a path")?),
             "--fault-test" => o.fault_test = true,
             "--selftest" => o.selftest = true,
-            "--out" => o.out = Some(it.next().ok_or("--out needs a path")?.into()),
+            "--out" => o.out = Some(arg_path(it.next().ok_or("--out needs a path")?)),
             "--profile" => o.profile = Some(hostcfg::host::Profile::parse(it.next().ok_or("--profile needs super-small or large")?)?),
             "--small" | "--super-small" => o.legacy_small = true,
             "--limit" => o.limit = it.next().ok_or("--limit needs bytes")?.parse()?,
@@ -108,7 +127,7 @@ fn parse(args: &[String]) -> Result<Options> {
                 _ => return Err("--progress needs the value json".into()),
             },
             "--disk-gib" => o.disk_gib = it.next().ok_or("--disk-gib needs a number")?.parse()?,
-            "--workdir" => o.workdir = Some(it.next().ok_or("--workdir needs a path")?.into()),
+            "--workdir" => o.workdir = Some(arg_path(it.next().ok_or("--workdir needs a path")?)),
             other => return Err(format!("unknown option {other}").into()),
         }
     }
