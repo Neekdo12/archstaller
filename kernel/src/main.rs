@@ -87,6 +87,9 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
     if let Some(c) = fb::FbConsole::new(hhdm, &info.fb) {
         console::init_fb(c);
         println!("archstaller kernel starting");
+        if console::serial_stuck() {
+            println!("serial: COM1 does not drain; output goes to the screen only");
+        }
     }
     banner::show("ARCHSTALLER");
 

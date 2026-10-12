@@ -37,6 +37,12 @@ commits and pushes; leave changes uncommitted. (From the agent's shell, `git pus
   (ASIX AX88772, Realtek RTL8152/8153 are not implemented).
 - The 256 KiB TCP window on gigabit; asynchronous USB transmit and several outstanding USB receive transfers
   are not implemented (only matter near line rate).
+- Slow screen output on an old PC ("a few letters at a time"): blamed on a COM1 that never drains, since every
+  console write waited up to 100,000 status reads per character on serial before the screen got it.
+  `kernel/src/serial.rs` now gives up after one short wait. Reproduced and fixed only in QEMU (COM1 on a full
+  pipe nobody reads); on the old PC, the boot log should now show `serial: COM1 does not drain`. If the screen
+  is still slow there, the next suspect is the framebuffer: it is mapped uncached (the direct map's default
+  memory type), and each scroll redraws every changed cell; write-combining through the PAT is the usual fix.
 
 ## Things learned the hard way (all fixed, kept for context)
 
