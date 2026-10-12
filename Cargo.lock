@@ -59,6 +59,7 @@ dependencies = [
  "gtk4",
  "hostcfg",
  "libc",
+ "pkg",
  "serde_json",
  "sha2 0.10.9",
  "sourceview5",

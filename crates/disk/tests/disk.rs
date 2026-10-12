@@ -85,6 +85,23 @@ fn gpt_layout_verifies_512_and_4096() {
 }
 
 #[test]
+fn fat32_min_volume_size_formats_and_one_mib_less_does_not() {
+    let dir = scratch("fatmin");
+    for ss in [512u32, 4096] {
+        let min = disk::fat32::min_volume_bytes(ss);
+        let opts = || Options { label: "ESP".into(), volume_id: 1, hidden_sectors: 2048, now: 1_790_000_000 };
+        let (_, mut dev) = make_disk(&dir, &format!("min{ss}.img"), min, ss);
+        Fat32Writer::format(&mut Region::whole(&mut dev), opts()).unwrap_or_else(|e| panic!("{ss}-byte sectors, {min} bytes: {e:?}"));
+        let (_, mut dev) = make_disk(&dir, &format!("small{ss}.img"), min - (1 << 20), ss);
+        assert!(Fat32Writer::format(&mut Region::whole(&mut dev), opts()).is_err(), "{ss}-byte sectors: {} bytes should be too small", min - (1 << 20));
+    }
+    // The installer's 64 MiB minimum ESP is enough with 512-byte sectors, not with 4 KiB ones.
+    assert!(disk::fat32::min_volume_bytes(512) <= 64 << 20);
+    assert!(disk::fat32::min_volume_bytes(4096) > 64 << 20);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn fat32_esp_passes_fsck_and_contents_match() {
     let dir = scratch("fat");
     let (path, mut dev) = make_disk(&dir, "esp.img", 1 << 30, 512);

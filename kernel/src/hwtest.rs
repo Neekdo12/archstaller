@@ -96,7 +96,7 @@ pub fn run(cfg: &Config, devs: Devices, keyring: Option<&Keyring>) {
             println!("rebooting in {left}s...");
         }
         shown = left;
-        core::hint::spin_loop();
+        hal::idle();
     }
     crate::reboot()
 }
@@ -134,6 +134,7 @@ fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Repo
         r.warn("no supported disk found (NVMe, AHCI, IDE-mode ATA and virtio only)");
     }
     let disks: Vec<Box<dyn BlockDevice>> = devs.block.drain(..).map(|d| Box::new(ReadOnly(d)) as Box<dyn BlockDevice>).collect();
+    let largest_disk = disks.iter().map(|d| d.sector_count() * d.sector_size() as u64).max().unwrap_or(0);
     for mut d in disks {
         let ss = d.sector_size() as usize;
         let mib = d.sector_count() * ss as u64 >> 20;
@@ -232,10 +233,15 @@ fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Repo
     let mut speed_target: Option<String> = None;
     if dbs.len() == REPOS.len() {
         let providers: BTreeMap<String, String> = cfg.providers.iter().cloned().collect();
-        match pkg::resolve::Resolver::new(&dbs, &providers).resolve(&cfg.packages) {
+        match pkg::resolve::Resolver::new(&dbs, &providers).resolve(&crate::install::wanted_packages(cfg)) {
             Ok(res) => {
                 let total: u64 = res.packages.iter().map(|s| s.pkg.csize).sum();
                 r.ok(&format!("resolved {} packages, {} MiB", res.packages.len(), total >> 20));
+                // The install refuses a disk that cannot hold them (see `install::space_needed`).
+                let need = crate::install::space_needed(&res) + ((cfg.disk.esp_mib as u64) << 20);
+                if largest_disk != 0 && largest_disk < need {
+                    r.warn(&format!("the largest disk ({} MiB) is too small for these packages (about {} MiB with the ESP)", largest_disk >> 20, need >> 20));
+                }
                 if let (Some(big), Some(m)) = (res.packages.iter().max_by_key(|s| s.pkg.csize), cfg.mirrors.first()) {
                     speed_target = Some(format!("{}/{}", expand(m, &big.pkg.repo), big.pkg.filename));
                 }

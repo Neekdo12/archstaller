@@ -33,7 +33,7 @@ impl Env {
             ("pacman", "echo \"$@\" >> \"$CALLS/pacman\""),
             (
                 "makepkg",
-                "if [ \"$1\" = --packagelist ]; then n=$(grep -m1 '^pkgname' .SRCINFO | cut -d= -f2 | tr -d ' '); echo \"$PWD/$n-1-1-x86_64.pkg.tar.zst\"; else n=$(grep -m1 '^pkgname' .SRCINFO | cut -d= -f2 | tr -d ' '); [ -f FAIL ] && exit 1; echo built > \"$n-1-1-x86_64.pkg.tar.zst\"; fi",
+                "if [ \"$1\" = --packagelist ]; then n=$(grep -m1 '^pkgname' .SRCINFO | cut -d= -f2 | tr -d ' '); echo \"$PWD/$n-1-1-x86_64.pkg.tar.zst\"; else n=$(grep -m1 '^pkgname' .SRCINFO | cut -d= -f2 | tr -d ' '); [ -f FAIL ] && exit 1; [ -f EATSTDIN ] && cat > /dev/null; echo built > \"$n-1-1-x86_64.pkg.tar.zst\"; fi",
             ),
         ];
         for (n, body) in stubs {
@@ -122,6 +122,20 @@ fn marks_dependencies_and_keeps_the_order() {
     let p: Vec<String> = e.calls("pacman").lines().map(String::from).collect();
     assert!(p[0].contains("--asdeps") && p[0].contains("lib-1-1"), "{p:?}");
     assert!(!p[1].contains("--asdeps") && p[1].contains("app-1-1"), "{p:?}");
+}
+
+#[test]
+fn a_build_that_reads_stdin_does_not_skip_the_next_package() {
+    if !have_git() {
+        return;
+    }
+    let e = Env::new("stdin");
+    // The first recipe's build reads all of its standard input.
+    let (c1, d1) = e.repo("greedy", &[("PKGBUILD", "x\n"), (".SRCINFO", "pkgbase = greedy\npkgname = greedy\n"), ("EATSTDIN", "")]);
+    let (c2, d2) = e.repo("next", &[("PKGBUILD", "y\n"), (".SRCINFO", "pkgbase = next\npkgname = next\n")]);
+    let (code, out) = e.run(&format!("greedy:greedy:{c1}:{d1}:0:0:\nnext:next:{c2}:{d2}:0:0:\n"));
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("package greedy: installed") && out.contains("package next: installed"), "{out}");
 }
 
 #[test]

@@ -37,6 +37,12 @@ commits and pushes; leave changes uncommitted. (From the agent's shell, `git pus
   (ASIX AX88772, Realtek RTL8152/8153 are not implemented).
 - The 256 KiB TCP window on gigabit; asynchronous USB transmit and several outstanding USB receive transfers
   are not implemented (only matter near line rate).
+- Slow screen output on an old PC ("a few letters at a time"): blamed on a COM1 that never drains, since every
+  console write waited up to 100,000 status reads per character on serial before the screen got it.
+  `kernel/src/serial.rs` now gives up after one short wait. Reproduced and fixed only in QEMU (COM1 on a full
+  pipe nobody reads); on the old PC, the boot log should now show `serial: COM1 does not drain`. If the screen
+  is still slow there, the next suspect is the framebuffer: it is mapped uncached (the direct map's default
+  memory type), and each scroll redraws every changed cell; write-combining through the PAT is the usual fix.
 
 ## Things learned the hard way (all fixed, kept for context)
 
@@ -45,7 +51,8 @@ commits and pushes; leave changes uncommitted. (From the agent's shell, `git pus
 - Unhandled PIC spurious IRQ7 gave `#GP` error code 0x13b; `idt.rs` has gates for 0x20..0x2f and 0xff.
 - RTL8168evl needs its own setup (`hw_start_8168e_2`, TX config, link-change patch); the rx ring was too small.
 - School DHCP offered an address owned by a static host: `Stack::dhcp` ARP-probes and sends DHCPDECLINE.
-- DNS from DHCP may not answer: 1.1.1.1 and 8.8.8.8 are appended.
+- DNS from DHCP may not answer: 1.1.1.1 and 8.8.8.8 are appended. (smoltcp's default build keeps only one DNS server, so the
+  fallbacks were silently dropped until `Stack::resolve` started trying the servers itself.)
 - xHCI: a multi-TRB transfer misreports the length on a short packet; one TRB up to 64 KiB, aligned buffers.
 - iPhone: device-side usbmux protocol, `ipheth` data path, a Pair reply may carry only an `EscrowBag`.
 
@@ -54,6 +61,15 @@ commits and pushes; leave changes uncommitted. (From the agent's shell, `git pus
 Our own loader replaced Limine (`boot/`, `crates/loadcore`, `crates/bootinfo`; see `OVERVIEW.md`). The ISO is ~0.77 MiB.
 `--small`/`--super-small` are deprecated overrides of `--profile super-small` (the default profile); `configs/e2e.lua` and `configs/tester.lua` pin `build.profile = "large"`. Verified in QEMU: `cargo xtask e2e` and `e2e --uefi` pass (install, first boot through our loader, second boot through GRUB);
 the BIOS ISO also boots as a CD, an IDE disk and a USB stick (hybrid MBR). Not tested: real hardware, Ventoy. If the kernel image outgrows 4 MiB, raise `bootinfo::KERNEL_MAX`.
+
+## AUR package
+
+`packaging/aur/archstaller-git/` is ready to publish (steps in `docs/building-and-running.md`) but not on the AUR
+yet. It builds GitHub `master`, so `packaging/` and the changes it relies on (xtask's `CARGO_TARGET_DIR` and
+`ARCHSTALLER_CWD`, the GUI's lookup of `/usr/share/archstaller`) must be pushed first. Verified on this machine, not
+in a clean chroot: `makepkg` including `check()`, and an ISO built by the packaged `archstaller` command from the
+unpacked package with `/usr/share/archstaller` read-only. Not tried: the GUI started from the installed package (its
+tree lookup is unit-tested, its build directory is not), `extra-x86_64-build`.
 
 ## Debug flag
 

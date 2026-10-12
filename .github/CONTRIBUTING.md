@@ -40,12 +40,12 @@ cargo xtask check-presets              # every preset still resolves (needs `pac
 ```
 
 For anything that changes how installation works, also run `cargo xtask e2e` (BIOS and `--uefi`). It downloads a
-few hundred MiB and installs onto a blank QEMU disk. CI runs the first three on every pull request; the preset
-check and e2e run on a schedule because Arch changes under us.
+few hundred MiB and installs onto a blank QEMU disk. There is no pull-request CI, so run these yourself; the preset check and e2e also
+run on a schedule because Arch changes under us.
 
 ## Rules that are easy to miss
 
-- **`OVERVIEW.md` is documentation-as-code.** Edit it in place in the same change as the code (no changelog style). CI fails a pull request that changes source without touching it; put `[skip-overview]` in a commit message for refactors, comments and tests.
+- **`OVERVIEW.md` is documentation-as-code.** Edit it in place in the same change as the code (no changelog style).
 - **Shared formats change on every side at once.** `crates/bootinfo` payload and BIOS patch formats are shared with
   `xtask` (`iso.rs`, `bios.rs`) and `kernel/src/install.rs`. `config/src/lib.rs` is shared between `xtask` and the
   kernel, and the Lua schema, `configs/archstaller.lua` and its test must follow.
@@ -61,8 +61,7 @@ check and e2e run on a schedule because Arch changes under us.
 ## Pull requests
 
 - Branch from `master`; keep commits understandable (what and why in the subject).
-- Fill in the PR template. CI must pass; the *Lint (advisory)* job may report formatting differences that predate
-  your change.
+- Fill in the PR template, including how you tested: nothing runs the checks for you.
 - Documentation and plans that you complete: update the status line at the top of the matching file in
   `plans-implement/`, and delete the matching section of `TO-TEST.md` once it passes.
 

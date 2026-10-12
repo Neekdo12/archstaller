@@ -1,0 +1,16 @@
+#!/bin/sh
+# archstaller COMMAND [OPTIONS]: `cargo xtask` for the source tree the Arch package installs in
+# /usr/share/archstaller, for example `archstaller build --config my.lua --out my.iso`. The commands and
+# options are those of docs/building-and-running.md. Every ISO build compiles the installer kernel for its
+# config, so the first one also compiles xtask and takes a few minutes.
+set -eu
+root=$(readlink -f -- "$(dirname -- "$(readlink -f -- "$0")")/../share/archstaller")
+# The tree is read-only: cargo builds into the cache, the same directory the GUI uses.
+target=${CARGO_TARGET_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/archstaller/target}
+case $target in /*) ;; *) target=$PWD/$target ;; esac
+export CARGO_TARGET_DIR="$target"
+# xtask takes relative paths (--config, --out, --workdir) from the directory this was started in...
+export ARCHSTALLER_CWD="$PWD"
+# ...while cargo runs in the tree, where rustup reads rust-toolchain.toml (nightly) and cargo finds the alias.
+cd -- "$root"
+exec cargo xtask "$@"

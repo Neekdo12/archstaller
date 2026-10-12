@@ -284,7 +284,10 @@ impl NetDevice for R8169 {
         }
         let len = (opts & 0x3fff) as usize;
         let n = len.saturating_sub(4).min(buf.len()); // strip FCS
-        let ok = opts & RX_RES == 0;
+        // A frame longer than one buffer (RX_MAX_SIZE allows them) is split over several descriptors;
+        // its pieces are dropped, as Linux does (`rtl8169_fragmented_frame`), not passed up as frames.
+        let whole = opts & (DESC_FS | DESC_LS) == DESC_FS | DESC_LS;
+        let ok = opts & RX_RES == 0 && whole;
         if self.rx_n < 4 || (!ok && self.rx_err < 4) {
             hal::log!("r8169: rx descriptor {opts:#010x} ({len} bytes){}", if ok { "" } else { ", error" });
         }

@@ -38,6 +38,9 @@ const STATE_DIR: &str = "var/lib/archstaller";
 
 pub(crate) type R<T> = Result<T, String>;
 
+// `config` checks `kernel_params` against the BIOS stage 2's command line field; keep the two in step.
+const _: () = assert!(49 + config::KERNEL_PARAMS_MAX + 42 < bootinfo::bios::CMDLINE_MAX);
+
 pub(crate) fn dbg_err<E: core::fmt::Debug>(ctx: &'static str) -> impl FnOnce(E) -> String {
     move |e| format!("{ctx}: {e:?}")
 }
@@ -174,18 +177,23 @@ pub(crate) fn bring_up_network(devs: &mut Devices) -> R<net::Stack> {
     if devs.net.is_empty() {
         return Err("no supported network interface".into());
     }
-    let mut idx = 0;
+    let mut found = None;
     let end = now_ms() + 10_000;
     'wait: while now_ms() < end {
         for (i, n) in devs.net.iter_mut().enumerate() {
             if n.link_up() {
-                idx = i;
+                found = Some(i);
                 break 'wait;
             }
         }
+        hal::idle();
     }
-    let nic = devs.net.remove(idx);
-    println!("network: {} link {}", nic.name(), "up");
+    let nic = devs.net.remove(found.unwrap_or(0));
+    match found {
+        Some(_) => println!("network: {} link up", nic.name()),
+        // DHCP still gets its chance: auto-negotiation can finish late.
+        None => println!("network: no link on any interface after 10 s; trying {} anyway", nic.name()),
+    }
     let mut stack = net::Stack::new(nic, now_ms, unsafe { core::arch::x86_64::_rdtsc() });
     let lease = stack.dhcp(30_000).map_err(dbg_err("DHCP"))?;
     hal::info!("network: {:?}/{} gateway {:?} dns {:?}", lease.address, lease.prefix, lease.router, lease.dns);
@@ -197,7 +205,12 @@ pub(crate) fn fetch_to_vec(client: &Client, stack: &mut net::Stack, cfg: &Config
     for m in &cfg.mirrors {
         let url = format!("{}/{}", expand(m, repo), path);
         let mut data = Vec::new();
+        // A sync database is a few MiB; an endless answer would otherwise exhaust the heap (the host side
+        // caps the same download at 128 MiB too).
         match client.get(stack, &url, &mut |d| {
+            if data.len() + d.len() > 128 << 20 {
+                return Err(net::Error::Http("database larger than 128 MiB"));
+            }
             data.extend_from_slice(d);
             Ok(())
         }) {
@@ -269,11 +282,51 @@ fn download_package<S: Storage>(
     Err(format!("download failed after retries: {last}"))
 }
 
+/// The files of one kernel, from its module directory (`usr/lib/modules/<version>/`).
 #[derive(Default)]
-struct KernelIndex {
+struct KernelFiles {
     modules: BTreeMap<String, String>,
     vmlinuz: Option<String>,
     builtin: Option<String>,
+    /// The `pkgbase` file: which package the kernel came from (`linux`, `linux-zen`, ...).
+    pkgbase: Option<String>,
+}
+
+/// Kernel files by module directory, so that two kernel packages do not mix their modules.
+#[derive(Default)]
+struct KernelIndex {
+    kernels: BTreeMap<String, KernelFiles>,
+}
+
+impl KernelIndex {
+    fn note(&mut self, path: &str) {
+        let Some((ver, file)) = path.strip_prefix("usr/lib/modules/").and_then(|r| r.split_once('/')) else { return };
+        let k = self.kernels.entry(ver.to_string()).or_default();
+        match file {
+            "vmlinuz" => k.vmlinuz = Some(path.into()),
+            "modules.builtin" => k.builtin = Some(path.into()),
+            "pkgbase" => k.pkgbase = Some(path.into()),
+            _ => {
+                if let Some(n) = initrd::modules::name_from_path(path) {
+                    k.modules.insert(n, path.into());
+                }
+            }
+        }
+    }
+
+    /// The kernel the first boot starts: the `linux` package's if it is installed, else the first one
+    /// found. `firstboot.sh` makes the same choice for the boot loader.
+    fn select<S: Storage>(&self, w: &Rc<RefCell<Ext4Writer<S>>>) -> R<&KernelFiles> {
+        let mut first = None;
+        for k in self.kernels.values().filter(|k| k.vmlinuz.is_some()) {
+            let base = k.pkgbase.as_deref().and_then(|p| read_whole(w, p).ok());
+            if base.as_deref().map(|b| b.trim_ascii()) == Some(b"linux") {
+                return Ok(k);
+            }
+            first.get_or_insert(k);
+        }
+        first.ok_or_else(|| "the installed packages contain no kernel (add the 'linux' package)".into())
+    }
 }
 
 fn clean_path(p: &str) -> &str {
@@ -306,15 +359,7 @@ fn extract_package<S: Storage>(w: &Rc<RefCell<Ext4Writer<S>>>, ino: u32, size: u
                     w.borrow_mut().write_file(&buf[..n]).map_err(|er| ctx(&format!("write {er:?}")))?;
                 }
                 w.borrow_mut().end_file().map_err(|er| ctx(&format!("close {er:?}")))?;
-                if path.starts_with("usr/lib/modules/") {
-                    if path.ends_with("/vmlinuz") {
-                        idx.vmlinuz = Some(path.clone());
-                    } else if path.ends_with("/modules.builtin") {
-                        idx.builtin = Some(path.clone());
-                    } else if let Some(n) = initrd::modules::name_from_path(&path) {
-                        idx.modules.insert(n, path.clone());
-                    }
-                }
+                idx.note(&path);
             }
             Kind::Symlink => {
                 w.borrow_mut().symlink(&path, &e.link, &meta).map_err(|er| ctx(&format!("symlink {er:?}")))?;
@@ -371,6 +416,28 @@ fn charset_of(locale: &str) -> &str {
     }
 }
 
+/// What gets resolved: the configured packages, plus the official packages the AUR recipes need (to build
+/// and to run). The AUR packages themselves are built by the installed system (firstboot/archstaller-aur.sh).
+pub(crate) fn wanted_packages(cfg: &Config) -> Vec<String> {
+    let mut wanted = cfg.packages.clone();
+    for a in &cfg.aur {
+        for d in &a.deps {
+            if !wanted.contains(d) {
+                wanted.push(d.clone());
+            }
+        }
+    }
+    wanted
+}
+
+/// Bytes the root file system needs for `resolution`: the packages stay in the cache for the first boot's
+/// `pacman -U` and are unpacked beside it, plus room for metadata, the journal and the first boot's initramfs.
+pub(crate) fn space_needed(resolution: &pkg::resolve::Resolution) -> u64 {
+    let downloaded: u64 = resolution.packages.iter().map(|s| s.pkg.csize).sum();
+    let installed: u64 = resolution.packages.iter().map(|s| s.pkg.isize).sum();
+    downloaded + installed + installed / 10 + (1 << 30)
+}
+
 pub fn run(cfg: &Config, mut devs: Devices, keyring: &Keyring, boot: &BootFiles) -> R<()> {
     // 11. Select the disk. Nothing is written before this succeeds.
     let mut disk = select_disk(cfg, &mut devs)?;
@@ -388,17 +455,7 @@ pub fn run(cfg: &Config, mut devs: Devices, keyring: &Keyring, boot: &BootFiles)
         db_bytes.push((repo, bytes));
     }
     let providers: BTreeMap<String, String> = cfg.providers.iter().cloned().collect();
-    // The official packages the AUR recipes need (to build and to run) are installed with the rest; the
-    // AUR packages themselves are built by the installed system (firstboot/archstaller-aur.sh).
-    let mut wanted = cfg.packages.clone();
-    for a in &cfg.aur {
-        for d in &a.deps {
-            if !wanted.contains(d) {
-                wanted.push(d.clone());
-            }
-        }
-    }
-    let resolution = pkg::resolve::Resolver::new(&dbs, &providers).resolve(&wanted).map_err(dbg_err("dependency resolution"))?;
+    let resolution = pkg::resolve::Resolver::new(&dbs, &providers).resolve(&wanted_packages(cfg)).map_err(dbg_err("dependency resolution"))?;
     for a in &resolution.ambiguities {
         println!("note: {} is provided by {:?}; using {} (set providers.{} to choose)", a.dep, a.candidates, a.chosen, a.dep);
     }
@@ -407,20 +464,38 @@ pub fn run(cfg: &Config, mut devs: Devices, keyring: &Keyring, boot: &BootFiles)
 
     // 13. Partition.
     let ss = disk.sector_size();
+    // FAT32 needs 65525 clusters of at least a sector each, more than a small ESP holds on a disk with
+    // 4 KiB sectors; formatting it would only fail after every package has been downloaded.
+    let esp_bytes = (cfg.disk.esp_mib as u64 * 1024 * 1024).max(disk::fat32::min_volume_bytes(ss));
+    if esp_bytes >> 20 > cfg.disk.esp_mib as u64 {
+        println!("note: the ESP is {} MiB instead of {} MiB: FAT32 on {ss}-byte sectors needs that much", esp_bytes >> 20, cfg.disk.esp_mib);
+    }
+    // The packages stay in the cache for the first boot's `pacman -U` and are unpacked beside it; with
+    // room for metadata, the journal and the first boot's initramfs. A disk that is too small would
+    // otherwise fail half way through the downloads, after it was already erased.
+    let need = space_needed(&resolution);
+    let have = (disk.sector_count() * ss as u64).saturating_sub(esp_bytes + (4 << 20));
+    if need > have {
+        return Err(format!(
+            "the disk is too small: the packages need about {} MiB, the root file system would have {} MiB; nothing was written",
+            need >> 20,
+            have >> 20
+        ));
+    }
     let guids = [random::<16>(), random::<16>(), random::<16>(), random::<16>()];
-    let layout = Layout::plan(ss, disk.sector_count(), cfg.disk.esp_mib as u64 * 1024 * 1024, guids).map_err(dbg_err("partitioning"))?;
+    let layout = Layout::plan(ss, disk.sector_count(), esp_bytes, guids).map_err(dbg_err("partitioning"))?;
     layout.write(&mut Region::whole(disk.as_mut())).map_err(dbg_err("writing the partition table"))?;
     println!("partition table written");
 
     let root_uuid: [u8; 16] = random();
     let (root_off, root_len) = layout.byte_range(Layout::ROOT);
     let now = time::unix_time();
+    // The directory hash seed is all random, as mke2fs makes it: a predictable one lets anyone who can
+    // name files force hash collisions once the kernel indexes a directory.
+    let seed: [u8; 16] = random();
+    let hash_seed = core::array::from_fn(|i| u32::from_le_bytes([seed[4 * i], seed[4 * i + 1], seed[4 * i + 2], seed[4 * i + 3]]));
     let storage = RegionStorage(Region::new(disk.as_mut(), root_off, root_len));
-    let writer = Ext4Writer::new(
-        storage,
-        root_len,
-        ExtOptions { label: "archroot".into(), uuid: root_uuid, hash_seed: [random::<4>().map(|b| b as u32)[0], 0x1234_5678, 0x9abc_def0, 0x0fed_cba9], now, reserved_percent: 1 },
-    )
+    let writer = Ext4Writer::new(storage, root_len, ExtOptions { label: "archroot".into(), uuid: root_uuid, hash_seed, now, reserved_percent: 1 })
     .map_err(dbg_err("mkfs"))?;
     let w = Rc::new(RefCell::new(writer));
     {
@@ -489,6 +564,11 @@ pub fn run(cfg: &Config, mut devs: Devices, keyring: &Keyring, boot: &BootFiles)
     }
     etc_files.push(("etc/pacman.d/mirrorlist".into(), 0o644, mirrorlist.into_bytes()));
     etc_files.push(("etc/sudoers.d/10-wheel".into(), 0o440, b"%wheel ALL=(ALL:ALL) ALL\n".to_vec()));
+    // systemd-networkd configures nothing without a .network file, and Arch ships none: DHCP on every wired
+    // interface, as the installer itself did (systemd's own 89-ethernet.network.example).
+    if cfg.services.iter().any(|s| s == "systemd-networkd.service") {
+        etc_files.push(("etc/systemd/network/20-wired.network".into(), 0o644, b"[Match]\nKind=!*\nType=ether\n\n[Network]\nDHCP=yes\n".to_vec()));
+    }
     for (path, mode, data) in &etc_files {
         put(&w, path, *mode, data)?;
         put(&w, &overlay(path), *mode, data)?;
@@ -604,9 +684,11 @@ pub fn run(cfg: &Config, mut devs: Devices, keyring: &Keyring, boot: &BootFiles)
     put(&w, "usr/lib/archstaller/firstboot.sh", 0o755, include_bytes!("../../firstboot/firstboot.sh"))?;
 
     // 16. Initramfs for the first boot and the kernel image.
-    let vmlinuz_path = idx.vmlinuz.clone().ok_or("the installed packages contain no kernel (add the 'linux' package)")?;
+    let kernel = idx.select(&w)?;
+    let vmlinuz_path = kernel.vmlinuz.clone().unwrap_or_default();
+    println!("kernel: {vmlinuz_path}");
     let vmlinuz = read_whole(&w, &vmlinuz_path)?;
-    let builtin = match &idx.builtin {
+    let builtin = match &kernel.builtin {
         Some(p) => initrd::modules::parse_builtin(&String::from_utf8_lossy(&read_whole(&w, p)?)),
         None => Default::default(),
     };
@@ -616,7 +698,7 @@ pub fn run(cfg: &Config, mut devs: Devices, keyring: &Keyring, boot: &BootFiles)
     // the AHCI driver does not handle; a module the kernel package lacks is skipped.
     let wanted = ["ext4", "nvme", "ahci", "ata_piix", "ata_generic", "pata_acpi", "pata_amd", "pata_atiixp", "pata_via", "pata_sis", "pata_jmicron", "sd_mod", "virtio_blk", "virtio_pci", "crc32c_intel", "crc32c_generic", "vfat", "fat", "nls_cp437", "nls_ascii"];
     let resolved = {
-        let mut src = ExtModules { w: &w, idx: &idx.modules };
+        let mut src = ExtModules { w: &w, idx: &kernel.modules };
         initrd::modules::resolve(&mut src, &[], &wanted, &builtin).map_err(dbg_err("initramfs modules"))?
     };
     println!("initramfs modules: {:?}", resolved.order);

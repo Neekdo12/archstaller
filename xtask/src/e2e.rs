@@ -1,5 +1,5 @@
 //! End-to-end test: install onto a blank disk in QEMU, then boot the result twice.
-use crate::{iso, root, Options, Result};
+use crate::{iso, root, target_dir, Options, Result};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -12,7 +12,7 @@ fn qemu(opts: &Options, disk: &Path, cdrom: Option<&Path>, log: &Path) -> Result
     // in a mount namespace whose resolv.conf names a public resolver.
     let no_dns = !std::fs::read_to_string("/etc/resolv.conf").unwrap_or_default().lines().any(|l| l.trim_start().starts_with("nameserver"));
     let mut cmd = if no_dns && Command::new("bwrap").arg("--version").output().is_ok() {
-        let resolv = root().join("target/e2e/resolv.conf");
+        let resolv = target_dir().join("e2e/resolv.conf");
         std::fs::write(&resolv, "nameserver 8.8.8.8\nnameserver 1.1.1.1\n")?;
         let mut c = Command::new("bwrap");
         c.args(["--dev-bind", "/", "/", "--ro-bind"]).arg(&resolv).args(["/etc/resolv.conf", "qemu-system-x86_64"]);
@@ -27,7 +27,7 @@ fn qemu(opts: &Options, disk: &Path, cdrom: Option<&Path>, log: &Path) -> Result
         cmd.args(["-enable-kvm", "-cpu", "host"]);
     }
     if opts.uefi {
-        let vars = root().join("target/e2e/ovmf_vars.fd");
+        let vars = target_dir().join("e2e/ovmf_vars.fd");
         if !vars.exists() {
             std::fs::copy(format!("{OVMF_DIR}/OVMF_VARS.4m.fd"), &vars)?;
         }
@@ -56,7 +56,7 @@ fn qemu(opts: &Options, disk: &Path, cdrom: Option<&Path>, log: &Path) -> Result
         other => return Err(format!("unknown nic type {other}").into()),
     };
     cmd.stdout(Stdio::null()).stderr(Stdio::null());
-    Ok(cmd.spawn()?)
+    cmd.spawn().map_err(|e| format!("cannot run {}: {e}", cmd.get_program().to_string_lossy()).into())
 }
 
 /// Waits until `marker` shows up in the log; fails on `abort` markers, exit or timeout.
@@ -97,7 +97,7 @@ fn wait_for(child: &mut Child, log: &Path, marker: &str, abort: &[&str], timeout
 
 pub fn run_e2e(opts: &Options) -> Result<()> {
     let mode = &format!("{}-{}-{}", if opts.uefi { "uefi" } else { "bios" }, opts.disk, opts.nic);
-    let dir = root().join("target/e2e");
+    let dir = target_dir().join("e2e");
     std::fs::create_dir_all(&dir)?;
     let default_cfg = root().join("configs/config.lua");
     // A preset can be tested with --config; otherwise use the serial-locked e2e config.

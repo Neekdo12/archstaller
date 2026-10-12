@@ -56,9 +56,17 @@ fn lsblk_volumes() -> Option<Vec<Volume>> {
     Some(list)
 }
 
+/// Runs `udisksctl`, which comes with UDisks2 (minimal desktops such as i3 or sway often lack it).
+fn udisksctl(args: &[&str]) -> Result<std::process::Output, String> {
+    std::process::Command::new("udisksctl").args(args).output().map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => "udisksctl was not found: mounting without root needs UDisks2 (Arch: pacman -S udisks2)".to_string(),
+        _ => format!("udisksctl: {e}"),
+    })
+}
+
 /// Mounts `dev` the way a desktop does (udisks, no root needed) and returns its mount point.
 pub fn mount(dev: &str) -> Result<PathBuf, String> {
-    let out = std::process::Command::new("udisksctl").args(["mount", "--no-user-interaction", "-b", dev]).output().map_err(|e| format!("udisksctl: {e}"))?;
+    let out = udisksctl(&["mount", "--no-user-interaction", "-b", dev])?;
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
     if !out.status.success() {
         return Err(format!("could not mount {dev}: {}", String::from_utf8_lossy(&out.stderr).trim()));
@@ -70,7 +78,7 @@ pub fn mount(dev: &str) -> Result<PathBuf, String> {
 /// Flushes everything to the device, then unmounts it, so the stick can be pulled out.
 pub fn sync_and_unmount(dev: &str) -> Result<(), String> {
     let _ = std::process::Command::new("sync").status();
-    let out = std::process::Command::new("udisksctl").args(["unmount", "--no-user-interaction", "-b", dev]).output().map_err(|e| format!("udisksctl: {e}"))?;
+    let out = udisksctl(&["unmount", "--no-user-interaction", "-b", dev])?;
     if out.status.success() {
         Ok(())
     } else {
@@ -243,19 +251,20 @@ impl MediaTarget for FolderCopy {
         if !self.dir.is_dir() {
             return Err(format!("{} is not a directory", self.dir.display()));
         }
-        let mut freed = 0u64;
-        for f in &self.delete {
-            freed += std::fs::metadata(f).map(|m| m.len()).unwrap_or(0);
-            delete_iso(f, self.trash_root.as_deref())?;
-        }
-        if dest.exists() && !self.overwrite {
+        // Every check before anything is deleted: a copy refused afterwards must not cost the old builds.
+        let dest_deleted = self.delete.iter().any(|f| *f == dest);
+        if dest.exists() && !self.overwrite && !dest_deleted {
             return Err(format!("{} already exists", dest.display()));
         }
-        let have_back = freed + if dest.exists() { std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0) } else { 0 };
+        let freed: u64 = self.delete.iter().map(|f| std::fs::metadata(f).map(|m| m.len()).unwrap_or(0)).sum();
+        let have_back = freed + if dest.exists() && !dest_deleted { std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0) } else { 0 };
         if let Some(free) = self.available {
             if free + have_back < total {
                 return Err(format!("not enough free space: the ISO is {total} bytes, {free} are free"));
             }
+        }
+        for f in &self.delete {
+            delete_iso(f, self.trash_root.as_deref())?;
         }
         let result = (|| -> Result<Report, String> {
             let mut src = std::fs::File::open(iso).map_err(|e| e.to_string())?;
@@ -400,6 +409,31 @@ mod tests {
             .write(&src, &mut |_, _, _| {}, &AtomicBool::new(false))
             .unwrap();
         assert!(r.dest.ends_with("a-2.iso") && stick.join("a.iso").exists());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_refused_copy_deletes_nothing() {
+        let d = tmp("refused");
+        let src = iso(&d, 1000);
+        let stick = d.join("stick");
+        std::fs::create_dir_all(&stick).unwrap();
+        std::fs::write(stick.join("old.iso"), vec![1u8; 10]).unwrap();
+        std::fs::write(stick.join(src.file_name().unwrap()), b"taken").unwrap();
+        // The name is taken and overwriting was not asked for: the old build chosen for deletion stays.
+        let copy = |available| FolderCopy { dir: stick.clone(), available, overwrite: false, delete: vec![stick.join("old.iso")], trash_root: None, rename_to: None };
+        assert!(copy(None).write(&src, &mut |_, _, _| {}, &AtomicBool::new(false)).unwrap_err().contains("already exists"));
+        assert!(stick.join("old.iso").exists());
+        // Not enough space even with it gone: it stays too.
+        std::fs::remove_file(stick.join(src.file_name().unwrap())).unwrap();
+        assert!(copy(Some(0)).write(&src, &mut |_, _, _| {}, &AtomicBool::new(false)).unwrap_err().contains("free space"));
+        assert!(stick.join("old.iso").exists());
+        // Deleting a file with the destination's name makes room for the copy.
+        std::fs::write(stick.join(src.file_name().unwrap()), b"older build").unwrap();
+        let r = FolderCopy { dir: stick.clone(), available: None, overwrite: false, delete: vec![stick.join(src.file_name().unwrap())], trash_root: None, rename_to: None }
+            .write(&src, &mut |_, _, _| {}, &AtomicBool::new(false))
+            .unwrap();
+        assert_eq!(std::fs::read(&r.dest).unwrap(), std::fs::read(&src).unwrap());
         let _ = std::fs::remove_dir_all(&d);
     }
 

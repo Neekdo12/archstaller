@@ -46,6 +46,16 @@ pub struct Fat32Writer<'r, 'd> {
     opts: Options,
 }
 
+/// The smallest volume [`Fat32Writer::format`] accepts with `sector_size`-byte sectors, in whole MiB:
+/// FAT32 needs at least 65525 clusters and a cluster is at least one sector, so 4 KiB sectors need
+/// about 257 MiB.
+pub fn min_volume_bytes(sector_size: u32) -> u64 {
+    let ss = sector_size as u64;
+    let clusters = 65_525u64;
+    let fat_sectors = ((clusters + 2) * 4).div_ceil(ss);
+    ((RESERVED_SECTORS as u64 + 2 * fat_sectors + clusters) * ss).next_multiple_of(1 << 20)
+}
+
 fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719_468;
     let era = z.div_euclid(146_097);

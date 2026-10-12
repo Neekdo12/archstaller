@@ -7,10 +7,15 @@ struct Console {
     fb: Option<FbConsole>,
 }
 
-static CONSOLE: Spinlock<Console> = Spinlock::new(Console { serial: Serial, fb: None });
+static CONSOLE: Spinlock<Console> = Spinlock::new(Console { serial: Serial::new(), fb: None });
 
 pub fn init_serial() {
-    Serial::init();
+    CONSOLE.lock().serial.init();
+}
+
+/// Whether the serial port stopped draining (see `serial::State::Stuck`).
+pub fn serial_stuck() -> bool {
+    CONSOLE.lock().serial.stuck()
 }
 
 pub fn init_fb(fb: FbConsole) {

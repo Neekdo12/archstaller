@@ -37,7 +37,7 @@ fn cargo_build(package: &str) -> Result<Vec<u8>> {
         "build", "-p", package, "--target", TARGET, "--profile", "small",
         "-Z", "build-std=core,compiler_builtins", "-Z", "build-std-features=compiler-builtins-mem",
     ]))?;
-    Ok(std::fs::read(crate::root().join("target").join(TARGET).join("small").join(package))?)
+    Ok(std::fs::read(crate::target_dir().join(TARGET).join("small").join(package))?)
 }
 
 /// Builds stage 1 (exactly 512 bytes) and stage 2 (padded to whole sectors).

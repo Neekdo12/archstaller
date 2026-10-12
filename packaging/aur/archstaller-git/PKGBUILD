@@ -1,0 +1,69 @@
+# Maintainer: Michal Wittmayer <michalecek67 at outlook dot com>
+
+pkgname=archstaller-git
+_pkgname=archstaller
+pkgver=r78.241044a
+pkgrel=1
+pkgdesc='Build tiny unattended Arch Linux installer ISOs (own boot loader and no_std kernel): GTK app and CLI'
+arch=('x86_64')
+url='https://github.com/Neekdo12/archstaller'
+license=('MIT')
+# Every ISO build compiles the installer kernel for its config with nightly Rust (rust-toolchain.toml), so the
+# build tools are run-time dependencies: rustup, a C compiler and linker, and the ISO and keyring tools.
+depends=(
+  'gcc-libs' 'glib2' 'glibc' 'gtk4' 'gtksourceview5' 'pango'
+  'curl' 'gcc' 'gnupg' 'libisoburn' 'mtools' 'rustup' 'tar' 'util-linux' 'zstd'
+)
+makedepends=('git' 'pkgconf')
+optdepends=(
+  'udisks2: mount USB sticks and flash an ISO from the GUI'
+  'polkit-gnome: password prompt for flashing on desktops without a polkit agent'
+  'qemu-desktop: try an ISO in a virtual machine (archstaller run)'
+  'edk2-ovmf: UEFI firmware for archstaller run --uefi'
+)
+provides=("$_pkgname")
+conflicts=("$_pkgname")
+# makepkg's LTO turns the vendored Lua (C) into GCC LTO objects, which rust-lld, nightly's linker, cannot link.
+# The gui profile strips the binary, so a debug package would be empty.
+options=('!lto' '!debug')
+source=("$_pkgname::git+$url.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "$_pkgname"
+  ( set -o pipefail
+    git describe --long --tags --abbrev=7 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g' ||
+    printf 'r%s.%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+  )
+}
+
+prepare() {
+  cd "$_pkgname"
+  # The toolchain rust-toolchain.toml names (nightly), installed if missing; an installed one is not updated.
+  rustup toolchain install --no-update
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$_pkgname"
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --profile gui -p archstaller-gui
+}
+
+check() {
+  cd "$_pkgname"
+  export CARGO_TARGET_DIR=target
+  cargo test --frozen --profile gui -p archstaller-gui -p hostcfg -p config
+}
+
+package() {
+  cd "$_pkgname"
+  install -Dm755 target/gui/archstaller-gui packaging/archstaller -t "$pkgdir/usr/bin/"
+  install -Dm644 packaging/org.archstaller.Gui.desktop -t "$pkgdir/usr/share/applications/"
+  install -Dm644 packaging/org.archstaller.Gui.svg -t "$pkgdir/usr/share/icons/hicolor/scalable/apps/"
+  install -Dm644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname/"
+  # The source tree the GUI and the archstaller command build every ISO from (only the tracked files; git
+  # archive's default umask would leave them group-writable).
+  install -d "$pkgdir/usr/share/$_pkgname"
+  git -c tar.umask=0022 archive HEAD | tar -x -C "$pkgdir/usr/share/$_pkgname"
+}

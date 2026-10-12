@@ -123,7 +123,31 @@ impl PciDevice {
     }
 
     pub fn enable(&self) {
+        self.wake();
         self.set_command(CMD_MEM | CMD_IO | CMD_BUS_MASTER);
+    }
+
+    /// Brings the device to power state D0 if the firmware left it in D1-D3hot (seen with NICs the
+    /// firmware's own network stack did not use), where its registers read as all ones. Linux does the
+    /// same when it enables a device. A device without No_Soft_Reset resets on the way and forgets its
+    /// BARs, so they are put back.
+    fn wake(&self) {
+        let Some(&(cap, _)) = self.capabilities().iter().find(|(_, id)| *id == 0x01) else { return };
+        let pmcsr = self.read16(cap + 4);
+        if pmcsr & 3 == 0 {
+            return;
+        }
+        // Six BARs in an endpoint's header, two in a bridge's (bus numbers follow them).
+        let nbars = if self.read8(0x0e) & 0x7f == 0 { 6 } else { 2 };
+        let bars: [u32; 6] = core::array::from_fn(|i| self.read32(0x10 + 4 * i as u16));
+        write16(self.addr, cap + 4, pmcsr & !3);
+        platform::delay_us(10_000); // D3hot -> D0 recovery time (PCI PM 1.2)
+        for (i, v) in bars.iter().enumerate().take(nbars) {
+            let off = 0x10 + 4 * i as u16;
+            if self.read32(off) != *v {
+                self.write32(off, *v);
+            }
+        }
     }
 
     /// Reads and sizes BAR `n`; returns `None` if unimplemented.
@@ -166,6 +190,7 @@ impl PciDevice {
 
     /// Maps BAR `n` (memory BARs only, uncached).
     pub fn map_bar(&self, n: u8) -> Option<Mmio> {
+        self.wake();
         match self.bar(n)? {
             Bar::Mem { addr, size } => Some(Mmio::new(platform::map_mmio(addr, size as usize))),
             Bar::Io { .. } => None,

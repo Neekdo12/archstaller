@@ -87,6 +87,9 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
     if let Some(c) = fb::FbConsole::new(hhdm, &info.fb) {
         console::init_fb(c);
         println!("archstaller kernel starting");
+        if console::serial_stuck() {
+            println!("serial: COM1 does not drain; output goes to the screen only");
+        }
     }
     banner::show("ARCHSTALLER");
 
@@ -114,6 +117,11 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
     time::init(time::rtc_unix_time());
     idle::init(hhdm);
     println!("tsc: {} MHz, unix time {}", time::tsc_hz() / 1_000_000, time::unix_time());
+    // 2024-01-01, as in the hardware test: an earlier clock fails every HTTPS certificate check later,
+    // which otherwise only shows up as a bare "tls error" on the first download.
+    if time::unix_time() < 1_704_067_200 {
+        println!("WARNING: the firmware clock is wrong (before 2024); HTTPS downloads will fail. Set the date and time in the firmware setup.");
+    }
 
     let cfg = match module("config.bin") {
         Some(m) => match postcard::from_bytes::<config::Config>(m) {
@@ -237,7 +245,7 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
                         println!("Remove the installation medium. Rebooting into the first boot in 8 seconds...");
                         let start = time::uptime_ns();
                         while time::uptime_ns() - start < 8_000_000_000 {
-                            core::hint::spin_loop();
+                            hal::idle();
                         }
                         reboot()
                     }
@@ -248,7 +256,7 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
         }
     }
 
-    println!("boot OK, halting");
+    println!("halting; power the machine off");
     #[cfg(any(feature = "disk-selftest", feature = "net-selftest", feature = "usb-selftest"))]
     unsafe {
         // QEMU isa-debug-exit

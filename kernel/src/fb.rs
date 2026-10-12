@@ -5,6 +5,15 @@ static FONT: &[u8] = include_bytes!("../font/default8x16.psf");
 const FG: u32 = 0xd0d0d0;
 const BG: u32 = 0x000000;
 
+/// Character cells for up to 4096 x 4320 pixels (larger screens use this much of themselves).
+const MAX_COLS: usize = 512;
+const MAX_ROWS: usize = 270;
+
+/// What each cell on screen shows. Scrolling redraws from here instead of copying pixels inside the
+/// framebuffer: video memory is uncached or write-combining, so reading it back is very slow (a whole
+/// screen per line printed), while writes are cheap. Only cells whose character changes are redrawn.
+static mut CELLS: [u8; MAX_COLS * MAX_ROWS] = [0; MAX_COLS * MAX_ROWS]; // `clear` fills it before use
+
 pub struct FbConsole {
     base: *mut u8,
     pitch: usize,
@@ -50,8 +59,8 @@ impl FbConsole {
         let mut c = FbConsole {
             base: (hhdm + fb.addr) as *mut u8,
             pitch: fb.pitch as usize,
-            cols: fb.width as usize / 8,
-            rows: fb.height as usize / glyph_h,
+            cols: (fb.width as usize / 8).min(MAX_COLS),
+            rows: (fb.height as usize / glyph_h).min(MAX_ROWS),
             fg: pack(FG),
             bg: pack(BG),
             x: 0,
@@ -73,24 +82,28 @@ impl FbConsole {
         }
     }
 
+    fn cells(&mut self) -> &mut [u8] {
+        // SAFETY: there is one console, and it is only used under the console lock.
+        unsafe { core::slice::from_raw_parts_mut((&raw mut CELLS).cast::<u8>(), self.cols * self.rows) }
+    }
+
     fn clear(&mut self) {
         self.fill_rows(0, self.rows * self.glyph_h);
+        self.cells().fill(b' ');
         self.x = 0;
         self.y = 0;
     }
 
+    /// Moves every line up by one, redrawing only the cells that change.
     fn scroll(&mut self) {
-        let text_h = self.glyph_h;
-        for row in text_h..self.rows * text_h {
-            unsafe {
-                core::ptr::copy(
-                    self.base.add(row * self.pitch),
-                    self.base.add((row - text_h) * self.pitch),
-                    self.cols * 8 * 4,
-                );
+        let cols = self.cols;
+        for i in 0..cols * self.rows {
+            let below = if i + cols < cols * self.rows { self.cells()[i + cols] } else { b' ' };
+            if self.cells()[i] != below {
+                self.cells()[i] = below;
+                self.render(i % cols, i / cols, below);
             }
         }
-        self.fill_rows((self.rows - 1) * text_h, text_h);
     }
 
     fn newline(&mut self) {
@@ -107,15 +120,22 @@ impl FbConsole {
         if self.x >= self.cols {
             self.newline();
         }
+        let i = self.y * self.cols + self.x;
+        self.cells()[i] = ch;
+        self.render(self.x, self.y, ch);
+        self.x += 1;
+    }
+
+    /// Paints `ch` into the cell at column `x`, row `y`.
+    fn render(&mut self, x: usize, y: usize, ch: u8) {
         let glyph = &self.glyphs[ch as usize * self.char_size..][..self.char_size];
         for (r, bits) in glyph.iter().enumerate().take(self.glyph_h) {
-            let line = unsafe { self.base.add((self.y * self.glyph_h + r) * self.pitch) } as *mut u32;
+            let line = unsafe { self.base.add((y * self.glyph_h + r) * self.pitch) } as *mut u32;
             for c in 0..8 {
                 let on = bits & (0x80 >> c) != 0;
-                unsafe { line.add(self.x * 8 + c).write_volatile(if on { self.fg } else { self.bg }) };
+                unsafe { line.add(x * 8 + c).write_volatile(if on { self.fg } else { self.bg }) };
             }
         }
-        self.x += 1;
     }
 }
 

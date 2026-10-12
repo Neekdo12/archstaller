@@ -41,6 +41,22 @@ fn parse(url: &str) -> Result<Url<'_>> {
     Ok(Url { https, host, port, path })
 }
 
+/// The URL a `Location` header points to, seen from `path` on `host` (which includes a non-default port).
+fn redirect_target(https: bool, host: &str, path: &str, loc: String) -> String {
+    let scheme = if https { "https" } else { "http" };
+    if loc.contains("://") {
+        loc
+    } else if let Some(rest) = loc.strip_prefix("//") {
+        alloc::format!("{scheme}://{rest}")
+    } else if loc.starts_with('/') {
+        alloc::format!("{scheme}://{host}{loc}")
+    } else {
+        // Relative to the directory of the current path (RFC 3986 reference resolution, simplified).
+        let dir = &path[..path.rfind('/').map_or(0, |i| i + 1)];
+        alloc::format!("{scheme}://{host}{dir}{loc}")
+    }
+}
+
 impl Client {
     pub fn new(unix_time: fn() -> u64) -> Client {
         Client { tls: tls::client_config(unix_time) }
@@ -92,15 +108,25 @@ impl Client {
             };
             if matches!(resp.status, 301 | 302 | 303 | 307 | 308) {
                 let loc = resp.location.ok_or(Error::Http("redirect without Location"))?;
-                current = if loc.starts_with('/') {
-                    alloc::format!("{}://{}{}", if u.https { "https" } else { "http" }, host_header, loc)
-                } else {
-                    loc
-                };
+                current = redirect_target(u.https, &host_header, u.path, loc);
                 continue;
             }
             return Ok(resp);
         }
         Err(Error::Http("too many redirects"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redirect_targets() {
+        let t = |https, loc: &str| redirect_target(https, "mirror.example:8443", "/core/os/x86_64/core.db", loc.into());
+        assert_eq!(t(true, "http://other.example/x"), "http://other.example/x");
+        assert_eq!(t(true, "//cdn.example/core.db"), "https://cdn.example/core.db");
+        assert_eq!(t(false, "/archlinux/core.db"), "http://mirror.example:8443/archlinux/core.db");
+        assert_eq!(t(true, "core.db.tar.gz"), "https://mirror.example:8443/core/os/x86_64/core.db.tar.gz");
     }
 }

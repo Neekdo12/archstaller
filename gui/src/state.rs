@@ -5,6 +5,7 @@ use crate::build::Build;
 use crate::data;
 use crate::media::{Phase, Volume};
 use crate::model::{Model, Preset};
+use crate::official::OfficialState;
 use hostcfg::progress::State as StageState;
 use hostcfg::resolve::Resolution;
 use std::path::PathBuf;
@@ -97,6 +98,8 @@ pub struct State {
     pub status: String,
     pub lists: Lists,
     pub aur: AurState,
+    /// Official package search, live total and import (`official.rs`).
+    pub official: OfficialState,
     pub resolve: Option<Result<Resolution, String>>,
     pub resolve_rx: Option<Receiver<Result<Resolution, String>>>,
     pub build: BuildState,
@@ -120,6 +123,7 @@ impl State {
             status: "New config".into(),
             lists: Lists::load(),
             aur: AurState::default(),
+            official: OfficialState::default(),
             resolve: None,
             resolve_rx: None,
             build: BuildState::default(),

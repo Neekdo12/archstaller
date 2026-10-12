@@ -28,6 +28,18 @@ fn parses_real_databases() {
 }
 
 #[test]
+fn parse_with_hands_over_descriptions() {
+    let Ok(data) = std::fs::read("/var/lib/pacman/sync/core.db") else { return };
+    let mut descs = BTreeMap::new();
+    let db = Db::parse_with("core", data.as_slice(), |p, text| {
+        descs.insert(p.name.clone(), pkg::desc::field(text, "DESC").map(String::from));
+    })
+    .unwrap();
+    assert_eq!(descs.len(), db.packages.len());
+    assert!(descs["glibc"].as_deref().is_some_and(|d| d.contains("C Library")), "{:?}", descs["glibc"]);
+}
+
+#[test]
 fn vercmp_matches_pacman() {
     let Some(dbs) = dbs() else { return };
     if !std::path::Path::new("/usr/bin/vercmp").exists() {

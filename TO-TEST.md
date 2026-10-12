@@ -99,3 +99,14 @@ names were checked against the Arch databases of 2026-10-07; nothing was resolve
 - [ ] Try the commented-out swayidle block in `~/.config/sway/config`. If locking on idle and resuming work, enable
       it in `configs/sway-config.sh`.
 - [ ] Log out cleanly (`Super+Shift+e`) back to ly.
+
+## 3. Official package search: import without pacman (`docs/gui-app.md`)
+
+Code: `pacman_names` and `OfficialState::poll` in `gui/src/official.rs`, `render_import` in
+`gui/src/pages/packages.rs`. The search, the live total and the import on Arch were run in the GUI; this path was not.
+
+- [ ] On a system without `pacman` (or with `pacman` hidden from `PATH`), "Import from this system" shows
+      "Import failed: pacman could not be run (...)" and the package list is unchanged; nothing panics.
+- [ ] With the package databases failing to load (no mirror), Import shows "the package databases are not loaded
+      (...)" instead of adding names unchecked.
+

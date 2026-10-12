@@ -1,33 +1,285 @@
 use crate::app::{App, Page};
 use crate::aur;
+use crate::official::{self, Match};
 use crate::ui::{self, Kind};
 use gtk::prelude::*;
 use std::rc::Rc;
 use std::sync::mpsc::channel;
 
+/// The parts of the official-package UI that change while the page is open: redrawn by `render_official`
+/// on every refresh and, for the results, on every keystroke. `list` is the package list editor, so that
+/// adding a package edits its text the way typing would (one undo step, the caret and focus stay).
+#[derive(Clone)]
+struct OfficialParts {
+    status: gtk::Box,
+    results: gtk::Box,
+    total: gtk::Box,
+    import: gtk::Box,
+    list: gtk::TextView,
+}
+
 pub fn build(app: &Rc<App>, content: &gtk::Box) {
     let cfg = app.st.borrow().model.cfg.clone();
     ui::heading(content, "Mirrors & packages", "Where packages come from and which ones to install (official core and extra, plus pinned AUR packages).");
 
-    let c = ui::card(content, Some("Mirrors"));
     let a = app.clone();
-    c.append(&ui::lines_editor(&cfg.mirrors, 80, move |v| a.edit(move |m| m.cfg.mirrors = v)));
+    let editor = ui::lines_editor(&cfg.packages, 230, move |v| a.edit(move |m| m.cfg.packages = v));
+    let Some(list) = editor.child().and_downcast::<gtk::TextView>() else { return };
+    let parts = OfficialParts { status: ui::vbox(6), results: ui::vbox(4), total: ui::hbox(8), import: ui::vbox(6), list };
+
+    let c = ui::card(content, Some("Mirrors"));
+    let (a, p) = (app.clone(), parts.clone());
+    c.append(&ui::lines_editor(&cfg.mirrors, 80, move |v| {
+        a.edit(move |m| m.cfg.mirrors = v);
+        // The search says when its databases came from another mirror than the first one now.
+        render_status(&a, &p);
+    }));
     ui::hint(&c, "One URL per line; $repo and $arch are substituted. The first mirror is tried first.");
 
+    search_card(app, content, &parts);
+
     let c = ui::card(content, Some("Packages"));
-    let a = app.clone();
-    c.append(&ui::lines_editor(&cfg.packages, 230, move |v| a.edit(move |m| m.cfg.packages = v)));
+    c.append(&editor);
+    c.append(&parts.total);
     ui::hint(&c, "One package or group per line. Names are suggestions: the resolver decides.");
+    c.append(&parts.import);
 
     // Everything below changes while background work runs, so it is rebuilt on its own.
     let dynamic = ui::vbox(12);
     content.append(&dynamic);
     let refresh: Rc<dyn Fn()> = {
-        let (a, d) = (app.clone(), dynamic.clone());
-        Rc::new(move || fill(&a, &d))
+        let (a, d, p) = (app.clone(), dynamic.clone(), parts.clone());
+        Rc::new(move || {
+            render_official(&a, &p);
+            fill(&a, &d);
+        })
     };
     app.register_refresher(Page::Packages, refresh.clone());
+    render_official(app, &parts);
     fill(app, &dynamic);
+}
+
+/// Starts loading core and extra from the first mirror unless that is done or under way.
+fn ensure_loaded(app: &Rc<App>) {
+    let mirror = {
+        let st = app.st.borrow();
+        if st.official.loading() || st.official.loaded().is_some() {
+            return;
+        }
+        st.model.cfg.mirrors.first().cloned().unwrap_or_default()
+    };
+    reload(app, mirror);
+}
+
+fn reload(app: &Rc<App>, mirror: String) {
+    let cache = dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("archstaller-gui");
+    app.st.borrow_mut().official.start_load(mirror, cache);
+    app.refresh_page(Page::Packages);
+}
+
+fn search_card(app: &Rc<App>, content: &gtk::Box, parts: &OfficialParts) {
+    let c = ui::card(content, Some("Find official packages"));
+    ui::hint(&c, "Searches core and extra on this computer: name, group and description, with a typo or two forgiven. The databases are downloaded once from the first mirror.");
+    let query = app.st.borrow().official.query.clone();
+    let entry = ui::entry(&query, {
+        let (a, p) = (app.clone(), parts.clone());
+        move |t| {
+            a.st.borrow_mut().official.query = t.to_string();
+            if !t.trim().is_empty() {
+                ensure_loaded(&a);
+            }
+            render_results(&a, &p);
+        }
+    });
+    entry.set_placeholder_text(Some("Package name, group, or words from the description"));
+    c.append(&entry);
+    c.append(&parts.status);
+    c.append(&parts.results);
+}
+
+fn render_official(app: &Rc<App>, p: &OfficialParts) {
+    render_status(app, p);
+    render_results(app, p);
+    render_total(app, p);
+    render_import(app, p);
+}
+
+/// Where the databases stand: never an empty list without a reason.
+fn render_status(app: &Rc<App>, p: &OfficialParts) {
+    ui::clear(&p.status);
+    let (loading, index, mirror) = {
+        let st = app.st.borrow();
+        (st.official.loading(), st.official.index.clone(), st.model.cfg.mirrors.first().cloned().unwrap_or_default())
+    };
+    let r = ui::hbox(8);
+    if loading {
+        r.append(&ui::spinner_row(&format!("loading core and extra from {mirror}…")).0);
+    } else {
+        match &index {
+            None => {
+                r.append(&ui::dim("The package databases are not loaded yet."));
+                let a = app.clone();
+                r.append(&ui::button("Load now", move || ensure_loaded(&a)));
+            }
+            Some(Err(e)) => {
+                let l = ui::dim(&format!("Could not load the package databases: {e}"));
+                l.add_css_class("note-bad");
+                l.set_wrap(true);
+                r.append(&l);
+                let a = app.clone();
+                r.append(&ui::button("Retry", move || {
+                    let m = a.st.borrow().model.cfg.mirrors.first().cloned().unwrap_or_default();
+                    reload(&a, m);
+                }));
+            }
+            Some(Ok(idx)) => {
+                r.append(&ui::dim(&format!("{} packages in core and extra", idx.items.len())));
+                if idx.mirror != mirror {
+                    r.append(&ui::chip("loaded from another mirror", "chip-warn"));
+                    let (a, m) = (app.clone(), mirror.clone());
+                    r.append(&ui::button("Reload", move || reload(&a, m.clone())));
+                }
+            }
+        }
+    }
+    p.status.append(&r);
+}
+
+fn render_results(app: &Rc<App>, p: &OfficialParts) {
+    ui::clear(&p.results);
+    let (query, idx, packages) = {
+        let st = app.st.borrow();
+        (st.official.query.clone(), st.official.loaded(), st.model.cfg.packages.clone())
+    };
+    let q = query.trim();
+    if q.is_empty() {
+        return;
+    }
+    if q.chars().count() < official::MIN_QUERY {
+        ui::hint(&p.results, "Type at least two characters.");
+        return;
+    }
+    // Not loaded: the status line above says why.
+    let Some(idx) = idx else { return };
+    let hits = official::search(&idx.items, q, official::LIMIT);
+    if hits.is_empty() {
+        ui::hint(&p.results, "Nothing in core or extra matches. It may be an AUR package: search for it in the AUR card below.");
+        return;
+    }
+    for h in hits {
+        let c = &idx.items[h.item];
+        let row = ui::vbox(2);
+        row.add_css_class("card-box");
+        let top = ui::hbox(8);
+        let name = ui::strong(&c.name);
+        name.set_hexpand(false);
+        top.append(&name);
+        top.append(&ui::dim(&c.version));
+        top.append(&ui::chip(&c.repo, "chip-accent"));
+        if h.why == Match::Typo {
+            top.append(&ui::chip("similar name", "chip-warn"));
+        }
+        if h.why == Match::Group {
+            top.append(&ui::chip(&format!("group {}", c.groups.join(", ")), "chip-accent"));
+        }
+        let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        spacer.set_hexpand(true);
+        top.append(&spacer);
+        top.append(&ui::dim(&format!("{} download · {} installed", official::size(c.csize), official::size(c.isize))));
+        if packages.contains(&c.name) {
+            top.append(&ui::dim("already added"));
+        } else {
+            let (a, parts, name) = (app.clone(), p.clone(), c.name.clone());
+            top.append(&ui::button("Add", move || {
+                append_line(&parts.list, &name);
+                a.set_status(format!("Added {name}"));
+                render_results(&a, &parts);
+            }));
+        }
+        row.append(&top);
+        if !c.description.is_empty() {
+            let d = ui::dim(&c.description);
+            d.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            d.set_tooltip_text(Some(&c.description));
+            row.append(&d);
+        }
+        p.results.append(&row);
+    }
+}
+
+/// Adds `name` as a new line of the list editor; its change handler writes `packages`.
+fn append_line(view: &gtk::TextView, name: &str) {
+    let buf = view.buffer();
+    let text = buf.text(&buf.start_iter(), &buf.end_iter(), false);
+    let line = if text.is_empty() || text.ends_with('\n') { name.to_string() } else { format!("\n{name}") };
+    buf.insert(&mut buf.end_iter(), &line);
+}
+
+/// What the list installs, by the installer's own resolver against the loaded databases.
+fn render_total(app: &Rc<App>, p: &OfficialParts) {
+    ui::clear(&p.total);
+    let (loaded, loading, resolving, total) = {
+        let st = app.st.borrow();
+        (st.official.loaded().is_some(), st.official.loading(), st.official.resolving(), st.official.total.clone())
+    };
+    if !loaded {
+        p.total.append(&ui::dim(if loading { "The total appears when the package databases are loaded." } else { "Load the package databases (search above) to see what this list installs." }));
+        return;
+    }
+    match total {
+        Some(Ok((n, bytes))) => {
+            p.total.append(&ui::chip(&format!("{n} packages"), "chip-accent"));
+            p.total.append(&ui::chip(&format!("{} to download", official::size(bytes)), "chip-accent"));
+        }
+        Some(Err(e)) => {
+            let l = ui::dim(&format!("The resolver refuses this list: {e}"));
+            l.add_css_class("note-bad");
+            l.set_wrap(true);
+            p.total.append(&l);
+        }
+        None => {}
+    }
+    if resolving {
+        p.total.append(&ui::spinner_row("resolving…").0);
+    }
+}
+
+fn render_import(app: &Rc<App>, p: &OfficialParts) {
+    ui::clear(&p.import);
+    let (importing, report) = {
+        let st = app.st.borrow();
+        (st.official.importing(), st.official.import.clone())
+    };
+    let r = ui::hbox(8);
+    let a = app.clone();
+    let b = ui::button("Import from this system", move || {
+        a.st.borrow_mut().official.start_import();
+        ensure_loaded(&a);
+        a.refresh_page(Page::Packages);
+    });
+    b.set_tooltip_text(Some("Adds the packages this computer has explicitly installed from core and extra (pacman -Qqen). Only package names are read."));
+    b.set_sensitive(!importing);
+    r.append(&b);
+    if importing {
+        r.append(&ui::spinner_row("reading pacman's package list…").0);
+    }
+    p.import.append(&r);
+    match report {
+        Some(Ok(rep)) => {
+            let msg = if rep.added.is_empty() { format!("Nothing to add: {} installed package(s) are already in the list.", rep.already) } else { format!("Added {} package(s); {} were already in the list.", rep.added.len(), rep.already) };
+            ui::note(&p.import, Kind::Ok, &msg);
+            if !rep.not_official.is_empty() {
+                ui::note(&p.import, Kind::Warn, &format!("Not in core/extra, skipped: {}", rep.not_official.join(", ")));
+            }
+            if !rep.foreign.is_empty() {
+                ui::hint(&p.import, &format!("Installed from outside the repositories (AUR or local builds), not added: {}. An AUR package needs its recipe reviewed and pinned in the AUR card below.", rep.foreign.join(", ")));
+            }
+        }
+        Some(Err(e)) => {
+            ui::note(&p.import, Kind::Bad, &format!("Import failed: {e}"));
+        }
+        None => {}
+    }
 }
 
 fn fill(app: &Rc<App>, d: &gtk::Box) {

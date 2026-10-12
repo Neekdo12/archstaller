@@ -1,6 +1,6 @@
 //! Boots the host's Linux kernel in QEMU with our initramfs and an ext4w-built root filesystem:
 //! proves tiny-init, module loading, the initramfs format and kernel-side ext4 acceptance.
-use crate::{root, run, Result};
+use crate::{root, run, target_dir, Result};
 use ext4w::{Ext4Writer, Meta, Options, Storage};
 use initrd::modules::{self, ModuleSource};
 use std::collections::BTreeSet;
@@ -42,12 +42,12 @@ pub fn run_test() -> Result<()> {
     run(Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
         .current_dir(root())
         .args(["build", "-p", "tiny-init", "--release", "--target", "x86_64-unknown-none"]))?;
-    let bin = root().join("target/x86_64-unknown-none/release");
+    let bin = target_dir().join("x86_64-unknown-none/release");
     let init = std::fs::read(bin.join("tiny-init"))?;
     let payload = std::fs::read(bin.join("test-payload"))?;
 
     // Root filesystem.
-    let dir = root().join("target/linux-test");
+    let dir = target_dir().join("linux-test");
     std::fs::create_dir_all(&dir)?;
     let img = dir.join("root.img");
     let size = 64u64 << 20;

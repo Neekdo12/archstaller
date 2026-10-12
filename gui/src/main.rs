@@ -10,6 +10,7 @@ mod flash;
 mod launcher;
 mod media;
 mod model;
+mod official;
 mod pages;
 mod polkit;
 mod state;

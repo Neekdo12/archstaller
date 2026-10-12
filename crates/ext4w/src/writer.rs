@@ -1038,10 +1038,9 @@ impl<S: Storage> Ext4Writer<S> {
             for b in ib.iter_mut().take(self.ipg as usize / 8) {
                 *b = 0;
             }
-            for ino in 1..=max_ino {
-                if self.group_of_ino(ino) != g {
-                    continue;
-                }
+            // Only this group's inodes: scanning all of them per group is groups x inodes steps,
+            // billions on a large disk with a desktop install.
+            for ino in g * self.ipg + 1..=max_ino.min((g + 1) * self.ipg) {
                 let reserved = ino < FIRST_INO && ino != ROOT_INO;
                 if reserved || self.inodes[ino as usize].is_some() {
                     let bit = ((ino - 1) % self.ipg) as usize;

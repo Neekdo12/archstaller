@@ -99,7 +99,7 @@ impl App {
         }
         let menu_btn = gtk::MenuButton::builder().icon_name("open-menu-symbolic").menu_model(&menu).tooltip_text("Menu").build();
         header.pack_end(&menu_btn);
-        let preset_btn = gtk::MenuButton::builder().label("From preset").menu_model(&presets).sensitive(!preset_list.is_empty()).tooltip_text(if preset_list.is_empty() { "No presets found (run from the checkout or set ARCHSTALLER_ROOT)" } else { "Start a new, unsaved config from one of the repository's presets" }).build();
+        let preset_btn = gtk::MenuButton::builder().label("From preset").menu_model(&presets).sensitive(!preset_list.is_empty()).tooltip_text(if preset_list.is_empty() { "No presets found (install the package, run from a checkout or set ARCHSTALLER_ROOT)" } else { "Start a new, unsaved config from one of the repository's presets" }).build();
         header.pack_end(&preset_btn);
         win.set_titlebar(Some(&header));
 
@@ -252,6 +252,17 @@ impl App {
     }
 
     /// Builds (or rebuilds) one page from the current document.
+    /// [`App::rebuild`] for a change the user made on the page itself: the view stays where it was instead of
+    /// jumping to the top. The position is restored once the new widgets have been laid out.
+    pub fn rebuild_keep_scroll(self: &Rc<Self>, page: Page) {
+        let adj = self.boxes[&page].ancestor(gtk::ScrolledWindow::static_type()).and_downcast::<gtk::ScrolledWindow>().map(|w| w.vadjustment());
+        let pos = adj.as_ref().map(|a| a.value());
+        self.rebuild(page);
+        if let (Some(adj), Some(pos)) = (adj, pos) {
+            glib::idle_add_local_once(move || adj.set_value(pos));
+        }
+    }
+
     pub fn rebuild(self: &Rc<Self>, page: Page) {
         let content = &self.boxes[&page];
         ui::clear(content);
@@ -533,6 +544,8 @@ impl App {
 
     fn tick(self: &Rc<Self>) {
         let mut changed = false;
+        // An import wrote `packages`: the list editor shows the old text until its page is rebuilt.
+        let mut rebuild_packages = false;
         {
             let mut st = self.st.borrow_mut();
             if let Some(rx) = &st.resolve_rx {
@@ -542,6 +555,13 @@ impl App {
                     changed = true;
                 }
             }
+            let st = &mut *st;
+            let polled = st.official.poll(&mut st.model.cfg);
+            if polled.packages_changed {
+                st.model.dirty = true;
+                rebuild_packages = true;
+            }
+            changed |= polled.changed;
             let was_busy = st.aur.busy();
             if let Some(p) = st.aur.poll() {
                 // Pinned: the search that led here is done with.
@@ -570,6 +590,9 @@ impl App {
                     }
                 }
             }
+        }
+        if rebuild_packages {
+            self.rebuild_keep_scroll(Page::Packages);
         }
         if pages::iso::pump(self) {
             changed = true;

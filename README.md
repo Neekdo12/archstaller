@@ -1,6 +1,5 @@
 # archstaller
 
-[![CI](https://github.com/Neekdo12/archstaller/actions/workflows/ci.yml/badge.svg)](https://github.com/Neekdo12/archstaller/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ### Wanted to install Arch without babysitting an installer?
@@ -126,6 +125,14 @@ The GUI is available too:
 
 ```sh
 cargo run -p archstaller-gui
+```
+
+On Arch, the AUR package [`archstaller-git`](docs/building-and-running.md#arch-linux-package-aur) installs the GUI
+and an `archstaller` command that runs these commands without a checkout:
+
+```sh
+paru -S archstaller-git
+archstaller build --config my.lua --out my.iso
 ```
 
 ---
