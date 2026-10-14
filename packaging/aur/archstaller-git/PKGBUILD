@@ -2,7 +2,7 @@
 
 pkgname=archstaller-git
 _pkgname=archstaller
-pkgver=r78.241044a
+pkgver=r84.0ccd2c0
 pkgrel=1
 pkgdesc='Build tiny unattended Arch Linux installer ISOs (own boot loader and no_std kernel): GTK app and CLI'
 arch=('x86_64')
@@ -11,7 +11,7 @@ license=('MIT')
 # Every ISO build compiles the installer kernel for its config with nightly Rust (rust-toolchain.toml), so the
 # build tools are run-time dependencies: rustup, a C compiler and linker, and the ISO and keyring tools.
 depends=(
-  'gcc-libs' 'glib2' 'glibc' 'gtk4' 'gtksourceview5' 'pango'
+  'gcc-libs' 'glib2' 'glibc' 'gtk4' 'gtksourceview5' 'hicolor-icon-theme' 'pango'
   'curl' 'gcc' 'gnupg' 'libisoburn' 'mtools' 'rustup' 'tar' 'util-linux' 'zstd'
 )
 makedepends=('git' 'pkgconf')
@@ -66,4 +66,5 @@ package() {
   # archive's default umask would leave them group-writable).
   install -d "$pkgdir/usr/share/$_pkgname"
   git -c tar.umask=0022 archive HEAD | tar -x -C "$pkgdir/usr/share/$_pkgname"
+  rm -rf "$pkgdir/usr/share/$_pkgname/.github"
 }

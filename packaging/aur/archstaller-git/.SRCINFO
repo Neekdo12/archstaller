@@ -1,6 +1,6 @@
 pkgbase = archstaller-git
 	pkgdesc = Build tiny unattended Arch Linux installer ISOs (own boot loader and no_std kernel): GTK app and CLI
-	pkgver = r78.241044a
+	pkgver = r84.0ccd2c0
 	pkgrel = 1
 	url = https://github.com/Neekdo12/archstaller
 	arch = x86_64
@@ -12,6 +12,7 @@ pkgbase = archstaller-git
 	depends = glibc
 	depends = gtk4
 	depends = gtksourceview5
+	depends = hicolor-icon-theme
 	depends = pango
 	depends = curl
 	depends = gcc
