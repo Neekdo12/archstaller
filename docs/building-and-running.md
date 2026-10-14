@@ -60,6 +60,13 @@ paru -S archstaller-git        # or any AUR helper; by hand:
 git clone https://aur.archlinux.org/archstaller-git.git && cd archstaller-git && makepkg -si
 ```
 
+Without the AUR, `packaging/install.sh` does it in one step on Arch (installs `base-devel` and `git`, builds the same
+`PKGBUILD` in a temporary directory with `makepkg -si`, and installs the package; `master` must contain `packaging/`):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Neekdo12/archstaller/master/packaging/install.sh | sh
+```
+
 The package depends on `rustup`, which replaces the `rust` package: the build needs nightly. The installed tree is
 read-only, so the app and `archstaller` both build into `~/.cache/archstaller/target` (`CARGO_TARGET_DIR` changes
 that); output without `--out`, such as `archstaller presets`, lands there too. On the first build rustup installs what
