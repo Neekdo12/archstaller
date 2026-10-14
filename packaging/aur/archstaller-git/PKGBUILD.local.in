@@ -1,0 +1,56 @@
+# Template for a local-checkout install (packaging/install.sh): it builds a synced copy of the working
+# tree in place, with a persistent CARGO_TARGET_DIR, so only changed crates recompile. install.sh fills in
+# @PKGVER@, @SRC@ and @TARGET@ before handing it to makepkg. Not used by the AUR package.
+
+pkgname=archstaller-git
+_pkgname=archstaller
+pkgver=@PKGVER@
+pkgrel=1
+pkgdesc='Build tiny unattended Arch Linux installer ISOs (own boot loader and no_std kernel): GTK app and CLI'
+arch=('x86_64')
+url='https://github.com/Neekdo12/archstaller'
+license=('MIT')
+depends=(
+  'gcc-libs' 'glib2' 'glibc' 'gtk4' 'gtksourceview5' 'hicolor-icon-theme' 'pango'
+  'curl' 'gcc' 'gnupg' 'libisoburn' 'mtools' 'rustup' 'tar' 'util-linux' 'zstd'
+)
+makedepends=('git' 'pkgconf')
+optdepends=(
+  'udisks2: mount USB sticks and flash an ISO from the GUI'
+  'polkit-gnome: password prompt for flashing on desktops without a polkit agent'
+  'qemu-desktop: try an ISO in a virtual machine (archstaller run)'
+  'edk2-ovmf: UEFI firmware for archstaller run --uefi'
+)
+provides=("$_pkgname")
+conflicts=("$_pkgname")
+options=('!lto' '!debug')
+source=()
+sha256sums=()
+
+_src="@SRC@"
+export CARGO_TARGET_DIR="@TARGET@"
+
+prepare() {
+  cd "$_src"
+  # The toolchain rust-toolchain.toml names (nightly), installed if missing; an installed one is not updated.
+  rustup toolchain install --no-update
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$_src"
+  cargo build --frozen --profile gui -p archstaller-gui
+}
+
+package() {
+  cd "$_src"
+  install -Dm755 "$CARGO_TARGET_DIR/gui/archstaller-gui" packaging/archstaller -t "$pkgdir/usr/bin/"
+  install -Dm644 packaging/org.archstaller.Gui.desktop -t "$pkgdir/usr/share/applications/"
+  install -Dm644 packaging/org.archstaller.Gui.svg -t "$pkgdir/usr/share/icons/hicolor/scalable/apps/"
+  install -Dm644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname/"
+  # The source tree the GUI and the archstaller command build every ISO from: the local working tree,
+  # not just HEAD, so an uncommitted edit is what gets installed and run.
+  install -d "$pkgdir/usr/share/$_pkgname"
+  tar --exclude=./target --exclude=./.filelist -cf - . | tar -x -C "$pkgdir/usr/share/$_pkgname"
+  rm -rf "$pkgdir/usr/share/$_pkgname/.github"
+}

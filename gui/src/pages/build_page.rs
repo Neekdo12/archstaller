@@ -15,10 +15,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     let current = host.build.profile.clone().unwrap_or_else(|| "super-small".into());
     let small = ui::check_button("super-small");
     let large = ui::check_button("large");
-    let xl = ui::check_button("extra-large");
     large.set_group(Some(&small));
-    xl.set_group(Some(&small));
-    xl.set_sensitive(false);
     small.set_active(current != "large");
     large.set_active(current == "large");
     for (btn, name) in [(&small, "super-small"), (&large, "large")] {
@@ -33,8 +30,6 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     ui::hint(&c, "Size-optimized installer (the default), about 0.7 MiB. A crash shows no panic message.");
     c.append(&large);
     ui::hint(&c, "The regular release build, about 0.8 MiB, with panic messages kept for debugging.");
-    c.append(&xl);
-    ui::hint(&c, "Reserved, not available yet.");
 
     let c = ui::card(content, Some("USB tethering"));
     let a = app.clone();

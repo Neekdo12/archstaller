@@ -15,4 +15,5 @@
 # makepkg leaves its sources, build tree and packages next to the PKGBUILD
 /packaging/aur/*/*
 !/packaging/aur/*/PKGBUILD
+!/packaging/aur/*/PKGBUILD.local.in
 !/packaging/aur/*/.SRCINFO
