@@ -1,8 +1,16 @@
 [package]
 name = "pkg"
 version = "0.1.0"
+autotests = false
 edition = "2021"
 
 [dependencies]
 miniz_oxide = { version = "0.9", default-features = false, features = ["with-alloc"] }
 ruzstd = { version = "0.9", default-features = false }
+
+[lib]
+path = "../../unified.rs"
+
+[[test]]
+name = "real_db"
+path = "../../unified.rs"

@@ -1,6 +1,7 @@
 [package]
 name = "imobiledevice"
 version = "0.1.0"
+autotests = false
 edition = "2021"
 
 [dependencies]
@@ -18,3 +19,10 @@ std = ["rsa/std"]
 
 [dev-dependencies]
 imobiledevice = { path = ".", features = ["std"] }
+
+[lib]
+path = "../../unified.rs"
+
+[[test]]
+name = "plist"
+path = "../../unified.rs"

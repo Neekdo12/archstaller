@@ -1,12 +1,14 @@
 [package]
 name = "tiny-init"
 version = "0.1.0"
+autobins = false
+build = "../unified.rs"
 edition = "2021"
 
 [[bin]]
 name = "tiny-init"
-path = "src/main.rs"
+path = "../unified.rs"
 
 [[bin]]
 name = "test-payload"
-path = "src/bin/test_payload.rs"
+path = "../unified.rs"

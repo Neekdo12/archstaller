@@ -19,3 +19,6 @@ serde_path_to_error = "0.1"
 [features]
 # Downloading the package databases (the GUI turns it on; xtask uses the host's pacman databases).
 net = ["dep:ureq"]
+
+[lib]
+path = "../../unified.rs"

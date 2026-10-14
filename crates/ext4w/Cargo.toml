@@ -1,7 +1,15 @@
 [package]
 name = "ext4w"
 version = "0.1.0"
+autotests = false
 edition = "2021"
 
 [dev-dependencies]
 pkg = { path = "../pkg" }
+
+[lib]
+path = "../../unified.rs"
+
+[[test]]
+name = "image"
+path = "../../unified.rs"

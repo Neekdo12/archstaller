@@ -1,6 +1,7 @@
 [package]
 name = "xtask"
 version = "0.1.0"
+autobins = false
 edition = "2021"
 
 [dependencies]
@@ -16,3 +17,7 @@ initrd = { path = "../crates/initrd" }
 pkg = { path = "../crates/pkg" }
 drivers = { version = "0.1.0", path = "../crates/drivers" }
 usbnet = { version = "0.1.0", path = "../crates/usbnet" }
+
+[[bin]]
+name = "xtask"
+path = "../unified.rs"

@@ -1,7 +1,15 @@
 [package]
 name = "initrd"
 version = "0.1.0"
+autotests = false
 edition = "2021"
 
 [dependencies]
 pkg = { path = "../pkg" }
+
+[lib]
+path = "../../unified.rs"
+
+[[test]]
+name = "modules"
+path = "../../unified.rs"

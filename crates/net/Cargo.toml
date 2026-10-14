@@ -11,3 +11,6 @@ rustls-rustcrypto = { version = "0.0.2-alpha", default-features = false, feature
 webpki-roots = "1"
 getrandom = { version = "0.2", features = ["custom"] }
 sha2 = { version = "0.10", default-features = false, features = ["force-soft"] }
+
+[lib]
+path = "../../unified.rs"

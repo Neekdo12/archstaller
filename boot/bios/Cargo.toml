@@ -1,11 +1,13 @@
 [package]
 name = "boot-bios"
 version = "0.1.0"
+autobins = false
+build = "../../unified.rs"
 edition = "2021"
 
 [[bin]]
 name = "boot-bios"
-path = "src/main.rs"
+path = "../../unified.rs"
 
 [dependencies]
 bootinfo = { path = "../../crates/bootinfo" }

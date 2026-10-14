@@ -1,6 +1,8 @@
 [package]
 name = "kernel"
 version = "0.1.0"
+autobins = false
+build = "../unified.rs"
 edition = "2021"
 
 [dependencies]
@@ -47,3 +49,7 @@ net-selftest = []
 usb-selftest = ["dep:usb"]
 # USB tethering as a network source: iPhone (docs/iphone-tethering.md) and Android (RNDIS, CDC-ECM).
 usb-tethering = ["dep:usb", "dep:imobiledevice", "dep:usbnet"]
+
+[[bin]]
+name = "kernel"
+path = "../unified.rs"

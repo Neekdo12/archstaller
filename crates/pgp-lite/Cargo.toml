@@ -1,6 +1,7 @@
 [package]
 name = "pgp-lite"
 version = "0.1.0"
+autotests = false
 edition = "2021"
 
 [features]
@@ -12,3 +13,10 @@ postcard = { version = "1", default-features = false, features = ["alloc"] }
 sha2 = { version = "0.10", default-features = false, features = ["force-soft"] }
 rsa = { version = "0.9", default-features = false, features = ["sha2"] }
 ed25519-dalek = { version = "2", default-features = false, features = ["alloc"] }
+
+[lib]
+path = "../../unified.rs"
+
+[[test]]
+name = "verify"
+path = "../../unified.rs"
