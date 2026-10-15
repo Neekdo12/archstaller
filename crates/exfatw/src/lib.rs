@@ -247,6 +247,7 @@ impl<'a, S: Storage> Appender<'a, S> {
     }
 
     /// Whether a directory called `name` (case-insensitive) exists in the root.
+    pub fn root_has(&mut self, name: &str) -> Result<bool> { self.has_dir(name) }
     pub fn has_dir(&mut self, name: &str) -> Result<bool> {
         Ok(matches!(self.lookup(name)?, Some(a) if a & ATTR_DIRECTORY != 0))
     }
