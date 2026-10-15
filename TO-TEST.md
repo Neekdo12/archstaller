@@ -110,3 +110,42 @@ Code: `pacman_names` and `OfficialState::poll` in `gui/src/official.rs`, `render
 - [ ] With the package databases failing to load (no mirror), Import shows "the package databases are not loaded
       (...)" instead of adding names unchecked.
 
+
+## Log dump to USB (implemented; `kernel/src/logdump.rs`)
+
+Code: `crates/logring` (`Ring<CAP>`, the bounded capture), `crates/exfatw` (append a file to an existing exFAT volume),
+`kernel/src/logbuf.rs` (the 128 KiB console capture), `kernel/src/logdump.rs` (the end-of-flow hook), the console tee in
+`kernel/src/console.rs`, and the boot-medium probes in `boot/uefi/src/main.rs` and `boot/bios/src/entry.s` +
+`boot/bios/src/main.rs`. The loader fingerprints the disk it booted from (`bootinfo::BootMedium`); at the end of the
+install flow, on **both** the success and failure paths, `logdump` matches that fingerprint against every enumerated
+disk, finds the Ventoy data partition (exFAT with a `ventoy` directory), and appends `archstaller-log.txt`. Any other
+outcome prints one `log dump skipped: ...` line and touches nothing; a rerun never overwrites an existing log.
+
+### Unit tests (host) — PASSED
+
+- [x] `cargo test -p logring --features std` passes (9 tests: order, wrap/truncation, exact capacity, one-byte drop,
+      oversized chunk, several wraps, `write_fmt`, a write spanning the wrap, a 128 KiB ring at exact capacity).
+- [x] `cargo test -p exfatw` passes (5 tests against an in-memory formatted exFAT volume: append lands the data and
+      builds a valid entry set, a duplicate name is refused, a long name spans several name entries, a multi-cluster
+      file chains its clusters, a non-exFAT sector is rejected).
+
+### Kernel build and boot — PASSED
+
+- [x] `cargo build -p kernel --target x86_64-unknown-none --profile gui` compiles with no warnings.
+- [x] `cargo xtask size` is within budget (measured 772096 bytes of 3145728).
+- [x] `cargo xtask build --config configs/e2e.lua --uefi` builds the whole ISO (both loaders, the real-mode BIOS
+      boot-medium probe included) with no warnings.
+- [x] The skip paths print exactly one line: with no Ventoy stick present the kernel prints
+      `log dump skipped: the boot disk has no Ventoy exFAT partition` (or `... the boot medium was not identified`
+      when the loader could not read LBA0) on **both** success and failure.
+- [x] Panic/exception path does not deadlock while the ring is held: the `--fault-test` build takes the ring lock,
+      faults (`ud2`), and the reporter still prints `*** KERNEL PANIC`, `*** EXCEPTION #6 invalid opcode` and `rip:`.
+      (Before the fix it hung on the first `println!` while the ring was locked.)
+
+### Manual, on real hardware — TODO
+
+- [ ] Booting the ISO from a Ventoy stick reaches the end of the flow and writes `archstaller-log.txt` onto the
+      stick's data partition, on both a UEFI and a BIOS boot.
+- [ ] Booting from a non-Ventoy stick (plain ISO) leaves the stick untouched and prints the skip line.
+- [ ] Running twice does not overwrite the first log (`log dump skipped: the log file already exists on the stick`).
+

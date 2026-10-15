@@ -110,6 +110,10 @@ pub struct Boot<'a> {
     pub payload: &'a [u8],
     /// Physical range, 4 KiB aligned, at least `arena_size` bytes, already allocated from the firmware.
     pub arena: (u64, u64),
+    /// The medium the loader was booted from (see [`bootinfo::BootMedium`]). Fill it with what the
+    /// firmware gives cheaply; [`bootinfo::BootMedium::default()`] (an unknown medium) is fine when the
+    /// loader cannot read the boot disk.
+    pub boot_medium: bootinfo::BootMedium,
 }
 
 fn unpack(stored: &[u8], raw: usize, deflated: bool, dest: u64) {
@@ -234,6 +238,7 @@ pub unsafe fn boot(map: &mut Map, b: Boot) -> ! {
         mem_len: map.len() as u64,
         modules: (HHDM_BASE + mods_phys) as *const Module,
         modules_len: nmod as u64,
+        boot_medium: b.boot_medium,
     });
 
     // Trampoline page: code, then a GDT (null, 64-bit code, data) the code loads.
