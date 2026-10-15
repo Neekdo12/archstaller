@@ -13,6 +13,7 @@ pub mod progress;
 pub mod resolve;
 pub mod schema;
 pub mod scripts;
+pub mod services;
 pub mod toml;
 pub mod writer;
 

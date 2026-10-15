@@ -44,6 +44,9 @@ pub struct Config {
     /// Scripts run as root, in order, at the end of the first boot (after users and services).
     #[serde(default)]
     pub scripts: Vec<Script>,
+    /// Custom systemd units installed into /etc/systemd/system/ (root) or ~/.config/systemd/user/ (user).
+    #[serde(default)]
+    pub custom_services: Vec<CustomService>,
     /// AUR packages, in build order. They are not in the ISO: the installed system builds them at its
     /// first boot (see `plans-implement/aur.md`). Written as `aur` under `[packages]`.
     #[serde(default, rename = "aur_packages")]
@@ -114,6 +117,59 @@ pub struct Script {
 
 /// The largest script the installer will embed or download.
 pub const SCRIPT_MAX: usize = 64 * 1024;
+
+pub fn default_true() -> bool {
+    true
+}
+
+/// Valid systemd unit extensions.
+pub const UNIT_EXTENSIONS: &[&str] = &[
+    ".service", ".timer", ".socket", ".path", ".slice", ".target", ".mount", ".automount", ".swap",
+];
+
+pub fn valid_unit_name(s: &str) -> bool {
+    if s.is_empty() || s.len() > 128 || s.starts_with('.') || s.contains('/') || s.contains('\\') {
+        return false;
+    }
+    if !UNIT_EXTENSIONS.iter().any(|ext| s.ends_with(ext)) {
+        return false;
+    }
+    s.chars().all(|c| c.is_ascii_alphanumeric() || "@._-".contains(c))
+}
+
+/// A custom systemd unit installed into `/etc/systemd/system/` (root) or `~/.config/systemd/user/` (user).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CustomService {
+    /// Unit file name, for example `rclone-onedrive.service`.
+    pub name: String,
+    /// Target user: `"root"` (or None) for system-wide, or a username from `users` for per-user.
+    #[serde(default)]
+    pub user: Option<String>,
+    /// Whether the unit is enabled on first boot (default: true).
+    #[serde(default = "default_true")]
+    pub enable: bool,
+    /// Host only: path of a local unit file relative to the config file.
+    #[serde(default)]
+    pub file: Option<String>,
+    /// Unit content (read from file at build time, or provided inline).
+    #[serde(default)]
+    pub content: Option<Vec<u8>>,
+}
+
+impl Default for CustomService {
+    fn default() -> Self {
+        CustomService {
+            name: String::new(),
+            user: None,
+            enable: true,
+            file: None,
+            content: None,
+        }
+    }
+}
+
+/// The largest custom service unit file the installer will embed.
+pub const CUSTOM_SERVICE_MAX: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserArchive {
@@ -340,6 +396,35 @@ impl Config {
                 return at("script is larger than 64 KiB");
             }
         }
+        if self.custom_services.len() > 32 {
+            return Err("at most 32 custom_services".into());
+        }
+        for (i, cs) in self.custom_services.iter().enumerate() {
+            let at = |m: &str| Err(format!("custom_services[{}]: {m}", i + 1));
+            if !valid_unit_name(&cs.name) {
+                return at(&format!("invalid unit name {:?}", cs.name));
+            }
+            if self.custom_services[..i].iter().any(|o| o.name == cs.name && o.user == cs.user) {
+                return at(&format!("unit {:?} for user {:?} is defined twice", cs.name, cs.user.as_deref().unwrap_or("root")));
+            }
+            if let Some(u) = &cs.user {
+                if u != "root" && !self.users.iter().any(|user| user.name == *u) {
+                    return at(&format!("unknown user {:?}; must be \"root\" or one of {:?}", u, self.users.iter().map(|u| &u.name).collect::<Vec<_>>()));
+                }
+            }
+            if cs.file.is_some() && cs.content.is_some() {
+                return at("give either file or content, not both");
+            }
+            if cs.file.is_none() && cs.content.is_none() {
+                return at("either file or content must be specified");
+            }
+            if cs.file.as_deref() == Some("") {
+                return at("file is empty");
+            }
+            if cs.content.as_ref().is_some_and(|c| c.len() > CUSTOM_SERVICE_MAX) {
+                return at("custom service content is larger than 64 KiB");
+            }
+        }
         Ok(())
     }
 }
@@ -368,6 +453,7 @@ mod tests {
             user_archives: vec![],
             dry_run: false,
             scripts: vec![],
+            custom_services: vec![],
             aur: vec![],
         }
     }
@@ -447,5 +533,61 @@ mod tests {
         c.aur = vec![pkg()];
         c.services.clear();
         assert!(c.validate().unwrap_err().contains("needs a network"));
+    }
+
+    #[test]
+    fn custom_service_rules() {
+        let mut c = base();
+        c.users = vec![User {
+            name: "kubik".into(),
+            password_hash: format!("$6$abc${}", "a".repeat(86)),
+            groups: vec![],
+            shell: "/bin/bash".into(),
+        }];
+        c.custom_services = vec![CustomService {
+            name: "my-service.service".into(),
+            user: None,
+            enable: true,
+            file: None,
+            content: Some(b"[Unit]\nDescription=Test\n".to_vec()),
+        }];
+        assert!(c.validate().is_ok());
+
+        // Valid user
+        c.custom_services[0].user = Some("kubik".into());
+        assert!(c.validate().is_ok());
+
+        // Unknown user
+        c.custom_services[0].user = Some("nonexistent".into());
+        assert!(c.validate().unwrap_err().contains("unknown user"));
+
+        // User "root" explicitly
+        c.custom_services[0].user = Some("root".into());
+        assert!(c.validate().is_ok());
+
+        // Invalid unit names
+        c.custom_services[0].name = "bad_unit".into();
+        assert!(c.validate().unwrap_err().contains("invalid unit name"));
+        c.custom_services[0].name = "../evil.service".into();
+        assert!(c.validate().unwrap_err().contains("invalid unit name"));
+
+        // File and content mutual exclusion
+        c.custom_services[0].name = "good.service".into();
+        c.custom_services[0].file = Some("services/good.service".into());
+        assert!(c.validate().unwrap_err().contains("give either file or content"));
+
+        // Neither file nor content
+        c.custom_services[0].content = None;
+        c.custom_services[0].file = None;
+        assert!(c.validate().unwrap_err().contains("either file or content"));
+
+        // Valid file
+        c.custom_services[0].file = Some("services/good.service".into());
+        assert!(c.validate().is_ok());
+
+        // Content size limit
+        c.custom_services[0].file = None;
+        c.custom_services[0].content = Some(alloc::vec![b'a'; CUSTOM_SERVICE_MAX + 1]);
+        assert!(c.validate().unwrap_err().contains("larger than 64 KiB"));
     }
 }

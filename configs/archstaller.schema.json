@@ -37,6 +37,7 @@
         "services": [],
         "kernel_params": [],
         "scripts": [],
+        "custom_services": [],
         "user_files": [],
         "user_archives": []
       }
@@ -307,6 +308,14 @@
           },
           "default": []
         },
+        "custom_services": {
+          "description": "Custom systemd units installed into /etc/systemd/system/ (root) or ~/.config/systemd/user/ (user).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CustomService"
+          },
+          "default": []
+        },
         "user_files": {
           "description": "Files downloaded into every user's home directory (a failed download only warns).",
           "type": "array",
@@ -370,6 +379,49 @@
       "additionalProperties": false,
       "required": [
         "id"
+      ]
+    },
+    "CustomService": {
+      "description": "A custom systemd service unit, either inline or from a local file.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Unit file name, for example `rclone-onedrive.service`.",
+          "type": "string"
+        },
+        "user": {
+          "description": "Target user: `\"root\"` (or omit) for system service, or a username for user service.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "enable": {
+          "description": "Whether the service is enabled on first boot (default: true).",
+          "type": "boolean",
+          "default": true
+        },
+        "file": {
+          "description": "Path of a local unit file, relative to the config file. Mutually exclusive with `content`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "content": {
+          "description": "Inline unit file content. Mutually exclusive with `file`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name"
       ]
     },
     "UserFile": {

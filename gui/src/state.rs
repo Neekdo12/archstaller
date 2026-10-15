@@ -114,6 +114,8 @@ pub struct State {
     pub aur_focused_commit: Option<String>,
     /// A package was just pinned: put the keyboard focus back on the AUR search box for the next one.
     pub aur_focus_search: bool,
+    /// Result message from importing services from the host.
+    pub services_import_report: Option<String>,
 }
 
 impl State {
@@ -134,6 +136,7 @@ impl State {
             aur_auto_review: false,
             aur_focused_commit: None,
             aur_focus_search: false,
+            services_import_report: None,
         };
         s.media.volumes = crate::media::volumes();
         s

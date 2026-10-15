@@ -78,6 +78,47 @@ if [ -s "$D/aur.list" ]; then
     systemctl enable archstaller-aur.service || say "warning: could not enable the AUR build service"
 fi
 
+# Custom systemd services: installed into /etc/systemd/system (root) or ~/.config/systemd/user (user).
+if [ -s "$D/custom_services.list" ]; then
+    say "installing custom systemd services"
+    while IFS=: read -r idx uname en unit; do
+        [ -n "$idx" ] || continue
+        src="$D/custom_services/$idx"
+        [ -f "$src" ] || continue
+        if [ "$uname" = "root" ] || [ -z "$uname" ]; then
+            install -m 0644 "$src" "/etc/systemd/system/$unit" || say "warning: could not install /etc/systemd/system/$unit"
+            if [ "$en" = "1" ]; then
+                echo "$unit" >> "$D/services.list"
+            fi
+            say "custom system service $unit installed"
+        else
+            home=$(getent passwd "$uname" | cut -d: -f6)
+            grp=$(id -gn "$uname")
+            if [ -n "$home" ] && [ -d "$home" ]; then
+                user_unit_dir="$home/.config/systemd/user"
+                runuser -u "$uname" -- mkdir -p "$user_unit_dir"
+                install -o "$uname" -g "$grp" -m 0644 "$src" "$user_unit_dir/$unit" || say "warning: could not install $unit for $uname"
+                if [ "$en" = "1" ]; then
+                    targets=$(grep -E '^\s*WantedBy\s*=' "$user_unit_dir/$unit" | tail -n1 | cut -d= -f2)
+                    for target in ${targets:-default.target}; do
+                        target=$(echo "$target" | tr -d ' ')
+                        [ -n "$target" ] || continue
+                        wants_dir="$user_unit_dir/${target}.wants"
+                        runuser -u "$uname" -- mkdir -p "$wants_dir"
+                        ln -sf "../$unit" "$wants_dir/$unit"
+                        chown -h "$uname:$grp" "$wants_dir/$unit"
+                    done
+                    say "custom user service $unit enabled for $uname"
+                else
+                    say "custom user service $unit installed for $uname (disabled)"
+                fi
+            else
+                say "warning: user $uname not found for custom service $unit"
+            fi
+        fi
+    done < "$D/custom_services.list"
+fi
+
 if [ -s "$D/services.list" ]; then
     xargs -a "$D/services.list" systemctl enable || say "warning: enabling some services failed"
     while read -r unit; do say "service $unit: $(systemctl is-enabled "$unit" 2>&1)"; done < "$D/services.list"

@@ -40,6 +40,7 @@ pub mod tests_support {
             user_archives: vec![],
             dry_run: false,
             scripts: vec![],
+            custom_services: vec![],
             aur: vec![],
         }
     }
@@ -82,7 +83,8 @@ pub fn load_config(path: &Path) -> Result<config::Config> {
 
 /// The installer's config, with `extra_kernel_params` appended, serialized for `config.bin`.
 pub fn config_bin(loaded: &Loaded, extra_kernel_params: &[String]) -> Result<Vec<u8>> {
-    let mut cfg = crate::scripts::resolve(&loaded.config, &loaded.dir)?;
+    let cfg = crate::scripts::resolve(&loaded.config, &loaded.dir)?;
+    let mut cfg = crate::services::resolve(&cfg, &loaded.dir)?;
     cfg.kernel_params.extend(extra_kernel_params.iter().cloned());
     cfg.validate()?;
     Ok(postcard::to_stdvec(&cfg)?)
@@ -145,4 +147,60 @@ explicit = ["base"]
         let err = load_str_unvalidated(toml_src, Path::new(".")).unwrap_err();
         assert!(err.to_string().contains("unknown field `bogus_key`"));
     }
+
+    #[test]
+    fn parses_custom_services_in_toml() {
+        let toml_src = r#"
+schema = 1
+
+[system]
+hostname = "testbox"
+timezone = "Europe/Prague"
+locale = "en_US.UTF-8"
+keymap = "us"
+
+[install]
+mirrors = ["https://geo.mirror.pkgbuild.com/$repo/os/$arch"]
+
+[install.disk]
+auto_largest = true
+esp_mib = 1024
+
+[packages]
+explicit = ["base"]
+
+[[first_boot.custom_services]]
+name = "my-service.service"
+user = "root"
+enable = true
+content = """
+[Unit]
+Description=Test
+"""
+
+[[first_boot.custom_services]]
+name = "user-daemon.service"
+user = "kubik"
+enable = false
+file = "services/user-daemon.service"
+"#;
+        let loaded = load_str_unvalidated(toml_src, Path::new(".")).unwrap();
+        assert_eq!(loaded.config.custom_services.len(), 2);
+        assert_eq!(loaded.config.custom_services[0].name, "my-service.service");
+        assert_eq!(loaded.config.custom_services[0].user, Some("root".into()));
+        assert!(loaded.config.custom_services[0].enable);
+        assert_eq!(
+            loaded.config.custom_services[0].content,
+            Some(b"[Unit]\nDescription=Test\n".to_vec())
+        );
+
+        assert_eq!(loaded.config.custom_services[1].name, "user-daemon.service");
+        assert_eq!(loaded.config.custom_services[1].user, Some("kubik".into()));
+        assert!(!loaded.config.custom_services[1].enable);
+        assert_eq!(
+            loaded.config.custom_services[1].file,
+            Some("services/user-daemon.service".into())
+        );
+    }
 }
+

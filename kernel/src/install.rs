@@ -642,6 +642,27 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
     }
     put(&w, &format!("{STATE_DIR}/scripts.list"), 0o644, scripts.as_bytes())?;
 
+    // Custom systemd units: installed into /etc/systemd/system/ (root) or ~/.config/systemd/user/ (user).
+    let mut custom_services = String::new();
+    for (i, cs) in cfg.custom_services.iter().enumerate() {
+        let data = match &cs.content {
+            Some(d) => d.clone(),
+            None => {
+                println!("warning: skipping custom service {}: no content", cs.name);
+                continue;
+            }
+        };
+        put(&w, &format!("{STATE_DIR}/custom_services/{i}"), 0o644, &data)?;
+        let user = cs.user.as_deref().unwrap_or("root");
+        let name = &cs.name;
+        let en = u8::from(cs.enable);
+        custom_services.push_str(&format!("{i}:{user}:{en}:{name}\n"));
+        println!("custom service {} ({} bytes, user {}) will be installed", name, data.len(), user);
+    }
+    if !cfg.custom_services.is_empty() {
+        put(&w, &format!("{STATE_DIR}/custom_services.list"), 0o644, custom_services.as_bytes())?;
+    }
+
     let files: Vec<String> = resolution.packages.iter().map(|s| s.pkg.filename.clone()).collect();
     // Packages named only because an AUR recipe needs them are dependencies, not explicit installs.
     let aur_only = |n: &str| !cfg.packages.iter().any(|p| p == n) && cfg.aur.iter().any(|a| a.deps.iter().any(|d| d == n));

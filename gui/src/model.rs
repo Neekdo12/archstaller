@@ -78,6 +78,7 @@ impl Model {
                 dry_run: false,
                 aur: vec![],
                 scripts: vec![],
+                custom_services: vec![],
             },
             host: HostConfig::default(),
             path: None,

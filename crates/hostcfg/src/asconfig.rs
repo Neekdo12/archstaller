@@ -118,12 +118,35 @@ pub struct FirstBoot {
     /// Scripts run as root, in order, at the end of the first boot.
     #[serde(default)]
     pub scripts: Vec<Script>,
+    /// Custom systemd units installed into /etc/systemd/system/ (root) or ~/.config/systemd/user/ (user).
+    #[serde(default)]
+    pub custom_services: Vec<CustomService>,
     /// Files downloaded into every user's home directory (a failed download only warns).
     #[serde(default)]
     pub user_files: Vec<UserFile>,
     /// Zip archives extracted into every user's home directory (a failed download only warns).
     #[serde(default)]
     pub user_archives: Vec<UserArchive>,
+}
+
+/// A custom systemd service unit, either inline or from a local file.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CustomService {
+    /// Unit file name, for example `rclone-onedrive.service`.
+    pub name: String,
+    /// Target user: `"root"` (or omit) for system service, or a username for user service.
+    #[serde(default)]
+    pub user: Option<String>,
+    /// Whether the service is enabled on first boot (default: true).
+    #[serde(default = "config::default_true")]
+    pub enable: bool,
+    /// Path of a local unit file, relative to the config file. Mutually exclusive with `content`.
+    #[serde(default)]
+    pub file: Option<String>,
+    /// Inline unit file content. Mutually exclusive with `file`.
+    #[serde(default)]
+    pub content: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -273,6 +296,18 @@ impl AsConfig {
             user_archives: self.first_boot.user_archives.into_iter().map(|a| config::UserArchive { url: a.url }).collect(),
             dry_run: self.install.dry_run,
             scripts: self.first_boot.scripts.into_iter().map(|s| config::Script { id: s.id, args: s.args, file: s.file, url: s.url, sha256: s.sha256, content: None }).collect(),
+            custom_services: self
+                .first_boot
+                .custom_services
+                .into_iter()
+                .map(|cs| config::CustomService {
+                    name: cs.name,
+                    user: cs.user,
+                    enable: cs.enable,
+                    file: cs.file,
+                    content: cs.content.map(|c| c.into_bytes()),
+                })
+                .collect(),
             aur: self
                 .packages
                 .aur
@@ -307,6 +342,17 @@ impl AsConfig {
             users: cfg.users.iter().map(|u| User { name: u.name.clone(), password_hash: u.password_hash.clone(), groups: u.groups.clone(), shell: u.shell.clone() }).collect(),
             first_boot: FirstBoot {
                 services: cfg.services.clone(),
+                custom_services: cfg
+                    .custom_services
+                    .iter()
+                    .map(|cs| CustomService {
+                        name: cs.name.clone(),
+                        user: cs.user.clone(),
+                        enable: cs.enable,
+                        file: cs.file.clone(),
+                        content: cs.content.as_ref().map(|c| String::from_utf8_lossy(c).into_owned()),
+                    })
+                    .collect(),
                 kernel_params: cfg.kernel_params.clone(),
                 scripts: cfg.scripts.iter().map(|s| Script { id: s.id.clone(), args: s.args.clone(), file: s.file.clone(), url: s.url.clone(), sha256: s.sha256.clone() }).collect(),
                 user_files: cfg.user_files.iter().map(|f| UserFile { url: f.url.clone(), dest: f.dest.clone() }).collect(),

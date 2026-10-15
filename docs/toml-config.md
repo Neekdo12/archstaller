@@ -170,10 +170,25 @@ installed.
 | Field | Type | Meaning and rules |
 |---|---|---|
 | `services` | array of string | systemd units to enable, e.g. `"NetworkManager.service"`, `"sshd.service"`, `"ly@tty2.service"`, `"systemd-timesyncd.service"`. 1–64 characters of `A-Z a-z 0-9 @ . _ : - \`. A unit whose package is not installed only produces a warning. |
+| `custom_services` | array of tables (`[[first_boot.custom_services]]`) | Custom systemd units installed into `/etc/systemd/system/` (machine-wide) or `~/.config/systemd/user/` (per-user), see below. Up to 32. |
 | `kernel_params` | array of string | Extra kernel command-line words, each without spaces or double quotes, e.g. `"quiet"`, `"console=ttyS0,115200"`. |
 | `scripts` | array of tables (`[[first_boot.scripts]]`) | Scripts run **as root** at the end of the first boot, see "Scripts". Up to 32. |
 | `user_files` | array of tables (`[[first_boot.user_files]]`) | Files downloaded during installation into every user's home, see below. |
 | `user_archives` | array of tables (`[[first_boot.user_archives]]`) | Zip archives downloaded during installation and unpacked into every user's home, see below. |
+
+### Custom services (`[[first_boot.custom_services]]`)
+
+Custom systemd units installed into `/etc/systemd/system/` (machine-wide) or `~/.config/systemd/user/` (per-user).
+Each entry:
+
+| Field | Type | Default | Meaning and rules |
+|---|---|---|---|
+| `name` | string | required | Unit file name ending in `.service`, `.timer`, `.socket`, `.path`, etc. (e.g. `"my-daemon.service"`). |
+| `user` | string | `"root"` | Target user: `"root"` (or omit) for machine-wide `/etc/systemd/system/`. A username from `users` installs the unit into `~/.config/systemd/user/` owned by that user. |
+| `enable` | boolean | `true` | When `true`, enables the unit on first boot (machine units via `systemctl enable`, user units in `~/.config/systemd/user/<target>.wants/` based on `WantedBy=`, defaulting to `default.target`). |
+| `content` | string | optional | Inline unit file content (multiline string). Mutually exclusive with `file`. At most 64 KiB. |
+| `file` | string | optional | Path to a local unit file relative to the config file, embedded into the ISO at build time. Mutually exclusive with `content`. At most 64 KiB. |
+
 
 `user_files` entries: `url = "https://...", dest = ".config/foo/bar.conf"`. `url` must be `https://` with no
 spaces or quotes (the file is at most 1 MiB). `dest` is a relative path under the home directory made of
