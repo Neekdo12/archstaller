@@ -1,6 +1,6 @@
-//! The repository's `configs/` directory: example, e2e, shared modules, the LuaLS definitions and
+//! The repository's `configs/` directory: example, e2e, and
 //! the selectable presets, all flat in one folder. A file says what it is on its first line:
-//! `-- archstaller: kind=preset`. Only `kind=preset` files are presets; everything else (including
+//! `# archstaller: kind=preset`. Only `kind=preset` files are presets; everything else (including
 //! files with no marker) is left alone. `xtask` and the GUI both list presets through [`presets`].
 use std::path::{Path, PathBuf};
 
@@ -16,13 +16,21 @@ pub enum Kind {
     Example,
     /// A config for automated install tests.
     E2e,
-    /// Shared Lua code or type definitions that a config loads.
+    /// Helper configuration or type definitions.
     Module,
 }
 
-/// The kind named by a file's first line, if it has a marker.
+/// The kind named by a file's first line, if it has a marker (`# archstaller: kind=...`).
 pub fn kind_of(text: &str) -> Option<Kind> {
-    let rest = text.lines().next()?.trim().strip_prefix("--")?.trim().strip_prefix("archstaller:")?;
+    let first = text.lines().next()?.trim();
+    let rest = if let Some(r) = first.strip_prefix('#') {
+        r
+    } else if let Some(r) = first.strip_prefix("--") {
+        r
+    } else {
+        return None;
+    };
+    let rest = rest.trim().strip_prefix("archstaller:")?;
     let value = rest.split_whitespace().find_map(|t| t.strip_prefix("kind="))?;
     match value {
         "preset" => Some(Kind::Preset),
@@ -36,7 +44,7 @@ pub fn kind_of(text: &str) -> Option<Kind> {
 /// A selectable preset.
 #[derive(Debug, Clone)]
 pub struct Preset {
-    /// The file name without `.lua`.
+    /// The file name without `.toml`.
     pub name: String,
     /// The first comment line after the marker.
     pub description: String,
@@ -49,13 +57,21 @@ pub fn presets(dir: &Path) -> Vec<Preset> {
     let mut v: Vec<Preset> = read
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "lua"))
+        .filter(|p| p.extension().is_some_and(|e| e == "toml"))
         .filter_map(|p| {
             let text = std::fs::read_to_string(&p).ok()?;
             if kind_of(&text) != Some(Kind::Preset) {
                 return None;
             }
-            let description = text.lines().skip(1).find_map(|l| l.trim().strip_prefix("--")).map(|l| l.trim().to_string()).unwrap_or_default();
+            let description = text
+                .lines()
+                .skip(1)
+                .find_map(|l| {
+                    let t = l.trim();
+                    t.strip_prefix('#').or_else(|| t.strip_prefix("--"))
+                })
+                .map(|l| l.trim().to_string())
+                .unwrap_or_default();
             Some(Preset { name: p.file_stem()?.to_string_lossy().into_owned(), description, path: p })
         })
         .collect();
@@ -69,12 +85,13 @@ mod tests {
 
     #[test]
     fn markers() {
+        assert_eq!(kind_of("# archstaller: kind=preset\n# x"), Some(Kind::Preset));
+        assert_eq!(kind_of("#archstaller:kind=module"), Some(Kind::Module));
+        assert_eq!(kind_of("# archstaller: kind=e2e extra"), Some(Kind::E2e));
         assert_eq!(kind_of("-- archstaller: kind=preset\n-- x"), Some(Kind::Preset));
-        assert_eq!(kind_of("--archstaller:kind=module"), Some(Kind::Module));
-        assert_eq!(kind_of("-- archstaller: kind=e2e extra"), Some(Kind::E2e));
-        assert_eq!(kind_of("-- archstaller: kind=nope"), None);
-        assert_eq!(kind_of("-- just a comment"), None);
-        assert_eq!(kind_of("return {}"), None);
+        assert_eq!(kind_of("# archstaller: kind=nope"), None);
+        assert_eq!(kind_of("# just a comment"), None);
+        assert_eq!(kind_of("schema = 1"), None);
         assert_eq!(kind_of(""), None);
     }
 
@@ -82,11 +99,11 @@ mod tests {
     fn only_marked_files_are_presets() {
         let dir = std::env::temp_dir().join(format!("hostcfg-configs-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("a.lua"), "-- archstaller: kind=preset\n-- First.\nreturn {}").unwrap();
-        std::fs::write(dir.join("common.lua"), "-- archstaller: kind=module\nreturn {}").unwrap();
-        std::fs::write(dir.join("config.lua"), "-- archstaller: kind=example\nreturn {}").unwrap();
-        std::fs::write(dir.join("unmarked.lua"), "-- not marked\nreturn {}").unwrap();
-        std::fs::write(dir.join("notes.txt"), "-- archstaller: kind=preset").unwrap();
+        std::fs::write(dir.join("a.toml"), "# archstaller: kind=preset\n# First.\nschema = 1").unwrap();
+        std::fs::write(dir.join("common.toml"), "# archstaller: kind=module\nschema = 1").unwrap();
+        std::fs::write(dir.join("config.toml"), "# archstaller: kind=example\nschema = 1").unwrap();
+        std::fs::write(dir.join("unmarked.toml"), "# not marked\nschema = 1").unwrap();
+        std::fs::write(dir.join("notes.txt"), "# archstaller: kind=preset").unwrap();
         let list = presets(&dir);
         assert_eq!(list.len(), 1);
         assert_eq!((list[0].name.as_str(), list[0].description.as_str()), ("a", "First."));

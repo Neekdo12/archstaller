@@ -18,7 +18,7 @@ the architecture is in [`OVERVIEW.md`](../OVERVIEW.md) and [`docs/architecture.m
 You need a Linux host. On Arch:
 
 ```sh
-sudo pacman -S --needed base-devel git curl gnupg tar zstd xorriso mtools rustup lua \
+sudo pacman -S --needed base-devel git curl gnupg tar zstd xorriso mtools rustup \
     e2fsprogs dosfstools util-linux bubblewrap qemu-system-x86 edk2-ovmf \
     gtk4 gtksourceview5 pkgconf
 rustup show        # installs the pinned nightly from rust-toolchain.toml
@@ -34,7 +34,7 @@ checks, and the preset build.
 cargo xtask keyring                # once: builds target/keyring.bin, which the pgp-lite tests read
 cargo test --release -p pgp-lite --features std -p pkg -p ext4w -p disk -p initrd \
     -p hostcfg -p archstaller-gui -p loadcore -p config -p net -p aurbuild -p xtask
-cargo xtask gen-luals --check          # configs/archstaller.lua matches the Rust schema
+cargo xtask gen-schema --check          # configs/archstaller.schema.json matches the Rust schema
 cargo xtask build && cargo xtask size  # the ISO stays within the budget in sizes.md
 cargo xtask check-presets              # every preset still resolves (needs `pacman -Sy`)
 ```
@@ -48,9 +48,9 @@ run on a schedule because Arch changes under us.
 - **`OVERVIEW.md` is documentation-as-code.** Edit it in place in the same change as the code (no changelog style).
 - **Shared formats change on every side at once.** `crates/bootinfo` payload and BIOS patch formats are shared with
   `xtask` (`iso.rs`, `bios.rs`) and `kernel/src/install.rs`. `config/src/lib.rs` is shared between `xtask` and the
-  kernel, and the Lua schema, `configs/archstaller.lua` and its test must follow.
-- **Host-side config rules live in `crates/hostcfg`** (Lua loading, profiles, catalogues, validation) and are used by
-  `xtask` and `gui/`. Do not duplicate validation. GTK dependencies stay in `gui/` and `hostcfg`.
+  kernel, and the JSON Schema, `configs/archstaller.schema.json` and its test must follow.
+- **Host-side config rules live in `crates/hostcfg`** (TOML loading, profiles, catalogues, validation) and are used by
+  `xtask` and `gui/`. Do not duplicate validation. GTK dependencies stay in `gui/`.
 - **Drivers poll.** No device interrupts; the only interrupt is the 1 kHz PIT tick. Follow
   `crates/drivers/src/e1000.rs` and `nvme.rs`.
 - **`crates/*` are `no_std` + `alloc`** unless they only run on the build host (`xtask`).

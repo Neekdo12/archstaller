@@ -99,9 +99,9 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
     let mode = &format!("{}-{}-{}", if opts.uefi { "uefi" } else { "bios" }, opts.disk, opts.nic);
     let dir = target_dir().join("e2e");
     std::fs::create_dir_all(&dir)?;
-    let default_cfg = root().join("configs/config.lua");
+    let default_cfg = root().join("configs/config.toml");
     // A preset can be tested with --config; otherwise use the serial-locked e2e config.
-    let config = if opts.config != default_cfg { opts.config.clone() } else { root().join("configs/e2e.lua") };
+    let config = if opts.config != default_cfg { opts.config.clone() } else { root().join("configs/e2e.toml") };
     let o = Options { config: config.clone(), fault_test: false, selftest: false, profile: opts.profile, legacy_small: opts.legacy_small, limit: opts.limit, out: Some(dir.join("e2e.iso")), extra_kernel_params: vec!["console=ttyS0,115200".into()], uefi: opts.uefi, headless: true, disk: opts.disk.clone(), nic: opts.nic.clone(), usb: false, tethering: false, debug: opts.debug, progress: false, workdir: None, disk_gib: opts.disk_gib };
     let iso_path = iso::build(&o)?;
 
@@ -115,7 +115,7 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
     let _ = std::fs::remove_file(&log);
     let mut child = qemu(&o, &disk, Some(&iso_path), &log)?;
     let install = wait_for(&mut child, &log, "installation finished", &["INSTALLATION FAILED", "EXCEPTION", "KERNEL PANIC"], Duration::from_secs(45 * 60))?;
-    let cfg = crate::lua::load_config(&config)?;
+    let cfg = crate::config::load_config(&config)?;
     for a in &cfg.user_archives {
         let fetched = install.contains(&format!("user archive {} -> ~/", a.url));
         let skipped = install.contains(&format!("warning: skipping {}", a.url));

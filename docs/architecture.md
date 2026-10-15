@@ -15,7 +15,7 @@ An Arch Linux installer written in Rust that does not run on top of Linux.
 - There is no interactive UI: the config decides everything.
 - The disk to erase is chosen either by serial number or, if you opt in, simply as the largest one.
 
-> **Warning.** With `disk.auto_largest = true` (the setting in the presets and in `configs/config.lua`),
+> **Warning.** With `disk.auto_largest = true` (the setting in the presets and in `configs/config.toml`),
 > booting the ISO **erases the largest disk in the machine without asking.** Only boot these ISOs on
 > hardware or VMs where that is what you want.
 
@@ -67,7 +67,7 @@ countdowns, or abort keys on purpose.
 | Path | Contents |
 |---|---|
 | `kernel/` | the `no_std` installer kernel (`x86_64-unknown-none`): console, heap, exceptions, idle timer tick, random numbers, TSC clock, paging for MMIO, the install flow, the hardware test |
-| `xtask/` | host tooling: Lua evaluation, keyring blob and its pin (`keyring.pin`), payload and ISO assembly, BIOS stage patching, QEMU runs, tests |
+| `xtask/` | host tooling: TOML evaluation, keyring blob and its pin (`keyring.pin`), payload and ISO assembly, BIOS stage patching, QEMU runs, tests |
 | `config/` | config types shared by `xtask` and the kernel, plus validation |
 | `crates/hal` | `BlockDevice`, `NetDevice`, `Clock`, `Rng` traits |
 | `crates/drivers` | PCI, virtio-blk/net, AHCI, legacy ATA (IDE mode), NVMe, Intel e1000/e1000e/igb/igc, Realtek r8101/r8168/r8169/r8125/rtl8139, Atheros alx/atl1c, VMware vmxnet3 (all polled) |
@@ -85,6 +85,6 @@ countdowns, or abort keys on purpose.
 | `tiny-init/` | the initramfs `init` (raw syscalls, no libc) |
 | `firstboot/` | systemd units and script for the first boot |
 | `crates/aurbuild` | host-only AUR support: search, review, pin and plan (the packages are built on the installed system, see `plans-implement/aur.md`) |
-| `crates/hostcfg` | host-only config model shared by `xtask` and the GUI: Lua loading, build profiles, driver and script catalogues, Lua writer, package resolution preview, build progress events |
-| `gui/` | `archstaller-gui`, the GTK4 desktop app (Linux): config editor, Lua source editor, ISO build, Ventoy copy, raw USB flash |
-| `configs/` | Lua configs: example, e2e, presets, shared modules, generated LuaLS types |
+| `crates/hostcfg` | host-only config model shared by `xtask` and the GUI: TOML loading, build profiles, driver and script catalogues, TOML writer, package resolution preview, build progress events |
+| `gui/` | `archstaller-gui`, the GTK4 desktop app (Linux): config editor, TOML source editor, ISO build, Ventoy copy, raw USB flash |
+| `configs/` | TOML configs: example, e2e, presets, schema |

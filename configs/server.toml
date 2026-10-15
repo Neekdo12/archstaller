@@ -1,0 +1,57 @@
+# archstaller: kind=preset
+# Server: minimal plus OpenSSH and a few admin tools.
+# WARNING: sshd is enabled and the default login is passwd_is_passwd / passwd. Change the
+# password before connecting this to a network.
+schema = 1
+
+[system]
+hostname = "server"
+timezone = "Europe/Prague"
+locale = "en_US.UTF-8"
+keymap = "us"
+
+[install]
+mirrors = ["https://geo.mirror.pkgbuild.com/$repo/os/$arch"]
+
+[install.disk]
+auto_largest = true
+esp_mib = 1024
+
+[packages]
+explicit = [
+  "base",
+  "linux",
+  "mkinitcpio",
+  "grub",
+  "efibootmgr",
+  "sudo",
+  "nano",
+  "ly",
+  "linux-firmware-intel",
+  "linux-firmware-realtek",
+  "linux-firmware-amdgpu",
+  "linux-firmware-radeon",
+  "openssh",
+  "htop",
+  "tmux",
+  "rsync",
+  "vim",
+]
+
+[packages.providers]
+initramfs = "mkinitcpio"
+
+[[users]]
+name = "passwd_is_passwd"
+password_hash = "$6$archstlr$gnUg60P8TrWaKT.8/oW8Iq1kc8LlPnk4A6UWw5ij0AAQNe2IN7TuPFnw7PmXMXuobrVIYBSbNWUgRbpafXqcc."
+groups = ["wheel"]
+shell = "/bin/bash"
+
+[first_boot]
+services = [
+  "systemd-timesyncd.service",
+  "ly@tty2.service",
+  "systemd-networkd.service",
+  "systemd-resolved.service",
+  "sshd.service",
+]

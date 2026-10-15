@@ -46,9 +46,9 @@ fn main() -> gtk::glib::ExitCode {
                 gtk::STYLE_PROVIDER_PRIORITY_USER + 10,
             );
         }
-        // `ARCHSTALLER_PAGE=lua` (a page id of the sidebar) opens on that page: handy for screenshots.
+        // `ARCHSTALLER_PAGE=toml` (a page id of the sidebar) opens on that page: handy for screenshots.
         if let Ok(id) = std::env::var("ARCHSTALLER_PAGE") {
-            if let Some((page, ..)) = app::PAGES.iter().find(|p| p.1 == id) {
+            if let Some((page, ..)) = app::PAGES.iter().find(|p| p.1 == id.as_str()) {
                 app.show(*page);
             }
         }

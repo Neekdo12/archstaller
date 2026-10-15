@@ -1,9 +1,9 @@
 # GTK desktop GUI implementation
 
-**Status: implemented.** `gui/` is a GTK 4 application with a GtkSourceView 5 Lua editor; the egui front end
+**Status: implemented.** `gui/` is a GTK 4 application with a GtkSourceView 5 TOML editor; the egui front end
 is gone. Decisions and differences from the text below:
 
-- **Platform:** Linux only. Windows and macOS support of the old GUI was dropped on purpose (the Lua editor and
+- **Platform:** Linux only. Windows and macOS support of the old GUI was dropped on purpose (the TOML editor and
   the volume handling use `lsblk`, `udisksctl` and GtkSourceView).
 - **Dark by default** (`ARCHSTALLER_THEME=system|light` overrides), check and radio indicators are pinned to 16 px so a
   theme or scale cannot blow them up, and no page widens the window: long labels wrap and the stack is not
@@ -37,7 +37,7 @@ layouts.
 The current application lives in `gui/` and uses eframe/egui. Keep its UI-independent modules and
 contracts where possible:
 
-- `gui/src/model.rs` owns the editable document: shared `config::Config`, host-only `HostConfig`, Lua
+- `gui/src/model.rs` owns the editable document: shared `config::Config`, host-only `HostConfig`, TOML
   open/save, preset loading, and validation through the same `hostcfg` code as the CLI. It must remain
   independent of GTK so its tests and config rules stay reusable.
 - `gui/src/build.rs` starts `cargo xtask build`, receives JSON progress events and log output, supports
@@ -50,14 +50,14 @@ contracts where possible:
 - `hostcfg` remains the owner of validation, preset parsing, package resolution, progress events, and
   config generation. Do not duplicate its rules in widget callbacks.
 
-Preserve the current workflows: new config; open/save Lua; create a document from a repository preset;
+Preserve the current workflows: new config; open/save TOML; create a document from a repository preset;
 edit system, disk, mirrors/packages, users, services/kernel options, installer build/drivers, and scripts;
-view/edit Lua; resolve packages; build an ISO; inspect build progress/logs; and copy a completed ISO to a
+view/edit TOML; resolve packages; build an ISO; inspect build progress/logs; and copy a completed ISO to a
 Ventoy volume.
 
 ## GTK stack and architecture
 
-Use Rust GTK bindings (`gtk4` crate) with GTK 4, and GtkSourceView 5 (`sourceview5` crate) for the Lua
+Use Rust GTK bindings (`gtk4` crate) with GTK 4, and GtkSourceView 5 (`sourceview5` crate) for the TOML
 source editor. Use `gio`/`glib` actions and application lifecycle conventions instead of maintaining a
 parallel custom event framework. Evaluate `libadwaita` for adaptive navigation and standard dialogs, but
 keep the app's content styling compatible with ordinary GTK themes and do not require GNOME Shell.
@@ -96,7 +96,7 @@ Use a resizable application window with a GTK header bar and a two-part workspac
   executes a destructive action without the same explicit confirmation as its normal UI path.
 - Use familiar GTK controls: switches/check buttons for booleans, dropdowns for bounded choices, numeric
   spin buttons for numeric values, list rows for users/services/packages, and dialogs for file selection
-  and confirmation. Use text editors only for genuinely free-form Lua, package lists, scripts, or
+  and confirmation. Use text editors only for genuinely free-form TOML, package lists, scripts, or
   multi-line fields.
 - Use responsive/adaptive layout so the sidebar can collapse on narrow windows and forms remain usable
   without horizontal scrolling. Keep keyboard focus visible and labels associated with their controls.
@@ -126,8 +126,8 @@ or tooltips where an icon's meaning is not obvious.
   erase default conspicuous before the user builds an ISO.
 - Show validation errors next to the relevant page/control and retain a summary that navigates to the
   first problem. Use `Model::problems()` as the source of truth.
-- Keep foreign/non-generated Lua editable as raw text without silently overwriting it with form output.
-- Provide an explicit Lua source-edit mode for generated configs too; see the Lua editor requirements
+- Keep foreign/non-generated TOML editable as raw text without silently overwriting it with form output.
+- Provide an explicit TOML source-edit mode for generated configs too; see the TOML editor requirements
   below. Never silently discard source edits when switching between source and form modes.
 - Password entry and confirmation stay masked. Only the generated password hash is stored in config.
 - For scripts that run as root, retain an explicit acknowledgement that shows the script identity/source
@@ -140,24 +140,24 @@ or tooltips where an icon's meaning is not obvious.
 - Package resolution and validation continue through `hostcfg`; the GTK frontend must not invent
   package metadata or silently change provider selections.
 
-### Lua source editor
+### TOML source editor
 
-- Replace the read-only generated-Lua preview with an embedded GtkSourceView 5 editor. Generated
-  configs and foreign/raw Lua files can both be edited directly in the application.
-- Enable the Lua language definition for syntax highlighting. Show line numbers and current-line
+- Replace the read-only generated-TOML preview with an embedded GtkSourceView 5 editor. Generated
+  configs and foreign/raw TOML files can both be edited directly in the application.
+- Enable the TOML language definition for syntax highlighting. Show line numbers and current-line
   highlighting, preserve indentation, support undo/redo and editor search, and use a style scheme that
-  follows the selected GTK light/dark preference. If the Lua language definition is unavailable, keep
+  follows the selected GTK light/dark preference. If the TOML language definition is unavailable, keep
   editing functional in plain-text mode and show a non-blocking notice.
 - Keep source and form editing as explicit modes. Entering source mode serializes the current form once
   and edits that text buffer. While source mode is active, form controls are unavailable so there is
-  only one editable representation. Re-evaluate edited text with the same `hostcfg` Lua loading and
+  only one editable representation. Re-evaluate edited text with the same `hostcfg` TOML loading and
   validation path used by the CLI. Return to form mode only after successful evaluation; on failure,
   stay in the editor, preserve all text, and show the parser/validation message. Switching modes with
   unsaved edits requires an explicit save/discard decision.
 - Show parser and config-validation diagnostics beside or below the editor. Include a source location
   when the parser provides one; do not invent line/column locations for errors that lack them. Clicking
   a located diagnostic moves the editor cursor to that line.
-- Add lightweight, non-modal completions: Lua keywords and standard syntax where supported; known
+- Add lightweight, non-modal completions: TOML keywords and standard syntax where supported; known
   config field names and documented values; build-profile names, installer-driver IDs, built-in script
   IDs, and package/group names from an already loaded sync database. Reuse `hostcfg` catalogues and the
   active package resolution data as sources of truth rather than maintaining duplicate lists in the
@@ -192,9 +192,9 @@ or tooltips where an icon's meaning is not obvious.
    integration, and a minimal page host. Keep the existing eframe app buildable only if doing so is
    useful for a short transition; do not keep two supported frontends long term.
 2. **Config editing:** port document actions and the System, Disk, Users, Services, Build, and Scripts
-   pages. Reuse `Model`, validation, preset discovery, and Lua behavior unchanged.
-3. **Packages and Lua editor:** port package/mirror editing, asynchronous resolution, ambiguity display,
-   generated and foreign Lua source editing, highlighting, completion, and diagnostics.
+   pages. Reuse `Model`, validation, preset discovery, and TOML behavior unchanged.
+3. **Packages and TOML editor:** port package/mirror editing, asynchronous resolution, ambiguity display,
+   generated and foreign TOML source editing, highlighting, completion, and diagnostics.
 4. **Build and media:** integrate build event/log handling, cancellation, completed ISO state, volume
    selection, overwrite confirmation, and verified Ventoy copy.
 5. **Polish and packaging:** keyboard launcher/actions, responsive layout, accessibility, theme checks,
@@ -210,7 +210,7 @@ chosen targets.
 - Keep `cargo test -p archstaller-gui` passing, including existing model, build, and media tests. Add
   focused tests for any new controller/state transitions without requiring a display server.
 - Add a smoke test or documented manual check that launches the app, opens a config, creates a preset
-  document, saves/reopens Lua, and shows validation errors at the correct page.
+  document, saves/reopens TOML, and shows validation errors at the correct page.
 - Exercise package resolution and build progress while interacting with the window; verify the UI stays
   responsive and no GTK widget is accessed from a worker thread.
 - Exercise successful, failed, and canceled builds; ensure only the active build workdir is removed on

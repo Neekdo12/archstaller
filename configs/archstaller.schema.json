@@ -1,0 +1,455 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AsConfig",
+  "description": "An Archstaller configuration.",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "description": "Schema version; must be 1.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "system": {
+      "description": "Identity and locale of the installed system.",
+      "$ref": "#/$defs/System"
+    },
+    "install": {
+      "description": "How and where the installer writes the system.",
+      "$ref": "#/$defs/Install"
+    },
+    "packages": {
+      "description": "What gets installed.",
+      "$ref": "#/$defs/Packages"
+    },
+    "users": {
+      "description": "Login accounts of the installed system.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/User"
+      },
+      "default": []
+    },
+    "first_boot": {
+      "description": "What runs on the installed system's first boot.",
+      "$ref": "#/$defs/FirstBoot",
+      "default": {
+        "services": [],
+        "kernel_params": [],
+        "scripts": [],
+        "user_files": [],
+        "user_archives": []
+      }
+    },
+    "build": {
+      "description": "Build-host options: how the ISO is produced. Not part of what the installer receives.",
+      "$ref": "#/$defs/AsBuild",
+      "default": {
+        "profile": null,
+        "tethering": false,
+        "installer_drivers": null
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "system",
+    "install",
+    "packages"
+  ],
+  "$defs": {
+    "System": {
+      "type": "object",
+      "properties": {
+        "hostname": {
+          "description": "Host name, for example `archbox`.",
+          "type": "string"
+        },
+        "timezone": {
+          "description": "IANA time zone, for example `Europe/Prague`.",
+          "type": "string"
+        },
+        "locale": {
+          "description": "Locale, for example `en_US.UTF-8`.",
+          "type": "string"
+        },
+        "keymap": {
+          "description": "Console keymap, for example `us`.",
+          "type": "string"
+        },
+        "root_password_hash": {
+          "description": "SHA-512 crypt hash (`$6$...`) of root's password. Leave it out to keep root locked.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "hostname",
+        "timezone",
+        "locale",
+        "keymap"
+      ]
+    },
+    "Install": {
+      "type": "object",
+      "properties": {
+        "disk": {
+          "description": "Which disk the installer erases.",
+          "$ref": "#/$defs/Disk"
+        },
+        "mirrors": {
+          "description": "Mirror base URLs; `$repo` and `$arch` are substituted (pacman mirrorlist style).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dry_run": {
+          "description": "Hardware test mode: probe, read disks (never write), resolve packages, print a report, reboot.",
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "disk",
+        "mirrors"
+      ]
+    },
+    "Disk": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "description": "Substring of the disk model; must select exactly one disk. Without it the serial alone selects the disk.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "confirm_serial": {
+          "description": "Serial of the one disk that may be erased. Not used with `auto_largest`.",
+          "type": "string",
+          "default": ""
+        },
+        "auto_largest": {
+          "description": "WARNING: erase and install onto the largest disk without any confirmation.",
+          "type": "boolean",
+          "default": false
+        },
+        "esp_mib": {
+          "description": "Size of the EFI system partition in MiB.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "esp_mib"
+      ]
+    },
+    "Packages": {
+      "type": "object",
+      "properties": {
+        "explicit": {
+          "description": "Package or group names installed explicitly. Names are suggestions: the resolver decides.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "providers": {
+          "description": "Dependency name to the package that provides it, for example `{ initramfs = \"mkinitcpio\" }`.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "aur": {
+          "description": "AUR packages, in build order, pinned to the reviewed recipe (see `plans-implement/aur.md`).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Aur"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "explicit"
+      ]
+    },
+    "Aur": {
+      "description": "One AUR package, pinned to the reviewed recipe.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The package to install (a `pkgname` of the recipe).",
+          "type": "string"
+        },
+        "pkgbase": {
+          "description": "The AUR git repository name.",
+          "type": "string"
+        },
+        "commit": {
+          "description": "Full 40-digit lower-case hex commit of the reviewed recipe.",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "SHA-256 over the reviewed tree, 64 lower-case hex digits.",
+          "type": "string"
+        },
+        "vcs": {
+          "description": "The recipe builds from a VCS source that the commit does not pin.",
+          "type": "boolean",
+          "default": false
+        },
+        "as_dep": {
+          "description": "Install it as a dependency of another entry.",
+          "type": "boolean",
+          "default": false
+        },
+        "deps": {
+          "description": "Official packages the recipe needs, to build and to run.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "build_deps": {
+          "description": "The part of `deps` that only the build needs.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "services": {
+          "description": "Units to enable once the package is installed.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "pkgbase",
+        "commit",
+        "sha256"
+      ]
+    },
+    "User": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Login name.",
+          "type": "string"
+        },
+        "password_hash": {
+          "description": "SHA-512 crypt hash (`$6$...`); plaintext is never accepted.",
+          "type": "string"
+        },
+        "groups": {
+          "description": "Supplementary groups, for example `wheel`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "shell": {
+          "description": "Login shell, for example `/bin/bash`.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "password_hash",
+        "groups",
+        "shell"
+      ]
+    },
+    "FirstBoot": {
+      "type": "object",
+      "properties": {
+        "services": {
+          "description": "Units enabled on first boot.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "kernel_params": {
+          "description": "Extra kernel command line parameters.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "scripts": {
+          "description": "Scripts run as root, in order, at the end of the first boot.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Script"
+          },
+          "default": []
+        },
+        "user_files": {
+          "description": "Files downloaded into every user's home directory (a failed download only warns).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UserFile"
+          },
+          "default": []
+        },
+        "user_archives": {
+          "description": "Zip archives extracted into every user's home directory (a failed download only warns).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UserArchive"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
+    "Script": {
+      "description": "A first-boot script. Exactly one source: none of `file`/`url` (a built-in script of that `id`),\n`file` (a local file, relative to the config), or `url` with `sha256`.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Built-in script name (`enable-sshd`, `enable-fstrim`) or a name of your own for `file`/`url`.",
+          "type": "string"
+        },
+        "args": {
+          "description": "Extra arguments, passed as separate words.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "file": {
+          "description": "Path of a local script, relative to the config file.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "url": {
+          "description": "`https://` URL of the script; needs `sha256`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "sha256": {
+          "description": "Lower-case hex SHA-256 of the script at `url`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ]
+    },
+    "UserFile": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "description": "`https://` URL of the file (at most 1 MiB).",
+          "type": "string"
+        },
+        "dest": {
+          "description": "Destination relative to the home directory, for example `.config/hypr/hyprland.conf`.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "dest"
+      ]
+    },
+    "UserArchive": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "description": "`https://` URL of a zip file (at most 16 MiB).",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "url"
+      ]
+    },
+    "AsBuild": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "description": "Compiler profile of the installer: `super-small` (default) or `large` (keeps panic messages).",
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "super-small",
+            "large",
+            null
+          ],
+          "default": null
+        },
+        "tethering": {
+          "description": "Include USB tethering (iPhone, Android, USB Ethernet) in the installer.",
+          "type": "boolean",
+          "default": false
+        },
+        "installer_drivers": {
+          "description": "Installer-kernel drivers to include; leave it out for all of them.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string",
+            "enum": [
+              "virtio-blk",
+              "ahci",
+              "ata",
+              "nvme",
+              "alx",
+              "vmxnet3",
+              "virtio-net",
+              "e1000",
+              "igb",
+              "r8169",
+              "rtl8139"
+            ]
+          },
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

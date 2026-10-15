@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     fn unknown_builtin_is_rejected() {
-        let mut cfg = crate::lua::tests_support::minimal_config();
+        let mut cfg = crate::toml::tests_support::minimal_config();
         cfg.scripts = vec![script("enable-sshd")];
         assert!(validate(&cfg).is_ok());
         cfg.scripts = vec![script("no-such-thing")];
@@ -139,7 +139,7 @@ mod tests {
 
     #[test]
     fn config_validation_of_script_sources() {
-        let mut cfg = crate::lua::tests_support::minimal_config();
+        let mut cfg = crate::toml::tests_support::minimal_config();
         let check = |cfg: &Config| cfg.validate().unwrap_err();
         let sha = "a".repeat(64);
         cfg.scripts = vec![Script { id: "x".into(), url: Some("https://e.org/x.sh".into()), ..Default::default() }];
@@ -162,7 +162,7 @@ mod tests {
 
     #[test]
     fn resolve_fills_in_content() {
-        let mut cfg = crate::lua::tests_support::minimal_config();
+        let mut cfg = crate::toml::tests_support::minimal_config();
         cfg.scripts = vec![script("enable-fstrim")];
         let r = resolve(&cfg, Path::new(".")).unwrap();
         assert!(r.scripts[0].content.as_ref().unwrap().starts_with(b"#!/bin/bash"));

@@ -61,24 +61,24 @@ model in the spec doc once it passes.
 
 ## 2. Sway preset (`plans-implement/sway-preset.md`)
 
-Code: `configs/sway.lua`, `configs/sway-config.sh`, and the new `scripts` field in `configs/common.lua`. The package
+Code: `configs/sway.toml`, `configs/sway-config.sh`. The package
 names were checked against the Arch databases of 2026-10-07; nothing was resolved, built or installed.
 
 ### Config checks
 
-- [ ] `cargo test -p hostcfg` passes. It loads every config in `configs/` (`sway.lua` included) and checks
-      that the preset is in the table in `docs/lua-config.md`.
-- [ ] `cargo xtask build --config configs/sway.lua --out /tmp/sway.iso` embeds `sway-config.sh` without an error
+- [ ] `cargo test -p hostcfg` passes. It loads every config in `configs/` (`sway.toml` included) and checks
+      that the preset is in the table in `docs/toml-config.md`.
+- [ ] `cargo xtask build --config configs/sway.toml --out /tmp/sway.iso` embeds `sway-config.sh` without an error
       (local script paths are relative to the config file).
 - [ ] `cargo xtask check-presets` resolves `sway` with no missing package and with `jack` coming from
       `pipewire-jack`. Write the real package count and download size into the preset tables in
-      `docs/lua-config.md` and `README.md` (they now say "~1.1 GiB (estimate)").
+      `docs/toml-config.md` and `README.md` (they now say "~1.1 GiB (estimate)").
 - [ ] `cargo xtask presets` builds `target/isos/archstaller-sway.iso`.
 - [ ] `bash -n configs/sway-config.sh` and, if installed, `shellcheck configs/sway-config.sh` are clean.
 
 ### Install in QEMU
 
-- [ ] `cargo xtask e2e --config configs/sway.lua` passes (install, first boot, second boot to the login prompt).
+- [ ] `cargo xtask e2e --config configs/sway.toml` passes (install, first boot, second boot to the login prompt).
 - [ ] In the serial log of the first boot (under `target/e2e/`): `running script sway-config`, then
       `sway: wrote ~/.config/sway/config for passwd_is_passwd` and `script sway-config: done`.
 - [ ] Boot the installed disk with graphics. Change the file name to match your e2e mode:
@@ -135,7 +135,7 @@ outcome prints one `log dump skipped: ...` line and touches nothing; a rerun nev
 
 - [x] `cargo build -p kernel --target x86_64-unknown-none --profile gui` compiles with no warnings.
 - [x] `cargo xtask size` is within budget (measured 776192 bytes of 3145728).
-- [x] `cargo xtask build --config configs/e2e.lua --uefi` builds the whole ISO (both loaders, the real-mode BIOS
+- [x] `cargo xtask build --config configs/e2e.toml --uefi` builds the whole ISO (both loaders, the real-mode BIOS
       boot-medium probe included) with no warnings.
 - [x] The skip paths print exactly one line: with no Ventoy stick present the kernel prints
       `log dump skipped: the boot disk has no Ventoy exFAT partition` (or `... the boot medium was not identified`

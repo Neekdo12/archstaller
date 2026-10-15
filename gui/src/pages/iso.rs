@@ -518,8 +518,8 @@ pub fn start_from_action(app: &Rc<App>) {
                     Ok(p)
                 }
                 None => {
-                    let p = std::env::temp_dir().join(format!("archstaller-{}.lua", std::process::id()));
-                    let text = a.st.borrow().model.lua();
+                    let p = std::env::temp_dir().join(format!("archstaller-{}.toml", std::process::id()));
+                    let text = a.st.borrow().model.toml();
                     std::fs::write(&p, text).map(|_| p).map_err(|e| format!("cannot write the temporary config: {e}"))
                 }
             };
@@ -558,8 +558,8 @@ fn start_build_and_flash(app: &Rc<App>, dev: flash::RawDevice) {
                 Ok(p)
             }
             None => {
-                let p = std::env::temp_dir().join(format!("archstaller-{}.lua", std::process::id()));
-                let text = a.st.borrow().model.lua();
+                let p = std::env::temp_dir().join(format!("archstaller-{}.toml", std::process::id()));
+                let text = a.st.borrow().model.toml();
                 std::fs::write(&p, text).map(|_| p).map_err(|e| format!("cannot write the temporary config: {e}"))
             }
         };

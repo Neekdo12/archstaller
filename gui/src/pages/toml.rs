@@ -1,4 +1,4 @@
-//! The Lua source page: a GtkSourceView editor for the config's text. Source and form editing are
+//! The TOML source page: a GtkSourceView editor for the config's text. Source and form editing are
 //! separate modes: entering source mode serializes the form once; the forms stay unavailable while
 //! source mode is on, and leaving it needs a successful evaluation by the same loader the CLI uses.
 use crate::app::App;
@@ -15,7 +15,7 @@ use std::time::Duration;
 
 fn scheme_buffer(app: &Rc<App>, text: &str) -> (sourceview5::Buffer, bool) {
     let buf = sourceview5::Buffer::new(None);
-    let lang = sourceview5::LanguageManager::default().language("lua");
+    let lang = sourceview5::LanguageManager::default().language("toml");
     let has_lang = lang.is_some();
     buf.set_language(lang.as_ref());
     buf.set_highlight_syntax(true);
@@ -47,7 +47,7 @@ fn editor_view(buf: &sourceview5::Buffer, editable: bool) -> sourceview5::View {
 pub fn build(app: &Rc<App>, content: &gtk::Box) {
     let (raw, foreign, text) = {
         let st = app.st.borrow();
-        (st.model.raw.is_some(), st.model.foreign, st.model.lua())
+        (st.model.raw.is_some(), st.model.foreign, st.model.toml())
     };
     if !raw {
         form_mode(app, content, &text);
@@ -58,14 +58,14 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
 
 /// The generated text, read-only, and the way into source mode.
 fn form_mode(app: &Rc<App>, content: &gtk::Box, text: &str) {
-    ui::heading(content, "Lua source", "The file this config is saved as. It is plain Lua; the forms and this text describe the same config. Source mode lets you edit the text itself.");
+    ui::heading(content, "TOML source", "The file this config is saved as. It is plain TOML; the forms and this text describe the same config. Source mode lets you edit the text itself.");
     let c = ui::card(content, None);
     let (buf, has_lang) = scheme_buffer(app, text);
     let view = editor_view(&buf, false);
     let scroll = gtk::ScrolledWindow::builder().min_content_height(480).vexpand(true).has_frame(true).child(&view).build();
     c.append(&scroll);
     if !has_lang {
-        ui::hint(&c, "Lua highlighting is not available (the GtkSourceView Lua language definition was not found); the text is shown plain.");
+        ui::hint(&c, "TOML highlighting is not available (the GtkSourceView TOML language definition was not found); the text is shown plain.");
     }
     let r = ui::hbox(8);
     let a = app.clone();
@@ -76,8 +76,8 @@ fn form_mode(app: &Rc<App>, content: &gtk::Box, text: &str) {
     }));
     let a = app.clone();
     r.append(&ui::button("Copy", move || {
-        let t = a.st.borrow().model.lua();
-        a.copy_text(&t, "Lua");
+        let t = a.st.borrow().model.toml();
+        a.copy_text(&t, "TOML");
     }));
     c.append(&r);
 }
@@ -90,7 +90,7 @@ struct Completion {
 }
 
 fn source_mode(app: &Rc<App>, content: &gtk::Box, text: &str, foreign: bool) {
-    ui::heading(content, "Lua source", if foreign { "This file was not written by the GUI, so it is edited as text and checked as it is." } else { "Source mode: edit the text. The forms are unavailable until you return to them." });
+    ui::heading(content, "TOML source", if foreign { "This file was not written by the GUI, so it is edited as text and checked as it is." } else { "Source mode: edit the text. The forms are unavailable until you return to them." });
     let c = ui::card(content, None);
     let (buf, has_lang) = scheme_buffer(app, text);
     let view = editor_view(&buf, true);
@@ -147,7 +147,7 @@ fn source_mode(app: &Rc<App>, content: &gtk::Box, text: &str, foreign: bool) {
     let scroll = gtk::ScrolledWindow::builder().min_content_height(420).vexpand(true).has_frame(true).child(&view).build();
     c.append(&scroll);
     if !has_lang {
-        ui::hint(&c, "Lua highlighting is not available (the GtkSourceView Lua language definition was not found); editing works as plain text.");
+        ui::hint(&c, "TOML highlighting is not available (the GtkSourceView TOML language definition was not found); editing works as plain text.");
     }
 
     // Diagnostics: the loader's message, and a jump to its line when it names one.
@@ -215,7 +215,7 @@ fn source_mode(app: &Rc<App>, content: &gtk::Box, text: &str, foreign: bool) {
             let a = a.clone();
             glib::spawn_future_local(async move {
                 let foreign = a.st.borrow().model.foreign;
-                if foreign && !dialogs::confirm(a.win.upcast_ref(), "Replace the file's text with form output?", "This file was not written by the GUI. The forms can only represent what they know: comments, helper modules and custom Lua in the file are lost when it is saved from the forms.", "Replace with form output").await {
+                if foreign && !dialogs::confirm(a.win.upcast_ref(), "Replace the file's text with form output?", "This file was not written by the GUI. The forms can only represent what they know: comments, helper sections and custom TOML in the file are lost when it is saved from the forms.", "Replace with form output").await {
                     return;
                 }
                 let r = a.st.borrow_mut().model.leave_source();

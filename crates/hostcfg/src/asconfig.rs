@@ -1,10 +1,10 @@
-//! The `as` authoring model: what a Lua config returns (`return { as = { ... } }`).
+//! The configuration authoring model for TOML configs.
 //!
-//! These types only describe the shape of the file. They reject unknown keys and wrong value types
+//! These types describe the shape of the TOML file. They reject unknown keys and wrong value types
 //! while deserializing, then [`AsConfig::into_parts`] normalizes them into the installer's
 //! [`config::Config`] and the host-only [`HostConfig`]; the values are validated there, by the same
-//! code as before. [`AsConfig::from_parts`] goes the other way for the writer. The LuaLS annotations
-//! in `configs/archstaller.lua` are generated from these types (`cargo xtask gen-luals`).
+//! code as before. [`AsConfig::from_parts`] goes the other way for the writer. The JSON Schema
+//! in `configs/archstaller.schema.json` is generated from these types (`cargo xtask gen-schema`).
 use crate::host::{Build, HostConfig, DRIVERS};
 use schemars::{json_schema, JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
@@ -12,14 +12,6 @@ use std::collections::BTreeMap;
 
 /// The schema version this build reads and writes.
 pub const SCHEMA: u32 = 1;
-
-/// The whole file: exactly one application namespace, `as`.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct Envelope {
-    #[serde(rename = "as")]
-    pub as_: AsConfig,
-}
 
 /// An Archstaller configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -139,7 +131,7 @@ pub struct FirstBoot {
 pub struct UserFile {
     /// `https://` URL of the file (at most 1 MiB).
     pub url: String,
-    /// Destination relative to the home directory, for example `.config/hypr/hyprland.lua`.
+    /// Destination relative to the home directory, for example `.config/hypr/hyprland.conf`.
     pub dest: String,
 }
 
@@ -225,15 +217,14 @@ fn drivers_schema(_: &mut SchemaGenerator) -> Schema {
     json_schema!({ "type": ["array", "null"], "items": { "type": "string", "enum": ids } })
 }
 
-impl Envelope {
-    /// Reads the Lua value a config returned; errors carry the full path (`as.system.hostname: ...`),
-    /// with list positions counted from 1 like Lua does.
-    pub fn from_lua(value: mlua::Value) -> Result<Envelope, String> {
-        let de = mlua::serde::Deserializer::new(value);
-        serde_path_to_error::deserialize(de).map_err(|e| {
-            let msg = e.inner().to_string();
-            format!("{}: {}", path(e.path()), msg.strip_prefix("deserialize error: ").unwrap_or(&msg))
-        })
+impl AsConfig {
+    /// Reads an Archstaller TOML configuration string; errors carry the full path (`system.hostname: ...`).
+    pub fn from_toml(src: &str) -> Result<AsConfig, String> {
+        let de = toml::Deserializer::new(src);
+        let cfg: AsConfig = serde_path_to_error::deserialize(de).map_err(|e| {
+            format!("{}: {}", path(e.path()), e.inner())
+        })?;
+        Ok(cfg)
     }
 }
 
@@ -242,7 +233,7 @@ fn path(p: &serde_path_to_error::Path) -> String {
     let mut s = String::new();
     for seg in p.iter() {
         match seg {
-            Segment::Seq { index } => s.push_str(&format!("[{}]", index + 1)),
+            Segment::Seq { index } => s.push_str(&format!("[{index}]")),
             Segment::Map { key } | Segment::Enum { variant: key } => {
                 if !s.is_empty() {
                     s.push('.');
@@ -263,7 +254,7 @@ impl AsConfig {
     /// The installer's config and the host-only settings this file stands for. Not validated yet.
     pub fn into_parts(self) -> Result<(config::Config, HostConfig), String> {
         if self.schema != SCHEMA {
-            return Err(format!("as.schema: this version reads schema {SCHEMA}, the file says {}", self.schema));
+            return Err(format!("schema: this version reads schema {SCHEMA}, the file says {}", self.schema));
         }
         let cfg = config::Config {
             hostname: self.system.hostname,
@@ -326,8 +317,8 @@ impl AsConfig {
     }
 }
 
-/// The JSON Schema of the file, the single source of the LuaLS annotations.
+/// The JSON Schema of an Archstaller TOML configuration.
 pub fn json_schema() -> serde_json::Value {
-    let schema = schemars::generate::SchemaSettings::draft2020_12().into_generator().into_root_schema_for::<Envelope>();
+    let schema = schemars::generate::SchemaSettings::draft2020_12().into_generator().into_root_schema_for::<AsConfig>();
     serde_json::to_value(schema).expect("a schema is JSON")
 }

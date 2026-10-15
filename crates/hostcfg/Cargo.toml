@@ -6,7 +6,7 @@ description = "Host-side configuration model shared by xtask and the desktop GUI
 
 [dependencies]
 config = { path = "../../config", features = ["std"] }
-mlua = { version = "0.12", features = ["lua54", "vendored", "serialize"] }
+toml = "0.8"
 postcard = { version = "1", features = ["use-std"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }

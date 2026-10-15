@@ -1,6 +1,6 @@
 # ISO size
 
-Measured on 2026-10-02 with `cargo xtask size` (config `configs/config.lua`, profile `release`).
+Measured on 2026-10-02 with `cargo xtask size` (config `configs/config.toml`, profile `release`).
 The kernel breakdown by crate is from an unstripped build (`CARGO_PROFILE_RELEASE_STRIP=false`) through `llvm-nm --print-size`.
 
 **Total: 798,720 B (0.76 MiB).** With `--small`: 739,328 B (0.71 MiB). Before our own boot loader (Limine) it was
@@ -26,7 +26,7 @@ Contents of `payload.bin` (each entry is deflated separately, only when it gets 
 | `bios-boot` | 19.5 KiB | 12.4 KiB | stage 1 + 2 for the BIOS boot of the **target** disk; the kernel writes them to the MBR and the BIOS boot partition |
 | `bootx64.efi` | 23 KiB | 13.3 KiB | the UEFI loader for the first boot of the target system (copied to the target ESP) |
 | `tiny-init` | 37 KiB | 10 KiB | `/init` for the target system's initramfs |
-| `config.bin` | 0.4 KiB | 0.3 KiB | the evaluated `config.lua` |
+| `config.bin` | 0.4 KiB | 0.3 KiB | the evaluated `config.toml` |
 
 The loader (UEFI 23 KiB, BIOS 19 KiB) is roughly 4 % of the ISO together, against 49 % with Limine.
 

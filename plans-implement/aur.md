@@ -6,7 +6,7 @@ official packages the recipes need and writes `aur.list`; `firstboot/archstaller
 `archstaller-aur.sh` build and install the packages on the boot after the first one. Checked by unit tests
 (`cargo test -p aurbuild`, including a run of the real shell script against local git repositories with
 stand-ins for `pacman`, `makepkg` and the other root-only commands) and by an end-to-end QEMU install
-(`cargo xtask e2e --config configs/e2e-aur.lua`). Differences from the first draft of this plan are listed
+(`cargo xtask e2e --config configs/e2e-aur.toml`). Differences from the first draft of this plan are listed
 under "As implemented". This document replaces the short AUR notes in `docs/implement-gui.md` (phase 6).
 
 ## Goal
@@ -85,10 +85,11 @@ needed.
 
 Host-only input, written by the GUI, read by `hostcfg`:
 
-```lua
-aur_packages = {
-  { name = "zen-browser-bin", commit = "0f3c...40 hex...", sha256 = "...64 hex..." },
-}
+```toml
+[[packages.aur]]
+name = "zen-browser-bin"
+commit = "0f3c...40 hex..."
+sha256 = "...64 hex..."
 ```
 
 - `commit` is mandatory and must be a full 40-hex commit id. A moving branch is never accepted.
@@ -221,13 +222,13 @@ message, because the build needs a network.
 ## Implementation order
 
 1. **Schema and validation**: `HostConfig.aur_packages` becomes a list of `{name, commit, sha256, ...}`;
-   Lua loader, writer round trip, validation errors with field paths, the network-service rule;
+   TOML loader, writer round trip, validation errors with field paths, the network-service rule;
    `config::Config.aur` and its validation. Tests: bad commit ids, duplicate names, hash rules.
 2. **`crates/aurbuild`**: RPC client with cache, snapshot download and tree digest, `.SRCINFO` parser,
    dependency closure and ordering, policy checks. Fully testable offline with fixtures (recorded RPC
    answers and snapshot tarballs); an opt-in test hits the real AUR.
 3. **xtask**: add the plan's official and build dependencies to the package plan, write the list into the
-   config payload, `cargo xtask aur-plan --config X.lua` that prints the plan without building an ISO.
+   config payload, `cargo xtask aur-plan --config X.toml` that prints the plan without building an ISO.
 4. **Installer**: `aur.list`, `aur_builddeps.list`, overlay with the service and script.
 5. **First-boot script**: `archstaller-aur.sh` and the unit, tested in isolation first (shell test with a
    local git repository standing in for the AUR, run in a throwaway Arch container or chroot), then

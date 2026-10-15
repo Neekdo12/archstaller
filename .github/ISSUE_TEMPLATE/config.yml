@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
   - name: Question about a config or a preset
-    url: https://github.com/Neekdo12/archstaller/blob/master/docs/lua-config.md
+    url: https://github.com/Neekdo12/archstaller/blob/master/docs/toml-config.md
     about: The configuration reference answers most "how do I set X" questions, with checked examples.
   - name: Will my hardware work?
     url: https://github.com/Neekdo12/archstaller/blob/master/docs/hardware-and-networking.md

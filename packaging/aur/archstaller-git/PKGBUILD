@@ -23,7 +23,7 @@ optdepends=(
 )
 provides=("$_pkgname")
 conflicts=("$_pkgname")
-# makepkg's LTO turns the vendored Lua (C) into GCC LTO objects, which rust-lld, nightly's linker, cannot link.
+# GCC LTO objects cannot be linked by rust-lld, nightly's linker.
 # The gui profile strips the binary, so a debug package would be empty.
 options=('!lto' '!debug')
 source=("$_pkgname::git+$url.git")

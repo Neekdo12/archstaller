@@ -110,11 +110,11 @@ fn find_in_image(hay: &[u8], needle: &[u8]) -> Result<usize> {
 
 /// Verbose tracing is on with `--debug`, and always for a dry-run (hardware test) config, whose whole
 /// purpose is to show what the hardware does.
-fn wants_debug(opts: &Options, loaded: &hostcfg::lua::Loaded) -> bool {
+fn wants_debug(opts: &Options, loaded: &hostcfg::toml::Loaded) -> bool {
     opts.debug || loaded.config.dry_run
 }
 
-fn build_kernel(opts: &Options, loaded: &hostcfg::lua::Loaded, profile: Profile) -> Result<PathBuf> {
+fn build_kernel(opts: &Options, loaded: &hostcfg::toml::Loaded, profile: Profile) -> Result<PathBuf> {
     let mut cmd = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
     cmd.current_dir(root()).args(["build", "-p", "kernel", "--target", TARGET]);
     match profile {
@@ -204,7 +204,7 @@ pub fn build(opts: &Options) -> Result<PathBuf> {
 
 fn build_inner(opts: &Options) -> Result<PathBuf> {
     let (loaded, resolved) = stage(opts, "config", || {
-        let loaded = hostcfg::lua::load(&opts.config)?;
+        let loaded = hostcfg::toml::load(&opts.config)?;
         let resolved = hostcfg::host::resolve_profile(opts.profile, opts.legacy_small, &loaded.host)?;
         for w in resolved.warnings.iter().chain(&loaded.warnings) {
             eprintln!("warning: {w}");
@@ -216,7 +216,7 @@ fn build_inner(opts: &Options) -> Result<PathBuf> {
         Ok((loaded, resolved))
     })?;
     let kernel = stage(opts, "kernel", || flatten_kernel(&std::fs::read(build_kernel(opts, &loaded, resolved.profile)?)?))?;
-    let config_bin = hostcfg::lua::config_bin(&loaded, &opts.extra_kernel_params)?;
+    let config_bin = hostcfg::toml::config_bin(&loaded, &opts.extra_kernel_params)?;
     let keyring_blob = stage(opts, "keyring", keyring::build)?;
     let tiny_init = stage(opts, "tiny-init", || {
         run(Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))

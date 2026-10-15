@@ -1,6 +1,6 @@
-//! What the Lua editor offers at the cursor. Pure functions over the text before the cursor, so they are
+//! What the TOML editor offers at the cursor. Pure functions over the text before the cursor, so they are
 //! tested without a display. The lists come from `hostcfg` (driver ids, built-in scripts, the schema
-//! of the `as` table) and from what the GUI already loaded; nothing is invented here, and a suggestion
+//! of the config) and from what the GUI already loaded; nothing is invented here, and a suggestion
 //! is only a hint: the loader and validation decide what a config means.
 use hostcfg::host::DRIVERS;
 use hostcfg::scripts::BUILTINS;
@@ -36,7 +36,7 @@ pub struct Sources {
     pub packages: Vec<String>,
 }
 
-const KEYWORDS: &[&str] = &["and", "break", "do", "else", "elseif", "end", "false", "for", "function", "goto", "if", "in", "local", "nil", "not", "or", "repeat", "return", "then", "true", "until", "while", "require"];
+const KEYWORDS: &[&str] = &["true", "false"];
 
 fn ident_before(s: &str) -> Option<String> {
     let t = s.trim_end();
@@ -45,7 +45,27 @@ fn ident_before(s: &str) -> Option<String> {
     (!name.is_empty()).then_some(name)
 }
 
-/// The key of the table the cursor is inside: the identifier in front of the nearest unmatched `{`.
+fn section_before(before: &str) -> Option<String> {
+    for line in before.lines().rev() {
+        let t = line.trim();
+        if t.starts_with('#') {
+            continue;
+        }
+        if t.starts_with("[[") && t.ends_with("]]") {
+            let inner = t[2..t.len() - 2].trim();
+            let last_part = inner.rsplit('.').next().unwrap_or(inner);
+            return Some(last_part.to_string());
+        }
+        if t.starts_with('[') && t.ends_with(']') {
+            let inner = t[1..t.len() - 1].trim();
+            let last_part = inner.rsplit('.').next().unwrap_or(inner);
+            return Some(last_part.to_string());
+        }
+    }
+    None
+}
+
+/// The key of the table the cursor is inside: the identifier in front of the nearest unmatched `{` or `[`.
 fn enclosing_key(before: &str) -> Option<String> {
     let mut depth = 0i32;
     let mut in_str = false;
@@ -61,8 +81,8 @@ fn enclosing_key(before: &str) -> Option<String> {
             continue;
         }
         match c {
-            '}' => depth += 1,
-            '{' => {
+            '}' | ']' => depth += 1,
+            '{' | '[' => {
                 if depth == 0 {
                     let head: String = bytes[..i].iter().collect();
                     return ident_before(&head);
@@ -72,7 +92,7 @@ fn enclosing_key(before: &str) -> Option<String> {
             _ => {}
         }
     }
-    None
+    section_before(before)
 }
 
 pub fn context(before: &str) -> Context {
@@ -165,7 +185,7 @@ pub fn candidates(ctx: &Context, src: &Sources, fields: &[(String, String)]) -> 
             out.push(Item { insert: name.clone(), label: name.clone(), detail: d.clone() });
         }
         for k in KEYWORDS.iter().filter(|k| matches(k)) {
-            out.push(Item { insert: k.to_string(), label: k.to_string(), detail: "Lua keyword".into() });
+            out.push(Item { insert: k.to_string(), label: k.to_string(), detail: "TOML keyword".into() });
         }
     }
     out.sort_by_key(|i| rank(&i.label));
@@ -181,16 +201,16 @@ mod tests {
     fn context_inside_strings_and_tables() {
         let c = context("  build = { profile = \"la");
         assert_eq!(c, Context { in_string: true, key: Some("profile".into()), prefix: "la".into() });
-        let c = context("packages = {\n  explicit = { \"base\", \"lin");
+        let c = context("explicit = [ \"base\", \"lin");
         assert!(c.in_string && c.key.as_deref() == Some("explicit") && c.prefix == "lin", "{c:?}");
         // The key is the enclosing table for a bare string in a list on its own line.
-        let c = context("first_boot = {\n  services = {\n    \"sys");
+        let c = context("services = [\n  \"sys");
         assert!(c.in_string && c.key.as_deref() == Some("services") && c.prefix == "sys", "{c:?}");
-        // Not in a string: a field name being typed.
-        let c = context("system = {\n  host");
+        // Not in a string: a field name being typed inside a section.
+        let c = context("[system]\nhost");
         assert!(!c.in_string && c.prefix == "host" && c.key.as_deref() == Some("system"), "{c:?}");
-        // A closed table before the cursor does not count.
-        let c = context("a = { x = {1}, y = 2 }\nz");
+        // A closed array before the cursor does not count.
+        let c = context("a = [1]\nz");
         assert!(c.key.is_none() && c.prefix == "z", "{c:?}");
         // Escaped quotes do not toggle the state.
         let c = context("x = \"a\\\"b");
@@ -202,22 +222,24 @@ mod tests {
         let src = Sources { services: Rc::new(vec!["sshd.service".into(), "NetworkManager.service".into()]), packages: vec!["base".into(), "linux".into()], ..Default::default() };
         let fields = schema_fields();
         assert!(fields.iter().any(|(n, d)| n == "hostname" && !d.is_empty()), "descriptions are carried over");
-        let drivers = candidates(&context("build = { installer_drivers = { \"virt"), &src, &fields);
+        let drivers = candidates(&context("installer_drivers = [ \"virt"), &src, &fields);
         assert!(drivers.iter().any(|i| i.label == "virtio-blk") && drivers.iter().any(|i| i.label == "virtio-net"));
         assert!(drivers.iter().all(|i| !i.insert.contains('"')), "inside a string the quotes are already there");
         let profile = candidates(&context("profile = "), &src, &fields);
         // No prefix typed: nothing is pushed on the user for a value position outside a string... except the catalogue.
         assert!(profile.iter().any(|i| i.insert == "\"large\""), "{profile:?}");
-        let scripts = candidates(&context("scripts = { { id = \"enable-s"), &src, &fields);
+        let scripts = candidates(&context("scripts = [ { id = \"enable-s"), &src, &fields);
         assert_eq!(scripts.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(), ["enable-sshd"]);
-        let pk = candidates(&context("explicit = { \"li"), &src, &fields);
+        let pk = candidates(&context("explicit = [ \"li"), &src, &fields);
         assert_eq!(pk.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(), ["linux"]);
-        let svc = candidates(&context("services = { \"ssh"), &src, &fields);
+        let svc = candidates(&context("services = [ \"ssh"), &src, &fields);
         assert_eq!(svc.len(), 1);
-        let f = candidates(&context("install = {\n  mirr"), &src, &fields);
+        let f = candidates(&context("[install]\nmirr"), &src, &fields);
         assert!(f.iter().any(|i| i.label == "mirrors"));
         let kw = candidates(&context("loc"), &src, &fields);
-        assert!(kw.iter().any(|i| i.label == "local") && kw.iter().any(|i| i.label == "locale"));
+        assert!(kw.iter().any(|i| i.label == "locale"));
+        let bool_kw = candidates(&context("tr"), &src, &fields);
+        assert!(bool_kw.iter().any(|i| i.label == "true"));
         // An unknown key inside a string offers nothing.
         assert!(candidates(&context("mystery = \"ab"), &src, &fields).is_empty());
     }

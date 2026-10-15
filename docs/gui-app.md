@@ -21,14 +21,14 @@ Rebuild after every code change.
 ## Features
 
 - **Pages:** System, Disk, Mirrors & packages (official package search, live total, import, a resolve preview and the AUR group), Users, Services & kernel,
-  Build & drivers, Scripts, Lua source, Build ISO. A red dot in the sidebar marks a page with a validation
+  Build & drivers, Scripts, TOML source, Build ISO. A red dot in the sidebar marks a page with a validation
   problem; the bar at the bottom shows the first one with a button that goes there. The checks are the command
   line's.
 - **Menus and keys:** File menu, From preset, Tools. `Ctrl+N` new, `Ctrl+O` open, `Ctrl+S` save,
   `Ctrl+Shift+S` save as, `Ctrl+K` (or `/` outside a text field) opens the command launcher, which lists the
   same actions plus every page and preset.
 - **Presets:** open as an unsaved config and say so when they erase the largest disk.
-- **Lua source:** shows the generated Lua with syntax highlighting. "Edit source" switches to source mode:
+- **TOML source:** shows the generated TOML with syntax highlighting. "Edit source" switches to source mode:
   the form pages are unavailable, you edit the text (undo, search with `Ctrl+F`, `Ctrl+Space` suggestions for
   field names, driver IDs, built-in scripts, profile names, package and service names), and the diagnostics line
   shows the loader's answer, with "Go to line" when the message names one. "Return to the forms" works when
@@ -65,12 +65,12 @@ Rebuild after every code change.
 - **AUR packages:** one compact card: search, a result row with Review, then the recipe with its automatic
   checks folded behind a count, risky lines highlighted, and one acknowledgement before "Pin and add". NetworkManager is added automatically when no network
   service is enabled, because the build needs one.
-- `ARCHSTALLER_PAGE=<id>` (`system disk packages users services build scripts lua iso`) opens the window on a page.
+- `ARCHSTALLER_PAGE=<id>` (`system disk packages users services build scripts toml iso`) opens the window on a page.
 
 ## Manual smoke test
 
 Manual check (no display server in the tests): start the app; open a preset from the menu and see the warning;
-change the hostname and save, reopen the file; open Lua source, choose "Edit source", break the text and see
+change the hostname and save, reopen the file; open TOML source, choose "Edit source", break the text and see
 the error and its line, fix it and return to the forms; resolve dependencies; build an ISO from a preset and
 see the stages finish; press `Ctrl+K` and run a command. The text widgets, the launcher and the builds were
 checked this way on GTK 4.22 with GtkSourceView 5.20 in a dark theme (a light theme was looked at on one

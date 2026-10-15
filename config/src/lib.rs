@@ -45,7 +45,7 @@ pub struct Config {
     #[serde(default)]
     pub scripts: Vec<Script>,
     /// AUR packages, in build order. They are not in the ISO: the installed system builds them at its
-    /// first boot (see `plans-implement/aur.md`). Written as `aur_packages` in Lua.
+    /// first boot (see `plans-implement/aur.md`). Written as `aur` under `[packages]`.
     #[serde(default, rename = "aur_packages")]
     pub aur: Vec<AurPackage>,
 }
@@ -125,7 +125,7 @@ pub struct UserArchive {
 pub struct UserFile {
     /// `https://` URL of the file (at most 1 MiB).
     pub url: String,
-    /// Destination relative to the home directory, for example `.config/hypr/hyprland.lua`.
+    /// Destination relative to the home directory, for example `.config/hypr/hyprland.conf`.
     pub dest: String,
 }
 

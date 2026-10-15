@@ -104,7 +104,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     c.append(&hash_row);
 
     let c = ui::card(content, Some("Home directory config (zip)"));
-    ui::note(&c, Kind::Warn, "Only for the Hyprland preset. The zip is laid out like a Hyprland setup (.config/hypr/hyprland.lua, ...) and is unpacked into every user's home. Do not use it for other desktops.");
+    ui::note(&c, Kind::Warn, "Only for the Hyprland preset. The zip is laid out like a Hyprland setup (.config/hypr/hyprland.conf, ...) and is unpacked into every user's home. Do not use it for other desktops.");
     ui::note(&c, Kind::Warn, "A Hyprland config can run any command when the session starts. Only use a server you trust: the archive is checked by HTTPS alone.");
     let url = cfg.user_archives.first().map(|a| a.url.clone()).unwrap_or_default();
     let a = app.clone();

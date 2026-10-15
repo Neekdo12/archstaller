@@ -15,7 +15,7 @@ runs:
       run: |
         set -euo pipefail
         pacman -Syu --noconfirm --needed \
-          base-devel git curl gnupg tar zstd xorriso mtools rustup lua \
+          base-devel git curl gnupg tar zstd xorriso mtools rustup \
           e2fsprogs dosfstools util-linux bubblewrap \
           gtk4 gtksourceview5 pkgconf ${{ inputs.packages }}
     - name: Install the Rust toolchain from rust-toolchain.toml

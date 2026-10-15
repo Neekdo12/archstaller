@@ -29,9 +29,9 @@ fn commands(app: &Rc<App>) -> Vec<Command> {
         crate::pages::iso::start_from_action(&a);
     }));
     let a = app.clone();
-    add("Copy the config as Lua", "", Rc::new(move || {
-        let t = a.st.borrow().model.lua();
-        a.copy_text(&t, "Lua");
+    add("Copy the config as TOML", "", Rc::new(move || {
+        let t = a.st.borrow().model.toml();
+        a.copy_text(&t, "TOML");
     }));
     let a = app.clone();
     add("Copy the ISO's SHA-256", "", Rc::new(move || {

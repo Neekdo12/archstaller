@@ -45,7 +45,7 @@ mod tests {
         let e = Event::Stage { name: "kernel".into(), state: State::Start };
         assert_eq!(e.line(), "@archstaller-event {\"event\":\"stage\",\"name\":\"kernel\",\"state\":\"start\"}");
         assert_eq!(Event::parse(&e.line()), Some(e));
-        let d = Event::Done { path: "/x.iso".into(), size: 5, sha256: "ab".into(), profile: "large".into(), config: "c.lua".into() };
+        let d = Event::Done { path: "/x.iso".into(), size: 5, sha256: "ab".into(), profile: "large".into(), config: "c.toml".into() };
         assert_eq!(Event::parse(&d.line()), Some(d));
         assert_eq!(Event::parse("payload: kernel 1 -> 2 bytes"), None);
         assert_eq!(Event::parse("@archstaller-event not json"), None);

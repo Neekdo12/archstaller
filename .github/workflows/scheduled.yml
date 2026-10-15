@@ -17,7 +17,7 @@ on:
       preset:
         description: "e2e: config to install (a file in configs/)"
         type: string
-        default: e2e.lua
+        default: e2e.toml
 
 permissions:
   contents: read
@@ -81,9 +81,9 @@ jobs:
         run: |
           ls -l /dev/kvm || echo "::warning::no /dev/kvm, QEMU falls back to software emulation and will be slow"
       - name: Install onto a blank disk, then boot twice (BIOS)
-        run: cargo xtask e2e --config "configs/${{ inputs.preset || 'e2e.lua' }}"
+        run: cargo xtask e2e --config "configs/${{ inputs.preset || 'e2e.toml' }}"
       - name: Install onto a blank disk, then boot twice (UEFI)
-        run: cargo xtask e2e --uefi --config "configs/${{ inputs.preset || 'e2e.lua' }}"
+        run: cargo xtask e2e --uefi --config "configs/${{ inputs.preset || 'e2e.toml' }}"
       - name: Serial logs
         if: always()
         uses: actions/upload-artifact@v4

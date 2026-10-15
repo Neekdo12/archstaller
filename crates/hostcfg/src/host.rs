@@ -1,7 +1,7 @@
 //! Build-host settings: the `build` table, the installer driver catalogue, reserved fields.
 use serde::{Deserialize, Serialize};
 
-/// Compiler profile of the installer. Saved in Lua as `build.profile`.
+/// Compiler profile of the installer. Saved in TOML under `[build]` as `profile`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Profile {
     /// Size-optimized (Cargo profile `small`: build-std, panics abort without messages). The default.

@@ -1,4 +1,4 @@
-//! `cargo xtask aur-pin NAME [--commit C]`: reviews an AUR package and prints the Lua entry that pins it (it goes into `packages.aur` of the `as` config).
+//! `cargo xtask aur-pin NAME [--commit C]`: reviews an AUR package and prints the TOML entry that pins it (it goes into `packages.aur` of the config).
 use crate::Result;
 
 pub fn pin(args: &[String]) -> Result<()> {

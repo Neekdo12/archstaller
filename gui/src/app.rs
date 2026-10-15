@@ -23,7 +23,7 @@ pub enum Page {
     Services,
     Build,
     Scripts,
-    Lua,
+    Toml,
     Iso,
 }
 
@@ -35,12 +35,12 @@ pub const PAGES: &[(Page, &str, &str, Option<Area>)] = &[
     (Page::Services, "services", "Services & kernel", Some(Area::Services)),
     (Page::Build, "build", "Build & drivers", Some(Area::Build)),
     (Page::Scripts, "scripts", "Scripts", Some(Area::Scripts)),
-    (Page::Lua, "lua", "Lua source", None),
+    (Page::Toml, "toml", "TOML source", None),
     (Page::Iso, "iso", "Build ISO", None),
 ];
 
 pub fn page_of(area: Area) -> Page {
-    PAGES.iter().find(|p| p.3 == Some(area)).map(|p| p.0).unwrap_or(Page::Lua)
+    PAGES.iter().find(|p| p.3 == Some(area)).map(|p| p.0).unwrap_or(Page::Toml)
 }
 
 pub struct App {
@@ -87,7 +87,7 @@ impl App {
         menu.append_section(None, &file);
         let tools = gio::Menu::new();
         tools.append(Some("Command launcher…"), Some("win.launcher"));
-        tools.append(Some("Copy config as Lua"), Some("win.copy-lua"));
+        tools.append(Some("Copy config as TOML"), Some("win.copy-toml"));
         tools.append(Some("Copy ISO SHA-256"), Some("win.copy-sha"));
         menu.append_section(None, &tools);
         let presets = gio::Menu::new();
@@ -230,8 +230,8 @@ impl App {
     fn show_no_select(self: &Rc<Self>, page: Page) {
         self.current.set(page);
         // The read-only source view shows what the forms say now.
-        if page == Page::Lua && self.st.borrow().model.raw.is_none() {
-            self.rebuild(Page::Lua);
+        if page == Page::Toml && self.st.borrow().model.raw.is_none() {
+            self.rebuild(Page::Toml);
         }
         if let Some((_, id, ..)) = PAGES.iter().find(|p| p.0 == page) {
             self.stack.set_visible_child_name(id);
@@ -268,13 +268,13 @@ impl App {
         ui::clear(content);
         self.refreshers.borrow_mut().remove(&page);
         let raw = self.st.borrow().model.raw.is_some();
-        if raw && !matches!(page, Page::Lua | Page::Iso) {
+        if raw && !matches!(page, Page::Toml | Page::Iso) {
             ui::heading(content, PAGES.iter().find(|p| p.0 == page).map(|p| p.2).unwrap_or(""), "");
             let c = ui::card(content, None);
             ui::note(&c, ui::Kind::Warn, "This config is being edited as source text.");
-            ui::hint(&c, "The form pages work on a config the GUI writes. Open the Lua source page: leave source mode there to come back to the forms (a file the GUI did not write is replaced by form output only after you confirm).");
+            ui::hint(&c, "The form pages work on a config the GUI writes. Open the TOML source page: leave source mode there to come back to the forms (a file the GUI did not write is replaced by form output only after you confirm).");
             let a = self.clone();
-            c.append(&ui::button("Open the Lua source page", move || a.show(Page::Lua)));
+            c.append(&ui::button("Open the TOML source page", move || a.show(Page::Toml)));
             return;
         }
         match page {
@@ -285,7 +285,7 @@ impl App {
             Page::Services => pages::services::build(self, content),
             Page::Build => pages::build_page::build(self, content),
             Page::Scripts => pages::scripts::build(self, content),
-            Page::Lua => pages::lua::build(self, content),
+            Page::Toml => pages::toml::build(self, content),
             Page::Iso => pages::iso::build(self, content),
         }
     }
@@ -383,7 +383,7 @@ impl App {
             if !a.may_discard().await {
                 return;
             }
-            let Some(p) = dialogs::open_file(a.win.upcast_ref(), "Open a Lua config", Some(("Lua config", "*.lua"))).await else { return };
+            let Some(p) = dialogs::open_file(a.win.upcast_ref(), "Open a TOML config", Some(("TOML config", "*.toml"))).await else { return };
             match Model::open(&p) {
                 Ok(m) => a.load(m, format!("Opened {}", p.display())),
                 Err(e) => a.set_status(e),
@@ -421,7 +421,7 @@ impl App {
         let path = self.st.borrow().model.path.clone();
         let path = match path {
             Some(p) => p,
-            None => match dialogs::save_file(self.win.upcast_ref(), "Save the config", "archstaller.lua", Some(("Lua config", "*.lua"))).await {
+            None => match dialogs::save_file(self.win.upcast_ref(), "Save the config", "archstaller.toml", Some(("TOML config", "*.toml"))).await {
                 Some(p) => p,
                 None => return false,
             },
@@ -450,7 +450,7 @@ impl App {
     pub fn save_as(self: &Rc<Self>) {
         let a = self.clone();
         glib::spawn_future_local(async move {
-            let Some(p) = dialogs::save_file(a.win.upcast_ref(), "Save the config as", "archstaller.lua", Some(("Lua config", "*.lua"))).await else { return };
+            let Some(p) = dialogs::save_file(a.win.upcast_ref(), "Save the config as", "archstaller.toml", Some(("TOML config", "*.toml"))).await else { return };
             let r = a.st.borrow_mut().model.save(&p);
             match r {
                 Ok(()) => a.set_status(format!("Saved {}", p.display())),
@@ -478,9 +478,9 @@ impl App {
         simple("open", self, |a| a.open_doc());
         simple("save", self, |a| a.save());
         simple("save-as", self, |a| a.save_as());
-        simple("copy-lua", self, |a| {
-            let t = a.st.borrow().model.lua();
-            a.copy_text(&t, "Lua");
+        simple("copy-toml", self, |a| {
+            let t = a.st.borrow().model.toml();
+            a.copy_text(&t, "TOML");
         });
         simple("copy-sha", self, |a| {
             let sha = a.st.borrow().build.iso.as_ref().map(|i| i.2.clone());

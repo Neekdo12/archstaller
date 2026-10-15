@@ -1,5 +1,5 @@
-//! Preset configs in configs/ (files marked `-- archstaller: kind=preset`): dependency check and one ISO per preset.
-use crate::{iso, lua, root, target_dir, Options, Result};
+//! Preset configs in configs/ (files marked `# archstaller: kind=preset`): dependency check and one ISO per preset.
+use crate::{config, iso, root, target_dir, Options, Result};
 use std::path::PathBuf;
 
 fn preset_files() -> Result<Vec<PathBuf>> {
@@ -15,7 +15,7 @@ pub fn check() -> Result<()> {
     let dbs = hostcfg::resolve::local_dbs()?;
     let mut failed = false;
     for f in preset_files()? {
-        let cfg = lua::load_config(&f)?;
+        let cfg = config::load_config(&f)?;
         match hostcfg::resolve::resolve(&cfg, &dbs) {
             Ok(r) => {
                 println!("{:<10} {:>4} packages, {:>5} MiB to download, {} providers configured", stem(&f), r.packages.len(), r.download_bytes() >> 20, cfg.providers.len());
