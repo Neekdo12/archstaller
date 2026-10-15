@@ -7,6 +7,7 @@ use std::rc::Rc;
 /// plain toolkit has no CSS switch for, so the caller says.
 pub fn css(dark: bool) -> String {
     let (warn, bad, ok) = if dark { ("#f5c211", "#ff7b63", "#8ff0a4") } else { ("#9c6e03", "#c01c28", "#1a7f4b") };
+    let (accent_bg, accent_fg) = if dark { ("#7daea3", "#282828") } else { ("#3a7d74", "#ffffff") };
     format!(
         "
 .page-title {{ font-size: 150%; font-weight: 700; }}
@@ -26,8 +27,40 @@ pub fn css(dark: bool) -> String {
 .risky {{ color: {warn}; }}
 .problem-bar {{ background: alpha(currentColor, 0.06); padding: 4px 10px; }}
 .sidebar-list row {{ padding: 4px 6px; }}
-/* Check and radio indicators keep one size on every theme and scale. */
-check, radio {{ min-width: 16px; min-height: 16px; -gtk-icon-size: 16px; }}
+/* Check and radio indicators keep a crisp, normalized size across all themes. */
+checkbutton check,
+checkbutton radio {{
+    min-width: 18px;
+    min-height: 18px;
+    padding: 0;
+    margin: 0 6px 0 0;
+    border-radius: 4px;
+    border: 2px solid alpha(currentColor, 0.4);
+    border-image: none;
+    background-color: transparent;
+    background-image: none;
+    box-shadow: none;
+    -gtk-icon-size: 14px;
+    -gtk-icon-source: none;
+}}
+checkbutton check:hover,
+checkbutton radio:hover {{
+    border-color: alpha(currentColor, 0.7);
+}}
+checkbutton radio {{
+    border-radius: 9999px;
+}}
+checkbutton check:checked {{
+    -gtk-icon-source: -gtk-icontheme('checkbox-checked-symbolic');
+    background-color: {accent_bg};
+    border-color: {accent_bg};
+    color: {accent_fg};
+}}
+checkbutton radio:checked {{
+    -gtk-icon-source: -gtk-icontheme('radio-checked-symbolic');
+    color: {accent_bg};
+    border-color: {accent_bg};
+}}
 "
     )
 }

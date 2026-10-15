@@ -40,7 +40,11 @@ fn main() -> gtk::glib::ExitCode {
         let css = gtk::CssProvider::new();
         css.load_from_string(&ui::css(ui::is_dark(&app.win)));
         if let Some(display) = gtk::gdk::Display::default() {
-            gtk::style_context_add_provider_for_display(&display, &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+            gtk::style_context_add_provider_for_display(
+                &display,
+                &css,
+                gtk::STYLE_PROVIDER_PRIORITY_USER + 10,
+            );
         }
         // `ARCHSTALLER_PAGE=lua` (a page id of the sidebar) opens on that page: handy for screenshots.
         if let Ok(id) = std::env::var("ARCHSTALLER_PAGE") {
