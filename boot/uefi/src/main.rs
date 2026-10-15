@@ -30,6 +30,8 @@ const FILE_INFO: Guid = Guid(0x09576e92, 0x6d3f, 0x11d2, [0x8e, 0x39, 0x00, 0xa0
 const GOP: Guid = Guid(0x9042a9de, 0x23dc, 0x4a38, [0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a]);
 const DEVICE_PATH: Guid = Guid(0x09576e91, 0x6d3f, 0x11d2, [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b]);
 const LOAD_FILE2: Guid = Guid(0x4006c0c1, 0xfcb3, 0x403e, [0x99, 0x6d, 0x4a, 0x6c, 0x87, 0x24, 0xe0, 0x6d]);
+/// EFI_BLOCK_IO_PROTOCOL: raw sector access to the volume's whole disk (identifies the boot medium).
+const BLOCK_IO: Guid = Guid(0x964e5b21, 0x6459, 0x11d2, [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b]);
 /// The vendor-media device path the Linux EFI stub asks for to find its initramfs.
 const LINUX_INITRD_MEDIA: Guid = Guid(0x5568e427, 0x68fc, 0x4f3d, [0xac, 0x74, 0xca, 0x55, 0x52, 0x31, 0xcc, 0x68]);
 
@@ -178,6 +180,31 @@ struct LoadFile2 {
     load_file: extern "efiapi" fn(*mut LoadFile2, *const c_void, u8, *mut usize, *mut u8) -> Status,
 }
 
+#[repr(C)]
+struct BlockIoMedia {
+    media_id: u32,
+    removable_media: u8,
+    media_present: u8,
+    logical_partition: u8,
+    read_only: u8,
+    write_caching: u8,
+    _pad: [u8; 3],
+    block_size: u32,
+    io_align: u32,
+    last_block: u64,
+    // The rest (descriptor fields) is not needed; reads use block_size/last_block only.
+}
+
+#[repr(C)]
+struct BlockIo {
+    revision: u64,
+    media: *mut BlockIoMedia,
+    reset: usize,
+    read_blocks: extern "efiapi" fn(*mut BlockIo, u32, u64, usize, *mut u8) -> Status,
+    write_blocks: usize,
+    flush_blocks: usize,
+}
+
 static mut ST: *mut SystemTable = null_mut();
 static mut MAP: Map = Map::new();
 
@@ -300,6 +327,51 @@ fn own_root(image: Handle) -> Option<*mut File> {
         return None;
     }
     open_root(unsafe { (*(li as *mut LoadedImage)).device_handle })
+}
+
+/// Fingerprints the medium this image was booted from, for the kernel's log dump (see
+/// `bootinfo::BootMedium`). Reads LBA0 of the whole disk behind the volume the image came from through
+/// the Block I/O protocol; returns an unknown medium when any of that is unavailable.
+fn boot_medium(image: Handle) -> BootMedium {
+    unsafe {
+        let mut li: *mut c_void = null_mut();
+        if (bs().handle_protocol)(image, &LOADED_IMAGE, &mut li) != 0 || li.is_null() {
+            return BootMedium::default();
+        }
+        let device = (*(li as *mut LoadedImage)).device_handle;
+        let mut io: *mut c_void = null_mut();
+        if (bs().handle_protocol)(device, &BLOCK_IO, &mut io) != 0 || io.is_null() {
+            return BootMedium::default();
+        }
+        let io = io as *mut BlockIo;
+        let media = (*io).media;
+        if media.is_null() || (*media).media_present == 0 {
+            return BootMedium::default();
+        }
+        let block_size = (*media).block_size;
+        let last_block = (*media).last_block;
+        if block_size == 0 {
+            return BootMedium::default();
+        }
+        // `last_block` is the index of the last block, so the count is one more.
+        let sectors = last_block.saturating_add(1);
+        // 4 KiB covers every real sector size; a larger logical block is not something the fingerprint
+        // needs to handle, and refusing keeps the buffer off the heap (there is no allocator here).
+        if block_size as usize > 4096 {
+            return BootMedium::default();
+        }
+        let mut lba0 = [0u8; 4096];
+        if ((*io).read_blocks)(io, 0, 0, 1, lba0.as_mut_ptr()) != 0 {
+            return BootMedium::default();
+        }
+        let lba0 = &lba0[..block_size as usize];
+        BootMedium {
+            source: MEDIUM_SOURCE_UEFI,
+            sector_size: block_size,
+            sectors,
+            lba0_hash: BootMedium::fingerprint(&lba0, block_size, sectors),
+        }
+    }
 }
 
 /// Where to look for files: the volume this image came from first, then every other volume.
@@ -459,6 +531,10 @@ fn boot_installer(image: Handle, payload: *mut u8, payload_len: usize) {
     let size = loadcore::arena_size(payload, top).unwrap_or_else(|| panic!("payload.bin is damaged"));
     let arena = alloc_pages(size as usize).unwrap_or_else(|_| panic!("not enough memory for the loader"));
 
+    // Identify the boot medium now, while boot services (and so Block I/O) are still alive; the
+    // kernel later matches this fingerprint against the disks it enumerates (see `logdump.rs`).
+    let boot_medium = boot_medium(image);
+
     // Nothing may allocate between the last GetMemoryMap and ExitBootServices.
     let mut tries = 0;
     loop {
@@ -477,7 +553,7 @@ fn boot_installer(image: Handle, payload: *mut u8, payload_len: usize) {
         let map = &mut *(&raw mut MAP);
         d.each(|k, start, pages| map.push(start, pages * 4096, translate(k)));
         map.normalize();
-        loadcore::boot(map, Boot { firmware: FIRMWARE_UEFI, fb, payload, arena: (arena, (size + 4095) & !4095) });
+        loadcore::boot(map, Boot { firmware: FIRMWARE_UEFI, fb, payload, arena: (arena, (size + 4095) & !4095), boot_medium });
     }
 }
 

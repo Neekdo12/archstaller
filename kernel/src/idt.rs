@@ -88,7 +88,12 @@ fn is_panic_trap(rip: u64) -> bool {
 }
 
 fn report(name: &str, vector: u8, code: Option<u64>, f: &InterruptStackFrame) -> ! {
-    unsafe { crate::console::force_unlock() };
+    // Break both locks before printing: the reporter goes through the console and the log capture, and
+    // the fault that brought us here may have happened while either was held.
+    unsafe {
+        crate::console::force_unlock();
+        crate::logbuf::force_unlock();
+    }
     if vector == 6 && is_panic_trap(f.rip) {
         crate::println!("\n*** KERNEL PANIC (message not compiled in; rebuild with build.profile = \"large\" to see it)");
     }

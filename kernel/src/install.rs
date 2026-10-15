@@ -438,13 +438,13 @@ pub(crate) fn space_needed(resolution: &pkg::resolve::Resolution) -> u64 {
     downloaded + installed + installed / 10 + (1 << 30)
 }
 
-pub fn run(cfg: &Config, mut devs: Devices, keyring: &Keyring, boot: &BootFiles) -> R<()> {
+pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles) -> R<()> {
     // 11. Select the disk. Nothing is written before this succeeds.
-    let mut disk = select_disk(cfg, &mut devs)?;
+    let mut disk = select_disk(cfg, devs)?;
     println!("target disk: {} serial '{}'", disk.model(), disk.serial());
 
     // 12. Network, databases, resolution.
-    let mut stack = bring_up_network(&mut devs)?;
+    let mut stack = bring_up_network(devs)?;
     let client = Client::new(|| time::unix_time());
     let mut dbs = Vec::new();
     let mut db_bytes: Vec<(&str, Vec<u8>)> = Vec::new();

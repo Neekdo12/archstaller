@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 config = { path = "../config" }
 hal = { path = "../crates/hal" }
+logring = { path = "../crates/logring" }
+exfatw = { path = "../crates/exfatw" }
 drivers = { path = "../crates/drivers", default-features = false }
 net = { path = "../crates/net" }
 pgp-lite = { path = "../crates/pgp-lite" }

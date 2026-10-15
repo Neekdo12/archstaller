@@ -13,6 +13,8 @@ mod idle;
 mod idt;
 mod hwtest;
 mod install;
+mod logbuf;
+mod logdump;
 mod paging;
 mod platform;
 mod port;
@@ -22,7 +24,18 @@ mod time;
 
 use alloc::{boxed::Box, vec::Vec};
 use core::arch::asm;
+use core::sync::atomic::{AtomicPtr, Ordering};
 use bootinfo::{BootInfo, MEM_USABLE};
+
+/// The `BootInfo` the loader handed over. Kept so `logdump` can read `boot_medium` long after `_start`
+/// has moved on. Written once, before any other thread exists, and only read afterwards.
+static BOOT_INFO: AtomicPtr<BootInfo> = AtomicPtr::new(core::ptr::null_mut());
+
+/// The boot info, or `None` before `_start` has stored it (never in practice once the flow runs).
+pub fn boot_info() -> Option<&'static BootInfo> {
+    let p = BOOT_INFO.load(Ordering::Acquire);
+    if p.is_null() { None } else { Some(unsafe { &*p }) }
+}
 
 pub fn halt() -> ! {
     loop {
@@ -64,7 +77,13 @@ fn settle() {
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    unsafe { console::force_unlock() };
+    // Break both locks: the console's and the log-capture ring's. A panic can arrive while either is
+    // held (a fault during a console write, or during capture formatting), and the prints below go
+    // through both, so leaving a lock held would deadlock the panic itself.
+    unsafe {
+        console::force_unlock();
+        crate::logbuf::force_unlock();
+    }
     println!("\n*** KERNEL PANIC: {info}");
     halt()
 }
@@ -77,6 +96,7 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
         println!("boot info has a bad magic number");
         halt();
     }
+    BOOT_INFO.store(info as *const BootInfo as *mut BootInfo, Ordering::Release);
     // The loader keeps a temporary identity mapping of its trampoline page in PML4 slot 0.
     unsafe { paging::drop_identity(info.hhdm) };
 
@@ -228,8 +248,16 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
 
     #[cfg(feature = "fault-test")]
     unsafe {
-        println!("triggering ud2");
+        // First prove the fault reporter cannot deadlock on the log-capture ring: take the ring lock
+        // (via a direct hold) and then fault. `report`/`panic` call `logbuf::force_unlock`, so the
+        // reporter's own prints must still come out, and the captured log must end with them.
+        println!("fault-test: holding the log ring, then faulting");
+        let held = crate::logbuf::hold_for_fault_test();
+        println!("triggering ud2 (log ring held)");
         asm!("ud2");
+        // Unreachable: the fault above never returns. Keep `held` alive so the lock is genuinely held
+        // at the fault, defeating any optimizer that would drop it early.
+        core::hint::black_box(&held);
     }
 
     #[cfg(not(any(feature = "disk-selftest", feature = "net-selftest", feature = "usb-selftest")))]
@@ -239,9 +267,13 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
             (Some(cfg), keyring, ..) if cfg.dry_run => hwtest::run(&cfg, devs, keyring.as_ref()),
             (Some(cfg), Some(keyring), Some(tiny_init), Some(efi), Some(bios)) => {
                 let boot = install::BootFiles { tiny_init, bootx64_efi: efi, bios_boot: bios };
-                match install::run(&cfg, devs, &keyring, &boot) {
+                // The log dump runs at the very end of the flow, on success and on failure, right before
+                // the reboot. It only writes when the boot medium is a Ventoy stick whose data partition
+                // is exFAT; otherwise it prints one line and touches nothing.
+                match install::run(&cfg, &mut devs, &keyring, &boot) {
                     Ok(()) => {
                         banner::show("INSTALLED");
+                        logdump::run_and_report(&mut devs);
                         println!("Remove the installation medium. Rebooting into the first boot in 8 seconds...");
                         let start = time::uptime_ns();
                         while time::uptime_ns() - start < 8_000_000_000 {
@@ -249,7 +281,10 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
                         }
                         reboot()
                     }
-                    Err(e) => println!("INSTALLATION FAILED: {e}"),
+                    Err(e) => {
+                        println!("INSTALLATION FAILED: {e}");
+                        logdump::run_and_report(&mut devs);
+                    }
                 }
             }
             _ => println!("INSTALLATION FAILED: config, keyring or boot files missing from the ISO"),

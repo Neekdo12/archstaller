@@ -70,6 +70,69 @@ impl Module {
     }
 }
 
+/// Firmware-neutral description of the medium the installer was booted from. The kernel has no firmware
+/// handles, so the loader records a fingerprint the kernel can recompute: the size of the boot disk and
+/// a 16-byte hash of its first sector. The kernel reads LBA0 of every enumerated disk and matches. This
+/// works the same on BIOS and UEFI.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BootMedium {
+    /// [`MEDIUM_SOURCE_UNKNOWN`] when the loader could not identify the medium.
+    pub source: u32,
+    /// Bytes per logical sector of the boot disk (0 if unknown).
+    pub sector_size: u32,
+    /// Logical sectors of the boot disk (0 if unknown); part of the match, so two disks of different size
+    /// never collide on the hash alone.
+    pub sectors: u64,
+    /// Fingerprint of the boot disk's first sector (see [`BootMedium::fingerprint`]). All zero when unknown.
+    pub lba0_hash: [u8; 16],
+}
+
+pub const MEDIUM_SOURCE_UNKNOWN: u32 = 0;
+/// BIOS: the drive number stage 1 was loaded from.
+pub const MEDIUM_SOURCE_BIOS: u32 = 1;
+/// UEFI: the volume the loader image was loaded from.
+pub const MEDIUM_SOURCE_UEFI: u32 = 2;
+
+impl BootMedium {
+    /// The fingerprint the loader stores and the kernel recomputes: a FNV-1a-style hash over the first
+    /// sector plus the disk size, so it is cheap on both sides and needs no crypto. `lba0` is the first
+    /// logical sector of the boot disk, read by the loader (UEFI: Block I/O; BIOS: INT 13h).
+    pub fn fingerprint(lba0: &[u8], sector_size: u32, sectors: u64) -> [u8; 16] {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let step = |b: u8, h: &mut u64| {
+            *h ^= b as u64;
+            *h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        };
+        for &b in lba0 {
+            step(b, &mut h);
+        }
+        for b in sector_size.to_le_bytes() {
+            step(b, &mut h);
+        }
+        for b in sectors.to_le_bytes() {
+            step(b, &mut h);
+        }
+        // Second, independent pass so 16 bytes are not just the same 8 bytes twice.
+        let mut h2: u64 = 0x8422_2325_cbf2_9ce4;
+        for &b in lba0.iter().rev() {
+            step(b, &mut h2);
+        }
+        for b in sectors.to_le_bytes().iter().rev() {
+            step(*b, &mut h2);
+        }
+        let mut out = [0u8; 16];
+        out[..8].copy_from_slice(&h.to_le_bytes());
+        out[8..].copy_from_slice(&h2.to_le_bytes());
+        out
+    }
+
+    /// Whether this descriptor identifies a medium (the kernel should try to match it).
+    pub fn is_known(&self) -> bool {
+        self.source != MEDIUM_SOURCE_UNKNOWN && self.sector_size != 0 && self.sectors != 0
+    }
+}
+
 #[repr(C)]
 pub struct BootInfo {
     pub magic: u64,
@@ -82,6 +145,8 @@ pub struct BootInfo {
     pub mem_len: u64,
     pub modules: *const Module,
     pub modules_len: u64,
+    /// The medium the installer was booted from (stage 2 of the log dump; see `logdump.rs`).
+    pub boot_medium: BootMedium,
 }
 
 impl BootInfo {

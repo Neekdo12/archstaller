@@ -94,7 +94,23 @@ extern "C" fn bios_main() -> ! {
             log("boot: arena at ");
             log_hex(arena);
             log("\n");
-            loadcore::boot(map, Boot { firmware: FIRMWARE_BIOS, fb, payload, arena: (arena, size) });
+            // The real-mode probe (entry.s `probe_boot_medium`) read LBA0 and the sector count of the
+            // drive the firmware loaded us from into low memory. Fingerprint them here, where the 64-bit
+            // hash is available; an absent probe leaves the medium unknown and the log dump skips.
+            let boot_medium = if rd32(0x560) != 0 {
+                let sector_size = rd32(0x564);
+                let sectors = (rd32(0x568) as u64) | ((rd32(0x56c) as u64) << 32);
+                let lba0 = core::slice::from_raw_parts(0x570 as *const u8, 512);
+                BootMedium {
+                    source: MEDIUM_SOURCE_BIOS,
+                    sector_size,
+                    sectors,
+                    lba0_hash: BootMedium::fingerprint(lba0, sector_size, sectors),
+                }
+            } else {
+                BootMedium::default()
+            };
+            loadcore::boot(map, Boot { firmware: FIRMWARE_BIOS, fb, payload, arena: (arena, size), boot_medium });
         }
         if mode == bios::MODE_LINUX {
             let cmd = core::slice::from_raw_parts(h.add(8 + 48), bios::CMDLINE_MAX);

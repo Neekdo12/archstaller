@@ -32,6 +32,7 @@ s2_real:
     call e820_read
     call vbe_init
     call read_items
+    call probe_boot_medium
     jmp enter_long
 
 # --- output: BIOS teletype and COM1 -----------------------------------------------------------
@@ -454,6 +455,66 @@ read_items:
     popa
     ret
 
+# Probes the boot medium: reads LBA0 and the total sector count of the drive the firmware loaded us
+# from, into low memory for the 64-bit side to fingerprint (see bootinfo::BootMedium). Never fatal: a
+# BIOS that cannot answer leaves the medium unknown and the log dump skips.
+# Layout: 0x560 valid u32, 0x564 sector_size u32, 0x568 total sectors u64, 0x570 LBA0 (up to 512 bytes).
+probe_boot_medium:
+    pushad
+    mov dword ptr [0x560], 0
+    mov ebx, dword ptr [sector_size]
+    test ebx, ebx
+    jnz 1f
+    mov ebx, 512
+1:
+    mov dword ptr [0x564], ebx
+    # INT 13h extensions present?
+    mov ah, 0x41
+    mov bx, 0x55aa
+    mov dl, byte ptr [drive]
+    int 0x13
+    jc 9f
+    cmp bx, 0xaa55
+    jne 9f
+    # Total sectors: AH=0x48, DS:SI -> parameter packet.
+    mov word ptr [pbuf], 0x1e
+    mov ah, 0x48
+    mov si, offset pbuf
+    mov dl, byte ptr [drive]
+    int 0x13
+    jc 9f
+    # The 0x48 reply gives the total sector count in the low 64-bit field; zero means the BIOS does
+    # not know it, and a fingerprint without the size would match the wrong disk, so leave it unknown.
+    mov eax, dword ptr [pbuf + 8]
+    mov edx, dword ptr [pbuf + 12]
+    test eax, eax
+    jnz 2f
+    test edx, edx
+    jz 9f
+2:
+    mov dword ptr [0x568], eax
+    mov dword ptr [0x56c], edx
+    # Read LBA0 into the low-memory buffer at 0x570 (segment 0x0057, offset 0) via AH=0x42.
+    mov word ptr [rd_dap + 2], 1
+    mov dword ptr [rd_dap + 8], 0
+    mov word ptr [rd_dap + 6], 0x0057
+    mov word ptr [rd_dap + 4], 0
+    mov byte ptr [rd_tries], 3
+3:
+    mov si, offset rd_dap
+    mov ah, 0x42
+    mov dl, byte ptr [drive]
+    int 0x13
+    jnc 5f
+    dec byte ptr [rd_tries]
+    jnz 3b
+    jmp 9f
+5:
+    mov dword ptr [0x560], 1
+9:
+    popad
+    ret
+
 # Reads item_len bytes from byte offset item_off of the boot medium to the linear address [dest].
 read_one:
     pushad
@@ -707,6 +768,7 @@ rd_dap:
     .word 0
     .word 0
     .quad 0
+pbuf:        .space 32
 msg_start:   .asciz "boot: BIOS loader\r\n"
 msg_a20:     .asciz "boot: cannot enable the A20 line\r\n"
 msg_mem:     .asciz "boot: the BIOS reports no memory map\r\n"

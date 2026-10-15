@@ -38,6 +38,10 @@ impl Write for Console {
 }
 
 pub fn _print(args: fmt::Arguments) {
+    // Tee into the bounded capture first (it never blocks on the console and never allocates), so the
+    // log survives even if the console itself is wedged; `Arguments` is `Copy`, so formatting twice is
+    // free of surprises.
+    crate::logbuf::write(args);
     let _ = CONSOLE.lock().write_fmt(args);
 }
 
