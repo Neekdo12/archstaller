@@ -1,0 +1,7 @@
+[package]
+name = "kernel-rpi"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hal = { path = "../crates/hal" }

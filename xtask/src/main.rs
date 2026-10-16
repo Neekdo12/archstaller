@@ -8,6 +8,7 @@ mod presets;
 mod linux_test;
 mod config;
 mod qemu;
+mod rpi;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -152,7 +153,7 @@ fn schema(check: bool) -> Result<()> {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|gen-schema|coverage|aur-pin|keyring|update-keyring> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme|ide] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--profile super-small|large] [--progress json] [--workdir DIR] [--disk-gib N (e2e)] [--limit BYTES]")?;
+    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|gen-schema|coverage|aur-pin|keyring|update-keyring|rpi-build|rpi-run|rpi-test> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme|ide] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--profile super-small|large] [--progress json] [--workdir DIR] [--disk-gib N (e2e)] [--limit BYTES]")?;
     if cmd == "aur-pin" {
         return aur::pin(rest);
     }
@@ -161,6 +162,18 @@ fn main() -> Result<()> {
     }
     if cmd == "gen-schema" {
         return schema(rest.iter().any(|a| a == "--check"));
+    }
+    if cmd == "rpi-build" {
+        rpi::build(rest.iter().any(|a| a == "--release"))?;
+        return Ok(());
+    }
+    if cmd == "rpi-run" {
+        let board = rest.first().map(|s| s.as_str()).unwrap_or("raspi3b");
+        return rpi::run(board);
+    }
+    if cmd == "rpi-test" {
+        let board = rest.first().map(|s| s.as_str()).unwrap_or("raspi3b");
+        return rpi::test(board);
     }
     let opts = parse(rest)?;
     match cmd.as_str() {

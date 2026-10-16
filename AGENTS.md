@@ -32,4 +32,5 @@ Do not run `git commit` (or `git push`). Leave changes staged/unstaged for the u
 - Out of scope, do not implement unless a spec doc explicitly asks for it: Wi-Fi, SMP, Secure Boot,
   an interactive UI, filesystems other than ext4, architectures other than x86_64, and USB beyond the
   tethering paths (`crates/usb`, `crates/imobiledevice` for iPhone, `crates/usbnet` for Android). The spec
-  for future Wi-Fi work lives in `plans-implement/wifi.md`.
+  for future Wi-Fi work lives in `plans-implement/wifi.md`, and Raspberry Pi (ARM/AArch64) work lives in
+  `plans-implement/raspberry-pi.md`.

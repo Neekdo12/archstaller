@@ -1,0 +1,32 @@
+ENTRY(_start)
+
+SECTIONS
+{
+    . = 0x80000;
+
+    .text : {
+        KEEP(*(.text._start))
+        *(.text .text.*)
+    }
+
+    .rodata : {
+        *(.rodata .rodata.*)
+    }
+
+    .data : {
+        *(.data .data.*)
+    }
+
+    . = ALIGN(16);
+    __bss_start = .;
+    .bss : {
+        *(.bss .bss.*)
+        *(COMMON)
+    }
+    . = ALIGN(16);
+    __bss_end = .;
+
+    . = ALIGN(16);
+    . += 0x80000; /* 512 KiB stack */
+    __stack_top = .;
+}

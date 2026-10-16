@@ -1,6 +1,9 @@
 //! Hardware abstraction traits shared by drivers and the installer logic.
 #![no_std]
 
+#[cfg(target_arch = "aarch64")]
+pub mod aarch64;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
     /// Device reported a failure.
