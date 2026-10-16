@@ -22,7 +22,7 @@ fn list_card(
     let c = ui::card(content, Some(title));
     let add = ui::suggest("", options, false, |_| {});
     let r = ui::row(&c, label, &add);
-    let btn = ui::button("Add to the list", || {});
+    let btn = ui::button("Add", || {});
     btn.set_sensitive(false);
     r.append(&btn);
     {
@@ -57,12 +57,16 @@ fn open_custom_service_editor(
     existing_index: Option<usize>,
     initial: config::CustomService,
 ) {
+    let (w, h) = (
+        app.win.width().min(680).max(360),
+        app.win.height().min(540).max(360),
+    );
     let dialog = gtk::Window::builder()
         .title(if existing_index.is_some() { "Edit Custom Service" } else { "New Custom Service" })
         .transient_for(&app.win)
         .modal(true)
-        .default_width(720)
-        .default_height(560)
+        .default_width(w)
+        .default_height(h)
         .build();
 
     let root = ui::vbox(12);
@@ -276,7 +280,13 @@ fn open_custom_service_editor(
     btn_row.append(&save);
     root.append(&btn_row);
 
-    dialog.set_child(Some(&root));
+    let scroll = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Automatic)
+        .vexpand(true)
+        .hexpand(true)
+        .child(&root)
+        .build();
+    dialog.set_child(Some(&scroll));
     dialog.present();
 }
 
@@ -326,11 +336,14 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         ui::hint(&c, "No custom services yet.");
     } else {
         for (i, cs) in cfg.custom_services.iter().enumerate() {
-            let r = ui::hbox(10);
+            let item_box = ui::vbox(3);
+            let r = ui::hbox(8);
             r.append(&ui::dim(&format!("{}", i + 1)));
 
             let name = ui::strong(&cs.name);
-            name.set_width_request(200);
+            name.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            name.set_tooltip_text(Some(&cs.name));
+            name.set_hexpand(true);
             r.append(&name);
 
             // User scope chip
@@ -345,18 +358,6 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
                 ui::chip("disabled", "chip-warn")
             };
             r.append(&status_chip);
-
-            // Source description
-            let src_desc = if let Some(f) = &cs.file {
-                format!("file: {f}")
-            } else if let Some(content) = &cs.content {
-                format!("inline ({} bytes)", content.len())
-            } else {
-                "empty".to_string()
-            };
-            let src_label = ui::dim(&src_desc);
-            src_label.set_hexpand(true);
-            r.append(&src_label);
 
             // Edit button
             let a = app.clone();
@@ -376,12 +377,32 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
                 a.rebuild(Page::Services);
             }));
 
-            c.append(&r);
+            item_box.append(&r);
+
+            // Source description row (indented under the unit name)
+            let src_desc = if let Some(f) = &cs.file {
+                format!("file: {f}")
+            } else if let Some(content) = &cs.content {
+                format!("inline ({} bytes)", content.len())
+            } else {
+                "empty".to_string()
+            };
+            let sub_r = ui::hbox(8);
+            let indent = gtk::Label::builder().width_request(16).build();
+            sub_r.append(&indent);
+            let src_label = ui::dim(&src_desc);
+            src_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            src_label.set_tooltip_text(Some(&src_desc));
+            src_label.set_hexpand(true);
+            sub_r.append(&src_label);
+            item_box.append(&sub_r);
+
+            c.append(&item_box);
         }
     }
 
     // Action buttons for custom services
-    let actions_row = ui::hbox(10);
+    let actions_row = ui::hbox(8);
     let a = app.clone();
     actions_row.append(&ui::button("Add custom service", move || {
         open_custom_service_editor(&a, None, config::CustomService::default());
@@ -389,7 +410,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
 
     // Import from local machine button
     let a = app.clone();
-    let import_btn = ui::button("Import services from this machine", move || {
+    let import_btn = ui::button("Import from host", move || {
         let discovered = hostcfg::services::discover_local_services();
         let mut added_pkg = 0;
         let mut added_custom = 0;
@@ -423,6 +444,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         ));
         a.rebuild(Page::Services);
     });
+    import_btn.set_tooltip_text(Some("Import enabled package services and custom unit files from this computer"));
     actions_row.append(&import_btn);
     c.append(&actions_row);
 

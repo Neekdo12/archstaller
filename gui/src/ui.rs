@@ -104,7 +104,7 @@ pub fn page_shell() -> (gtk::ScrolledWindow, gtk::Box) {
     content.set_margin_start(24);
     content.set_margin_end(24);
     content.set_hexpand(true);
-    let scroll = gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Never).vexpand(true).hexpand(true).child(&content).build();
+    let scroll = gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Automatic).vexpand(true).hexpand(true).child(&content).build();
     (scroll, content)
 }
 
