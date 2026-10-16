@@ -9,6 +9,7 @@ mod linux_test;
 mod config;
 mod qemu;
 mod rpi;
+mod floppy;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -153,7 +154,7 @@ fn schema(check: bool) -> Result<()> {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|gen-schema|coverage|aur-pin|keyring|update-keyring|rpi-build|rpi-run|rpi-test> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme|ide] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--profile super-small|large] [--progress json] [--workdir DIR] [--disk-gib N (e2e)] [--limit BYTES]")?;
+    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|gen-schema|coverage|aur-pin|keyring|update-keyring|rpi-build|rpi-run|rpi-test|floppy|floppy-run|floppy-test> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme|ide] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--profile super-small|large] [--progress json] [--workdir DIR] [--disk-gib N (e2e)] [--limit BYTES]")?;
     if cmd == "aur-pin" {
         return aur::pin(rest);
     }
@@ -183,6 +184,15 @@ fn main() -> Result<()> {
         "run" => {
             let iso = iso::build(&opts)?;
             qemu::run_iso(&iso, &opts)?;
+        }
+        "floppy" => {
+            floppy::build(&opts)?;
+        }
+        "floppy-run" => {
+            floppy::run(&opts)?;
+        }
+        "floppy-test" => {
+            floppy::test(&opts)?;
         }
         // Preset ISOs are for real hardware, so they include USB tethering unless --no-tethering is given.
         "presets" => {

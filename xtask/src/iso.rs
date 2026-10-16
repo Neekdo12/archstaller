@@ -202,7 +202,14 @@ pub fn build(opts: &Options) -> Result<PathBuf> {
     r
 }
 
-fn build_inner(opts: &Options) -> Result<PathBuf> {
+pub struct Components {
+    pub bios: crate::bios::Bios,
+    pub efi: Vec<u8>,
+    pub payload: Vec<u8>,
+    pub resolved: hostcfg::host::Resolved,
+}
+
+pub fn build_components(opts: &Options) -> Result<Components> {
     let (loaded, resolved) = stage(opts, "config", || {
         let loaded = hostcfg::toml::load(&opts.config)?;
         let resolved = hostcfg::host::resolve_profile(opts.profile, opts.legacy_small, &loaded.host)?;
@@ -229,13 +236,25 @@ fn build_inner(opts: &Options) -> Result<PathBuf> {
     let mut bios_boot = bios.stage1.to_vec();
     bios_boot.extend_from_slice(&bios.stage2);
 
-    let work = workdir(opts);
-    let tree = work.join("iso_root");
-    let (payload, payload_in_efi_img) = stage(opts, "payload", || {
-        let payload = make_payload(
+    let payload = stage(opts, "payload", || {
+        make_payload(
             &kernel,
             &[("config.bin", &config_bin), ("keyring.bin", &keyring_blob), ("tiny-init", &tiny_init), ("bootx64.efi", &efi), ("bios-boot", &bios_boot)],
-        )?;
+        )
+    })?;
+    Ok(Components { bios, efi, payload, resolved })
+}
+
+fn build_inner(opts: &Options) -> Result<PathBuf> {
+    let components = build_components(opts)?;
+    let bios = components.bios;
+    let efi = components.efi;
+    let payload = components.payload;
+    let resolved = components.resolved;
+
+    let work = workdir(opts);
+    let tree = work.join("iso_root");
+    let payload_in_efi_img = stage(opts, "iso-tree", || {
         let _ = std::fs::remove_dir_all(&tree);
         std::fs::create_dir_all(tree.join("boot"))?;
         let (efi_file, payload_file) = (work.join("BOOTX64.EFI"), work.join("payload.bin"));
@@ -248,7 +267,7 @@ fn build_inner(opts: &Options) -> Result<PathBuf> {
         bios_img.resize(bootinfo::bios::S2_ALIGN, 0);
         bios_img.extend_from_slice(&bios.stage2);
         std::fs::write(tree.join("boot/bios.img"), bios_img)?;
-        Ok((payload, at))
+        Ok(at)
     })?;
 
     let iso = opts.out.clone().unwrap_or_else(iso_path);
