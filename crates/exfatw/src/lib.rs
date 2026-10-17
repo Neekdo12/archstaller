@@ -90,7 +90,14 @@ fn rd_u32(b: &[u8], off: usize) -> u32 {
 }
 fn rd_u64(b: &[u8], off: usize) -> u64 {
     u64::from_le_bytes([
-        b[off], b[off + 1], b[off + 2], b[off + 3], b[off + 4], b[off + 5], b[off + 6], b[off + 7],
+        b[off],
+        b[off + 1],
+        b[off + 2],
+        b[off + 3],
+        b[off + 4],
+        b[off + 5],
+        b[off + 6],
+        b[off + 7],
     ])
 }
 
@@ -113,7 +120,11 @@ fn parse_vbr(sector: &[u8]) -> Result<Vbr> {
     let heap = rd_u32(sector, 88) as u64 * ss as u64;
     let cluster_count = rd_u32(sector, 92);
     let root_cluster = rd_u32(sector, 96);
-    if cluster_count < 1 || root_cluster < 2 || root_cluster >= cluster_count.saturating_add(2) || fat_length == 0 {
+    if cluster_count < 1
+        || root_cluster < 2
+        || root_cluster >= cluster_count.saturating_add(2)
+        || fat_length == 0
+    {
         return Err(Error::Invalid("no cluster heap or no root dir"));
     }
     Ok(Vbr {
@@ -166,7 +177,12 @@ fn validate_name(units: &[u16]) -> Result<()> {
         return Err(Error::Invalid("bad file name length"));
     }
     for &u in units {
-        if u < 0x20 || matches!(u, 0x22 | 0x2a | 0x2f | 0x3a | 0x3c | 0x3e | 0x3f | 0x5c | 0x7c) {
+        if u < 0x20
+            || matches!(
+                u,
+                0x22 | 0x2a | 0x2f | 0x3a | 0x3c | 0x3e | 0x3f | 0x5c | 0x7c
+            )
+        {
             return Err(Error::Invalid("bad character in file name"));
         }
     }
@@ -186,7 +202,7 @@ fn entry_set_checksum(set: &[u8]) -> u16 {
 
 /// Builds the file + stream + name entry set. `up` is the up-cased name (for the NameHash).
 fn build_entry_set(units: &[u16], up: &[u16], first: u32, size: u64) -> Vec<u8> {
-    let name_entries = (units.len() + 14) / 15;
+    let name_entries = units.len().div_ceil(15);
     let mut set = vec![0u8; 32 * (2 + name_entries)];
     set[0] = ET_FILE;
     set[1] = (1 + name_entries) as u8;
@@ -232,7 +248,10 @@ impl<'a, S: Storage> Appender<'a, S> {
         let mut app = Appender {
             s,
             vbr,
-            bitmap: Bitmap { bytes: Vec::new(), first_cluster: 0 },
+            bitmap: Bitmap {
+                bytes: Vec::new(),
+                first_cluster: 0,
+            },
             bitmap_len: 0,
             upcase: Upcase { units: Vec::new() },
             bm_dirty: None,
@@ -247,7 +266,9 @@ impl<'a, S: Storage> Appender<'a, S> {
     }
 
     /// Whether a directory called `name` (case-insensitive) exists in the root.
-    pub fn root_has(&mut self, name: &str) -> Result<bool> { self.has_dir(name) }
+    pub fn root_has(&mut self, name: &str) -> Result<bool> {
+        self.has_dir(name)
+    }
     pub fn has_dir(&mut self, name: &str) -> Result<bool> {
         Ok(matches!(self.lookup(name)?, Some(a) if a & ATTR_DIRECTORY != 0))
     }
@@ -283,10 +304,10 @@ impl<'a, S: Storage> Appender<'a, S> {
         }
 
         let cb = self.vbr.cluster_bytes() as usize;
-        let set_len = 32 * (2 + (units.len() + 14) / 15);
+        let set_len = 32 * (2 + units.len().div_ceil(15));
 
         // Allocate everything in memory first; nothing touches the disk until all of it fits.
-        let need = (data.len() + cb - 1) / cb;
+        let need = data.len().div_ceil(cb);
         let mut hint = 2u32;
         let mut file_clusters: Vec<u32> = Vec::with_capacity(need);
         for _ in 0..need {
@@ -298,7 +319,7 @@ impl<'a, S: Storage> Appender<'a, S> {
         let end = eod + set_len;
         let mut new_root: Vec<u32> = Vec::new();
         if end > root.len() {
-            let n = (end - root.len() + cb - 1) / cb;
+            let n = (end - root.len()).div_ceil(cb);
             for _ in 0..n {
                 let c = self.alloc_cluster(hint)?;
                 hint = c + 1;
@@ -366,7 +387,10 @@ impl<'a, S: Storage> Appender<'a, S> {
 
     /// Loads the allocation bitmap (0x81) and up-case table (0x82) from the root.
     fn load_metadata(&mut self) -> Result<()> {
-        self.bitmap = Bitmap { bytes: Vec::new(), first_cluster: 0 };
+        self.bitmap = Bitmap {
+            bytes: Vec::new(),
+            first_cluster: 0,
+        };
         self.bitmap_len = 0;
         self.upcase = Upcase { units: Vec::new() };
         self.bm_dirty = None;
@@ -394,13 +418,16 @@ impl<'a, S: Storage> Appender<'a, S> {
                 let mut bytes = vec![0u8; len];
                 let off = self.vbr.cluster_offset(first);
                 self.s.read_at(off, &mut bytes)?; // contiguous, like every real implementation
-                self.bitmap = Bitmap { bytes, first_cluster: first };
+                self.bitmap = Bitmap {
+                    bytes,
+                    first_cluster: first,
+                };
                 self.bitmap_len = len;
             } else if t == ET_UPCASE && self.upcase.units.is_empty() {
                 let stored = rd_u32(&root, i + 4);
                 let first = rd_u32(&root, i + 20);
                 let len64 = rd_u64(&root, i + 24);
-                if first < 2 || first >= cc + 2 || len64 < 2 || len64 > MAX_UPCASE_BYTES {
+                if first < 2 || first >= cc + 2 || !(2..=MAX_UPCASE_BYTES).contains(&len64) {
                     return Err(Error::Invalid("bad upcase"));
                 }
                 let mut raw = vec![0u8; len64 as usize];
@@ -409,7 +436,9 @@ impl<'a, S: Storage> Appender<'a, S> {
                 if Upcase::checksum(&raw) != stored {
                     return Err(Error::Invalid("up-case checksum mismatch"));
                 }
-                self.upcase = Upcase { units: expand_upcase(&raw) };
+                self.upcase = Upcase {
+                    units: expand_upcase(&raw),
+                };
             }
             i += 32;
         }
@@ -542,7 +571,7 @@ impl<'a, S: Storage> Appender<'a, S> {
         let end = self.vbr.cluster_count + 2;
         let mut c = from.max(2);
         while c < end {
-            if (c - 2) % 8 == 0 {
+            if (c - 2).is_multiple_of(8) {
                 if let Some(&b) = self.bitmap.bytes.get(((c - 2) / 8) as usize) {
                     if b == 0xff {
                         c += 8;

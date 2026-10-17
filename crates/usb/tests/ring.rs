@@ -53,7 +53,11 @@ mod ring {
         let (param, _status, control) = trb(mem, 3);
         assert_eq!(param, p0, "link TRB points back at the ring base");
         assert_eq!((control >> 10) & 0x3f, 6, "link TRB type");
-        assert_eq!(control & 1, 1, "link TRB cycle matches the pass it was written in");
+        assert_eq!(
+            control & 1,
+            1,
+            "link TRB cycle matches the pass it was written in"
+        );
         assert_ne!(control & 2, 0, "link TRB has the toggle-cycle bit");
         // Next pass runs with the flipped cycle state.
         r.push(0x4000, 0, 2 << 10);

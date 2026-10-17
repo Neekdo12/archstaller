@@ -85,12 +85,18 @@ pub struct AurPackage {
 pub const AUR_MAX: usize = 16;
 
 fn hex(s: &str, n: usize) -> bool {
-    s.len() == n && s.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+    s.len() == n
+        && s.chars()
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
 }
 
 /// Package names as the AUR and pacman allow them.
 fn pkg_name(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 100 && !s.starts_with(['-', '.']) && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "@._+-".contains(c))
+    !s.is_empty()
+        && s.len() <= 100
+        && !s.starts_with(['-', '.'])
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "@._+-".contains(c))
 }
 
 /// A first-boot script. Exactly one source: none of `file`/`url` (a built-in script of that `id`),
@@ -124,7 +130,15 @@ pub fn default_true() -> bool {
 
 /// Valid systemd unit extensions.
 pub const UNIT_EXTENSIONS: &[&str] = &[
-    ".service", ".timer", ".socket", ".path", ".slice", ".target", ".mount", ".automount", ".swap",
+    ".service",
+    ".timer",
+    ".socket",
+    ".path",
+    ".slice",
+    ".target",
+    ".mount",
+    ".automount",
+    ".swap",
 ];
 
 pub fn valid_unit_name(s: &str) -> bool {
@@ -134,7 +148,8 @@ pub fn valid_unit_name(s: &str) -> bool {
     if !UNIT_EXTENSIONS.iter().any(|ext| s.ends_with(ext)) {
         return false;
     }
-    s.chars().all(|c| c.is_ascii_alphanumeric() || "@._-".contains(c))
+    s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || "@._-".contains(c))
 }
 
 /// A custom systemd unit installed into `/etc/systemd/system/` (root) or `~/.config/systemd/user/` (user).
@@ -212,7 +227,12 @@ pub struct User {
 }
 
 /// Services that give the installed system a network (AUR packages are built once it has one).
-pub const NETWORK_SERVICES: &[&str] = &["NetworkManager.service", "systemd-networkd.service", "dhcpcd.service", "connman.service"];
+pub const NETWORK_SERVICES: &[&str] = &[
+    "NetworkManager.service",
+    "systemd-networkd.service",
+    "dhcpcd.service",
+    "connman.service",
+];
 
 /// Room for `kernel_params` (each with its separating space) on the first boot's command line: the BIOS
 /// stage 2 holds `bootinfo::bios::CMDLINE_MAX` (512) bytes including a NUL, and the installer adds
@@ -221,11 +241,17 @@ pub const NETWORK_SERVICES: &[&str] = &["NetworkManager.service", "systemd-netwo
 pub const KERNEL_PARAMS_MAX: usize = 512 - 1 - 49 - 42;
 
 fn ident(s: &str, extra: &str) -> bool {
-    !s.is_empty() && s.len() <= 64 && s.chars().all(|c| c.is_ascii_alphanumeric() || extra.contains(c))
+    !s.is_empty()
+        && s.len() <= 64
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || extra.contains(c))
 }
 
 fn crypt_hash(h: &str) -> bool {
-    h.starts_with("$6$") && h.len() > 20 && h.chars().all(|c| c.is_ascii_alphanumeric() || "$./".contains(c))
+    h.starts_with("$6$")
+        && h.len() > 20
+        && h.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "$./".contains(c))
 }
 
 impl Config {
@@ -234,7 +260,12 @@ impl Config {
     pub fn validate(&self) -> Result<(), String> {
         let bad = |what: &str, v: &str| Err(format!("invalid {what}: {v:?}"));
         // systemd ignores /etc/hostname unless it is dot-separated non-empty labels.
-        if !ident(&self.hostname, ".-") || self.hostname.split('.').any(|l| l.is_empty() || l.starts_with('-')) {
+        if !ident(&self.hostname, ".-")
+            || self
+                .hostname
+                .split('.')
+                .any(|l| l.is_empty() || l.starts_with('-'))
+        {
             return bad("hostname", &self.hostname);
         }
         if !ident(&self.timezone, "/_+-") || self.timezone.contains("..") {
@@ -256,27 +287,42 @@ impl Config {
             return Err("at least one mirror is required".into());
         }
         for m in &self.mirrors {
-            if !(m.starts_with("https://") || m.starts_with("http://")) || m.chars().any(|c| c.is_whitespace() || c == '\'' || c == '"') {
+            if !(m.starts_with("https://") || m.starts_with("http://"))
+                || m.chars()
+                    .any(|c| c.is_whitespace() || c == '\'' || c == '"')
+            {
                 return bad("mirror", m);
             }
         }
         if self.packages.is_empty() {
             return Err("packages must not be empty".into());
         }
-        for p in self.packages.iter().chain(self.providers.iter().flat_map(|(a, b)| [a, b])) {
+        for p in self
+            .packages
+            .iter()
+            .chain(self.providers.iter().flat_map(|(a, b)| [a, b]))
+        {
             if !ident(p, "@._+-") {
                 return bad("package name", p);
             }
         }
         if let Some(h) = &self.root_password_hash {
             if !crypt_hash(h) {
-                return bad("root_password_hash (need a $6$ SHA-512 crypt hash)", "<hidden>");
+                return bad(
+                    "root_password_hash (need a $6$ SHA-512 crypt hash)",
+                    "<hidden>",
+                );
             }
         }
         for (i, u) in self.users.iter().enumerate() {
             // useradd refuses names longer than 32 characters and all-digit ones, and the first boot stops
             // at a user it cannot create.
-            if !ident(&u.name, "_-") || u.name.starts_with('-') || u.name == "root" || u.name.len() > 32 || u.name.bytes().all(|b| b.is_ascii_digit()) {
+            if !ident(&u.name, "_-")
+                || u.name.starts_with('-')
+                || u.name == "root"
+                || u.name.len() > 32
+                || u.name.bytes().all(|b| b.is_ascii_digit())
+            {
                 return bad("user name", &u.name);
             }
             // The first-boot script runs `useradd` once per entry and stops at the second one for a name.
@@ -284,7 +330,10 @@ impl Config {
                 return bad("duplicate user name", &u.name);
             }
             if !crypt_hash(&u.password_hash) {
-                return bad("password_hash (need a $6$ SHA-512 crypt hash) for user", &u.name);
+                return bad(
+                    "password_hash (need a $6$ SHA-512 crypt hash) for user",
+                    &u.name,
+                );
             }
             for g in &u.groups {
                 if !ident(g, "_-") {
@@ -301,7 +350,10 @@ impl Config {
             }
         }
         for k in &self.kernel_params {
-            if k.is_empty() || k.chars().any(|c| c.is_whitespace() || c.is_control() || c == '"') {
+            if k.is_empty()
+                || k.chars()
+                    .any(|c| c.is_whitespace() || c.is_control() || c == '"')
+            {
                 return bad("kernel parameter", k);
             }
         }
@@ -310,19 +362,34 @@ impl Config {
             return Err(format!("kernel_params are {params_len} bytes long with their spaces; at most {KERNEL_PARAMS_MAX} fit the first boot's command line"));
         }
         for f in &self.user_files {
-            if !f.url.starts_with("https://") || f.url.chars().any(|c| c.is_whitespace() || c == '\'' || c == '"') {
+            if !f.url.starts_with("https://")
+                || f.url
+                    .chars()
+                    .any(|c| c.is_whitespace() || c == '\'' || c == '"')
+            {
                 return bad("user_files url (https:// only)", &f.url);
             }
             let ok_dest = !f.dest.is_empty()
                 && !f.dest.starts_with('/')
-                && f.dest.split('/').all(|c| !c.is_empty() && c != "." && c != "..")
-                && f.dest.chars().all(|c| c.is_ascii_alphanumeric() || "._-/".contains(c));
+                && f.dest
+                    .split('/')
+                    .all(|c| !c.is_empty() && c != "." && c != "..")
+                && f.dest
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "._-/".contains(c));
             if !ok_dest {
-                return bad("user_files dest (relative path of [A-Za-z0-9._-/])", &f.dest);
+                return bad(
+                    "user_files dest (relative path of [A-Za-z0-9._-/])",
+                    &f.dest,
+                );
             }
         }
         for a in &self.user_archives {
-            if !a.url.starts_with("https://") || a.url.chars().any(|c| c.is_whitespace() || c == '\'' || c == '"') {
+            if !a.url.starts_with("https://")
+                || a.url
+                    .chars()
+                    .any(|c| c.is_whitespace() || c == '\'' || c == '"')
+            {
                 return bad("user_archives url (https:// only)", &a.url);
             }
         }
@@ -356,7 +423,12 @@ impl Config {
                 return at("services must be at most 16 systemd unit names");
             }
         }
-        if !self.aur.is_empty() && !self.services.iter().any(|u| NETWORK_SERVICES.contains(&u.as_str())) {
+        if !self.aur.is_empty()
+            && !self
+                .services
+                .iter()
+                .any(|u| NETWORK_SERVICES.contains(&u.as_str()))
+        {
             return Err("aur_packages: the installed system builds them at its first boot and needs a network then; enable NetworkManager.service (or another network service) in services".into());
         }
         if self.scripts.len() > 32 {
@@ -381,10 +453,17 @@ impl Config {
             }
             match (&sc.url, &sc.sha256) {
                 (Some(u), Some(h)) => {
-                    if !u.starts_with("https://") || u.chars().any(|c| c.is_whitespace() || c == '\'' || c == '"') {
+                    if !u.starts_with("https://")
+                        || u.chars()
+                            .any(|c| c.is_whitespace() || c == '\'' || c == '"')
+                    {
                         return at("url must be https:// without spaces or quotes");
                     }
-                    if h.len() != 64 || !h.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)) {
+                    if h.len() != 64
+                        || !h
+                            .chars()
+                            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+                    {
                         return at("sha256 must be 64 lower-case hex digits");
                     }
                 }
@@ -404,12 +483,23 @@ impl Config {
             if !valid_unit_name(&cs.name) {
                 return at(&format!("invalid unit name {:?}", cs.name));
             }
-            if self.custom_services[..i].iter().any(|o| o.name == cs.name && o.user == cs.user) {
-                return at(&format!("unit {:?} for user {:?} is defined twice", cs.name, cs.user.as_deref().unwrap_or("root")));
+            if self.custom_services[..i]
+                .iter()
+                .any(|o| o.name == cs.name && o.user == cs.user)
+            {
+                return at(&format!(
+                    "unit {:?} for user {:?} is defined twice",
+                    cs.name,
+                    cs.user.as_deref().unwrap_or("root")
+                ));
             }
             if let Some(u) = &cs.user {
                 if u != "root" && !self.users.iter().any(|user| user.name == *u) {
-                    return at(&format!("unknown user {:?}; must be \"root\" or one of {:?}", u, self.users.iter().map(|u| &u.name).collect::<Vec<_>>()));
+                    return at(&format!(
+                        "unknown user {:?}; must be \"root\" or one of {:?}",
+                        u,
+                        self.users.iter().map(|u| &u.name).collect::<Vec<_>>()
+                    ));
                 }
             }
             if cs.file.is_some() && cs.content.is_some() {
@@ -421,7 +511,11 @@ impl Config {
             if cs.file.as_deref() == Some("") {
                 return at("file is empty");
             }
-            if cs.content.as_ref().is_some_and(|c| c.len() > CUSTOM_SERVICE_MAX) {
+            if cs
+                .content
+                .as_ref()
+                .is_some_and(|c| c.len() > CUSTOM_SERVICE_MAX)
+            {
                 return at("custom service content is larger than 64 KiB");
             }
         }
@@ -441,7 +535,12 @@ mod tests {
             timezone: "Europe/Prague".into(),
             locale: "en_US.UTF-8".into(),
             keymap: "us".into(),
-            disk: Disk { model: None, confirm_serial: "S".into(), auto_largest: false, esp_mib: 512 },
+            disk: Disk {
+                model: None,
+                confirm_serial: "S".into(),
+                auto_largest: false,
+                esp_mib: 512,
+            },
             mirrors: vec!["https://example.org/$repo/os/$arch".into()],
             packages: vec!["base".into()],
             providers: vec![],
@@ -459,7 +558,13 @@ mod tests {
     }
 
     fn pkg() -> AurPackage {
-        AurPackage { name: "zen-browser-bin".into(), pkgbase: "zen-browser-bin".into(), commit: "a".repeat(40), sha256: "b".repeat(64), ..Default::default() }
+        AurPackage {
+            name: "zen-browser-bin".into(),
+            pkgbase: "zen-browser-bin".into(),
+            commit: "a".repeat(40),
+            sha256: "b".repeat(64),
+            ..Default::default()
+        }
     }
 
     fn err_of(f: impl FnOnce(&mut AurPackage)) -> String {
@@ -472,25 +577,44 @@ mod tests {
 
     #[test]
     fn duplicate_user_names_are_refused() {
-        let user = |n: &str| User { name: n.into(), password_hash: format!("$6$abc${}", "a".repeat(86)), groups: vec!["wheel".into()], shell: "/bin/bash".into() };
+        let user = |n: &str| User {
+            name: n.into(),
+            password_hash: format!("$6$abc${}", "a".repeat(86)),
+            groups: vec!["wheel".into()],
+            shell: "/bin/bash".into(),
+        };
         let mut c = base();
         c.users = vec![user("alice"), user("bob")];
         assert!(c.validate().is_ok());
         c.users.push(user("alice"));
         let e = c.validate().unwrap_err().to_string();
-        assert!(e.contains("duplicate user name") && e.contains("alice"), "{e}");
+        assert!(
+            e.contains("duplicate user name") && e.contains("alice"),
+            "{e}"
+        );
     }
 
     #[test]
     fn user_names_and_hostnames_useradd_and_systemd_accept() {
-        let user = |n: &str| User { name: n.into(), password_hash: format!("$6$abc${}", "a".repeat(86)), groups: vec![], shell: "/bin/bash".into() };
-        let with_user = |n: &str| Config { users: vec![user(n)], ..base() };
+        let user = |n: &str| User {
+            name: n.into(),
+            password_hash: format!("$6$abc${}", "a".repeat(86)),
+            groups: vec![],
+            shell: "/bin/bash".into(),
+        };
+        let with_user = |n: &str| Config {
+            users: vec![user(n)],
+            ..base()
+        };
         assert!(with_user("alice_2-x").validate().is_ok());
         assert!(with_user(&"a".repeat(32)).validate().is_ok());
         for bad in ["1234", &"a".repeat(33), "-x", "root"] {
             assert!(with_user(bad).validate().is_err(), "user name {bad:?}");
         }
-        let with_host = |h: &str| Config { hostname: h.into(), ..base() };
+        let with_host = |h: &str| Config {
+            hostname: h.into(),
+            ..base()
+        };
         assert!(with_host("box").validate().is_ok());
         assert!(with_host("my-box.lan").validate().is_ok());
         for bad in [".box", "box.", "a..b", "-box", "a.-b"] {
@@ -501,11 +625,25 @@ mod tests {
     #[test]
     fn kernel_params_fit_the_first_boot_command_line() {
         // One parameter of n bytes takes n + 1 with its space.
-        let with = |n: usize| Config { kernel_params: vec!["x".repeat(n)], ..base() };
+        let with = |n: usize| Config {
+            kernel_params: vec!["x".repeat(n)],
+            ..base()
+        };
         assert!(with(KERNEL_PARAMS_MAX - 1).validate().is_ok());
-        assert!(with(KERNEL_PARAMS_MAX).validate().unwrap_err().contains("kernel_params"));
-        let full = format!("root=UUID={} rw {} systemd.unit=archstaller-firstboot.target", "0".repeat(36), "x".repeat(KERNEL_PARAMS_MAX - 1));
-        assert_eq!(full.len(), 511, "the longest accepted command line leaves exactly the NUL of the 512-byte field");
+        assert!(with(KERNEL_PARAMS_MAX)
+            .validate()
+            .unwrap_err()
+            .contains("kernel_params"));
+        let full = format!(
+            "root=UUID={} rw {} systemd.unit=archstaller-firstboot.target",
+            "0".repeat(36),
+            "x".repeat(KERNEL_PARAMS_MAX - 1)
+        );
+        assert_eq!(
+            full.len(),
+            511,
+            "the longest accepted command line leaves exactly the NUL of the 512-byte field"
+        );
     }
 
     #[test]
@@ -528,7 +666,13 @@ mod tests {
         let mut c = base();
         c.aur = vec![pkg(), pkg()];
         assert!(c.validate().unwrap_err().contains("twice"));
-        c.aur = (0..=AUR_MAX).map(|i| AurPackage { name: alloc::format!("p{i}"), pkgbase: alloc::format!("p{i}"), ..pkg() }).collect();
+        c.aur = (0..=AUR_MAX)
+            .map(|i| AurPackage {
+                name: alloc::format!("p{i}"),
+                pkgbase: alloc::format!("p{i}"),
+                ..pkg()
+            })
+            .collect();
         assert!(c.validate().unwrap_err().contains("at most"));
         c.aur = vec![pkg()];
         c.services.clear();
@@ -574,7 +718,10 @@ mod tests {
         // File and content mutual exclusion
         c.custom_services[0].name = "good.service".into();
         c.custom_services[0].file = Some("services/good.service".into());
-        assert!(c.validate().unwrap_err().contains("give either file or content"));
+        assert!(c
+            .validate()
+            .unwrap_err()
+            .contains("give either file or content"));
 
         // Neither file nor content
         c.custom_services[0].content = None;

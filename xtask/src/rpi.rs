@@ -11,7 +11,13 @@ pub const RPI_IMAGE_SIZE: usize = 32 * 1024 * 1024;
 /// Builds the AArch64 bare-metal Raspberry Pi kernel (`kernel-rpi`).
 pub fn build(release: bool) -> Result<PathBuf> {
     let mut cmd = Command::new("cargo");
-    cmd.args(["build", "-p", "kernel-rpi", "--target", "aarch64-unknown-none"]);
+    cmd.args([
+        "build",
+        "-p",
+        "kernel-rpi",
+        "--target",
+        "aarch64-unknown-none",
+    ]);
     if release {
         cmd.arg("--release");
     }
@@ -19,7 +25,10 @@ pub fn build(release: bool) -> Result<PathBuf> {
     crate::run(&mut cmd)?;
 
     let profile = if release { "release" } else { "debug" };
-    let bin = target_dir().join("aarch64-unknown-none").join(profile).join("kernel-rpi");
+    let bin = target_dir()
+        .join("aarch64-unknown-none")
+        .join(profile)
+        .join("kernel-rpi");
     println!("Built Raspberry Pi kernel: {}", bin.display());
     Ok(bin)
 }
@@ -27,22 +36,60 @@ pub fn build(release: bool) -> Result<PathBuf> {
 /// Assembles a 32 MiB bootable Raspberry Pi FAT32 image (`target/archstaller-rpi.img`).
 pub fn build_image(opts: &Options) -> Result<PathBuf> {
     if opts.progress {
-        println!("{}", hostcfg::progress::Event::Stage { name: "config".into(), state: hostcfg::progress::State::Start }.line());
+        println!(
+            "{}",
+            hostcfg::progress::Event::Stage {
+                name: "config".into(),
+                state: hostcfg::progress::State::Start
+            }
+            .line()
+        );
     }
     let loaded = hostcfg::toml::load(&opts.config)?;
     let config_bin = hostcfg::toml::config_bin(&loaded, &opts.extra_kernel_params)?;
     if opts.progress {
-        println!("{}", hostcfg::progress::Event::Stage { name: "config".into(), state: hostcfg::progress::State::Ok }.line());
-        println!("{}", hostcfg::progress::Event::Stage { name: "kernel-rpi".into(), state: hostcfg::progress::State::Start }.line());
+        println!(
+            "{}",
+            hostcfg::progress::Event::Stage {
+                name: "config".into(),
+                state: hostcfg::progress::State::Ok
+            }
+            .line()
+        );
+        println!(
+            "{}",
+            hostcfg::progress::Event::Stage {
+                name: "kernel-rpi".into(),
+                state: hostcfg::progress::State::Start
+            }
+            .line()
+        );
     }
 
     let kernel_bin = build(false)?;
     if opts.progress {
-        println!("{}", hostcfg::progress::Event::Stage { name: "kernel-rpi".into(), state: hostcfg::progress::State::Ok }.line());
-        println!("{}", hostcfg::progress::Event::Stage { name: "rpi-image".into(), state: hostcfg::progress::State::Start }.line());
+        println!(
+            "{}",
+            hostcfg::progress::Event::Stage {
+                name: "kernel-rpi".into(),
+                state: hostcfg::progress::State::Ok
+            }
+            .line()
+        );
+        println!(
+            "{}",
+            hostcfg::progress::Event::Stage {
+                name: "rpi-image".into(),
+                state: hostcfg::progress::State::Start
+            }
+            .line()
+        );
     }
 
-    let out = opts.out.clone().unwrap_or_else(|| target_dir().join("archstaller-rpi.img"));
+    let out = opts
+        .out
+        .clone()
+        .unwrap_or_else(|| target_dir().join("archstaller-rpi.img"));
     if let Some(dir) = out.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -51,25 +98,62 @@ pub fn build_image(opts: &Options) -> Result<PathBuf> {
     f.set_len(RPI_IMAGE_SIZE as u64)?;
     drop(f);
 
-    crate::run(Command::new("mformat").args(["-i", out.to_str().unwrap(), "-F", "-v", "ARCHBOOT", "::"]))?;
-    crate::run(Command::new("mcopy").args(["-i", out.to_str().unwrap()]).arg(&kernel_bin).arg("::/kernel8.img"))?;
+    crate::run(Command::new("mformat").args([
+        "-i",
+        out.to_str().unwrap(),
+        "-F",
+        "-v",
+        "ARCHBOOT",
+        "::",
+    ]))?;
+    crate::run(
+        Command::new("mcopy")
+            .args(["-i", out.to_str().unwrap()])
+            .arg(&kernel_bin)
+            .arg("::/kernel8.img"),
+    )?;
 
-    let work = opts.workdir.clone().unwrap_or_else(|| target_dir());
+    let work = opts.workdir.clone().unwrap_or_else(target_dir);
     std::fs::create_dir_all(&work)?;
     let cfg_txt_path = work.join("config.txt");
     std::fs::write(&cfg_txt_path, b"# Archstaller Raspberry Pi Boot Configuration\narm_64bit=1\nenable_uart=1\nuart_2ndstage=1\ndtoverlay=disable-bt\n")?;
-    crate::run(Command::new("mcopy").args(["-i", out.to_str().unwrap()]).arg(&cfg_txt_path).arg("::/config.txt"))?;
+    crate::run(
+        Command::new("mcopy")
+            .args(["-i", out.to_str().unwrap()])
+            .arg(&cfg_txt_path)
+            .arg("::/config.txt"),
+    )?;
 
     let cmdline_txt_path = work.join("cmdline.txt");
-    std::fs::write(&cmdline_txt_path, b"console=serial0,115200 console=tty1 rootwait\n")?;
-    crate::run(Command::new("mcopy").args(["-i", out.to_str().unwrap()]).arg(&cmdline_txt_path).arg("::/cmdline.txt"))?;
+    std::fs::write(
+        &cmdline_txt_path,
+        b"console=serial0,115200 console=tty1 rootwait\n",
+    )?;
+    crate::run(
+        Command::new("mcopy")
+            .args(["-i", out.to_str().unwrap()])
+            .arg(&cmdline_txt_path)
+            .arg("::/cmdline.txt"),
+    )?;
 
     let config_bin_path = work.join("config.bin");
     std::fs::write(&config_bin_path, &config_bin)?;
-    crate::run(Command::new("mcopy").args(["-i", out.to_str().unwrap()]).arg(&config_bin_path).arg("::/config.bin"))?;
+    crate::run(
+        Command::new("mcopy")
+            .args(["-i", out.to_str().unwrap()])
+            .arg(&config_bin_path)
+            .arg("::/config.bin"),
+    )?;
 
     if opts.progress {
-        println!("{}", hostcfg::progress::Event::Stage { name: "rpi-image".into(), state: hostcfg::progress::State::Ok }.line());
+        println!(
+            "{}",
+            hostcfg::progress::Event::Stage {
+                name: "rpi-image".into(),
+                state: hostcfg::progress::State::Ok
+            }
+            .line()
+        );
     }
 
     println!("Built Raspberry Pi bootable image: {}", out.display());
@@ -78,7 +162,10 @@ pub fn build_image(opts: &Options) -> Result<PathBuf> {
 
     use sha2::Digest;
     let img_data = std::fs::read(&out)?;
-    let sha256: String = sha2::Sha256::digest(&img_data).iter().map(|b| format!("{b:02x}")).collect();
+    let sha256: String = sha2::Sha256::digest(&img_data)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
 
     crate::iso::emit(
         opts,
@@ -120,7 +207,9 @@ pub fn test(board: &str) -> Result<()> {
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
-    let mut child = cmd.spawn().map_err(|e| format!("cannot spawn qemu-system-aarch64: {e}"))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("cannot spawn qemu-system-aarch64: {e}"))?;
     let stdout = child.stdout.take().ok_or("cannot capture stdout")?;
 
     let (tx, rx) = channel();
@@ -158,7 +247,9 @@ pub fn test(board: &str) -> Result<()> {
         if saw_banner && saw_el1 && saw_uart && saw_success {
             let _ = child.kill();
             let _ = child.wait();
-            println!("\nRaspberry Pi QEMU E2E test PASSED! (EL1 drop, UART, CPU and timer verified)");
+            println!(
+                "\nRaspberry Pi QEMU E2E test PASSED! (EL1 drop, UART, CPU and timer verified)"
+            );
             return Ok(());
         }
 
@@ -173,4 +264,3 @@ pub fn test(board: &str) -> Result<()> {
     let _ = child.wait();
     Err("Raspberry Pi QEMU E2E test timed out before seeing boot success marker".into())
 }
-

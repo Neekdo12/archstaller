@@ -23,9 +23,19 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     ui::heading(content, "Mirrors & packages", "Where packages come from and which ones to install (official core and extra, plus pinned AUR packages).");
 
     let a = app.clone();
-    let editor = ui::lines_editor(&cfg.packages, 230, move |v| a.edit(move |m| m.cfg.packages = v));
-    let Some(list) = editor.child().and_downcast::<gtk::TextView>() else { return };
-    let parts = OfficialParts { status: ui::vbox(6), results: ui::vbox(4), total: ui::hbox(8), import: ui::vbox(6), list };
+    let editor = ui::lines_editor(&cfg.packages, 230, move |v| {
+        a.edit(move |m| m.cfg.packages = v)
+    });
+    let Some(list) = editor.child().and_downcast::<gtk::TextView>() else {
+        return;
+    };
+    let parts = OfficialParts {
+        status: ui::vbox(6),
+        results: ui::vbox(4),
+        total: ui::hbox(8),
+        import: ui::vbox(6),
+        list,
+    };
 
     let c = ui::card(content, Some("Mirrors"));
     let (a, p) = (app.clone(), parts.clone());
@@ -34,14 +44,20 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         // The search says when its databases came from another mirror than the first one now.
         render_status(&a, &p);
     }));
-    ui::hint(&c, "One URL per line; $repo and $arch are substituted. The first mirror is tried first.");
+    ui::hint(
+        &c,
+        "One URL per line; $repo and $arch are substituted. The first mirror is tried first.",
+    );
 
     search_card(app, content, &parts);
 
     let c = ui::card(content, Some("Packages"));
     c.append(&editor);
     c.append(&parts.total);
-    ui::hint(&c, "One package or group per line. Names are suggestions: the resolver decides.");
+    ui::hint(
+        &c,
+        "One package or group per line. Names are suggestions: the resolver decides.",
+    );
     c.append(&parts.import);
 
     // Everything below changes while background work runs, so it is rebuilt on its own.
@@ -72,7 +88,9 @@ fn ensure_loaded(app: &Rc<App>) {
 }
 
 fn reload(app: &Rc<App>, mirror: String) {
-    let cache = dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("archstaller-gui");
+    let cache = dirs::cache_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("archstaller-gui");
     app.st.borrow_mut().official.start_load(mirror, cache);
     app.refresh_page(Page::Packages);
 }
@@ -109,7 +127,11 @@ fn render_status(app: &Rc<App>, p: &OfficialParts) {
     ui::clear(&p.status);
     let (loading, index, mirror) = {
         let st = app.st.borrow();
-        (st.official.loading(), st.official.index.clone(), st.model.cfg.mirrors.first().cloned().unwrap_or_default())
+        (
+            st.official.loading(),
+            st.official.index.clone(),
+            st.model.cfg.mirrors.first().cloned().unwrap_or_default(),
+        )
     };
     let r = ui::hbox(8);
     if loading {
@@ -128,12 +150,22 @@ fn render_status(app: &Rc<App>, p: &OfficialParts) {
                 r.append(&l);
                 let a = app.clone();
                 r.append(&ui::button("Retry", move || {
-                    let m = a.st.borrow().model.cfg.mirrors.first().cloned().unwrap_or_default();
+                    let m =
+                        a.st.borrow()
+                            .model
+                            .cfg
+                            .mirrors
+                            .first()
+                            .cloned()
+                            .unwrap_or_default();
                     reload(&a, m);
                 }));
             }
             Some(Ok(idx)) => {
-                r.append(&ui::dim(&format!("{} packages in core and extra", idx.items.len())));
+                r.append(&ui::dim(&format!(
+                    "{} packages in core and extra",
+                    idx.items.len()
+                )));
                 if idx.mirror != mirror {
                     r.append(&ui::chip("loaded from another mirror", "chip-warn"));
                     let (a, m) = (app.clone(), mirror.clone());
@@ -149,7 +181,11 @@ fn render_results(app: &Rc<App>, p: &OfficialParts) {
     ui::clear(&p.results);
     let (query, idx, packages) = {
         let st = app.st.borrow();
-        (st.official.query.clone(), st.official.loaded(), st.model.cfg.packages.clone())
+        (
+            st.official.query.clone(),
+            st.official.loaded(),
+            st.model.cfg.packages.clone(),
+        )
     };
     let q = query.trim();
     if q.is_empty() {
@@ -180,12 +216,19 @@ fn render_results(app: &Rc<App>, p: &OfficialParts) {
             top.append(&ui::chip("similar name", "chip-warn"));
         }
         if h.why == Match::Group {
-            top.append(&ui::chip(&format!("group {}", c.groups.join(", ")), "chip-accent"));
+            top.append(&ui::chip(
+                &format!("group {}", c.groups.join(", ")),
+                "chip-accent",
+            ));
         }
         let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         spacer.set_hexpand(true);
         top.append(&spacer);
-        top.append(&ui::dim(&format!("{} download · {} installed", official::size(c.csize), official::size(c.isize))));
+        top.append(&ui::dim(&format!(
+            "{} download · {} installed",
+            official::size(c.csize),
+            official::size(c.isize)
+        )));
         if packages.contains(&c.name) {
             top.append(&ui::dim("already added"));
         } else {
@@ -211,7 +254,11 @@ fn render_results(app: &Rc<App>, p: &OfficialParts) {
 fn append_line(view: &gtk::TextView, name: &str) {
     let buf = view.buffer();
     let text = buf.text(&buf.start_iter(), &buf.end_iter(), false);
-    let line = if text.is_empty() || text.ends_with('\n') { name.to_string() } else { format!("\n{name}") };
+    let line = if text.is_empty() || text.ends_with('\n') {
+        name.to_string()
+    } else {
+        format!("\n{name}")
+    };
     buf.insert(&mut buf.end_iter(), &line);
 }
 
@@ -220,16 +267,29 @@ fn render_total(app: &Rc<App>, p: &OfficialParts) {
     ui::clear(&p.total);
     let (loaded, loading, resolving, total) = {
         let st = app.st.borrow();
-        (st.official.loaded().is_some(), st.official.loading(), st.official.resolving(), st.official.total.clone())
+        (
+            st.official.loaded().is_some(),
+            st.official.loading(),
+            st.official.resolving(),
+            st.official.total.clone(),
+        )
     };
     if !loaded {
-        p.total.append(&ui::dim(if loading { "The total appears when the package databases are loaded." } else { "Load the package databases (search above) to see what this list installs." }));
+        p.total.append(&ui::dim(if loading {
+            "The total appears when the package databases are loaded."
+        } else {
+            "Load the package databases (search above) to see what this list installs."
+        }));
         return;
     }
     match total {
         Some(Ok((n, bytes))) => {
-            p.total.append(&ui::chip(&format!("{n} packages"), "chip-accent"));
-            p.total.append(&ui::chip(&format!("{} to download", official::size(bytes)), "chip-accent"));
+            p.total
+                .append(&ui::chip(&format!("{n} packages"), "chip-accent"));
+            p.total.append(&ui::chip(
+                &format!("{} to download", official::size(bytes)),
+                "chip-accent",
+            ));
         }
         Some(Err(e)) => {
             let l = ui::dim(&format!("The resolver refuses this list: {e}"));
@@ -266,10 +326,28 @@ fn render_import(app: &Rc<App>, p: &OfficialParts) {
     p.import.append(&r);
     match report {
         Some(Ok(rep)) => {
-            let msg = if rep.added.is_empty() { format!("Nothing to add: {} installed package(s) are already in the list.", rep.already) } else { format!("Added {} package(s); {} were already in the list.", rep.added.len(), rep.already) };
+            let msg = if rep.added.is_empty() {
+                format!(
+                    "Nothing to add: {} installed package(s) are already in the list.",
+                    rep.already
+                )
+            } else {
+                format!(
+                    "Added {} package(s); {} were already in the list.",
+                    rep.added.len(),
+                    rep.already
+                )
+            };
             ui::note(&p.import, Kind::Ok, &msg);
             if !rep.not_official.is_empty() {
-                ui::note(&p.import, Kind::Warn, &format!("Not in core/extra, skipped: {}", rep.not_official.join(", ")));
+                ui::note(
+                    &p.import,
+                    Kind::Warn,
+                    &format!(
+                        "Not in core/extra, skipped: {}",
+                        rep.not_official.join(", ")
+                    ),
+                );
             }
             if !rep.foreign.is_empty() {
                 ui::hint(&p.import, &format!("Installed from outside the repositories (AUR or local builds), not added: {}. An AUR package needs its recipe reviewed and pinned in the AUR card below.", rep.foreign.join(", ")));
@@ -297,11 +375,15 @@ fn resolution_card(app: &Rc<App>, d: &gtk::Box) {
         move || {
             let cfg = a.st.borrow().model.cfg.clone();
             let mirror = cfg.mirrors.first().cloned().unwrap_or_default();
-            let cache = dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("archstaller-gui");
+            let cache = dirs::cache_dir()
+                .unwrap_or_else(std::env::temp_dir)
+                .join("archstaller-gui");
             let (tx, rx) = channel();
             a.st.borrow_mut().resolve_rx = Some(rx);
             std::thread::spawn(move || {
-                let r = hostcfg::resolve::fetch_dbs(&mirror, &cache).and_then(|dbs| hostcfg::resolve::resolve(&cfg, &dbs)).map_err(|e| e.to_string());
+                let r = hostcfg::resolve::fetch_dbs(&mirror, &cache)
+                    .and_then(|dbs| hostcfg::resolve::resolve(&cfg, &dbs))
+                    .map_err(|e| e.to_string());
                 let _ = tx.send(r);
             });
             a.refresh_page(Page::Packages);
@@ -320,26 +402,76 @@ fn resolution_card(app: &Rc<App>, d: &gtk::Box) {
         }
         Some(Ok(res)) => {
             let chips = ui::hbox(8);
-            chips.append(&ui::chip(&format!("{} packages", res.packages.len()), "chip-accent"));
-            chips.append(&ui::chip(&format!("{} MiB to download", res.download_bytes() >> 20), "chip-accent"));
+            chips.append(&ui::chip(
+                &format!("{} packages", res.packages.len()),
+                "chip-accent",
+            ));
+            chips.append(&ui::chip(
+                &format!("{} MiB to download", res.download_bytes() >> 20),
+                "chip-accent",
+            ));
             c.append(&chips);
             for a in &res.ambiguities {
-                ui::note(&c, Kind::Warn, &format!("{} is provided by {}; chosen {} (set it in `providers` to pick another)", a.dep, a.candidates.join(", "), a.chosen));
+                ui::note(
+                    &c,
+                    Kind::Warn,
+                    &format!(
+                        "{} is provided by {}; chosen {} (set it in `providers` to pick another)",
+                        a.dep,
+                        a.candidates.join(", "),
+                        a.chosen
+                    ),
+                );
             }
-            let view = gtk::TextView::builder().editable(false).cursor_visible(false).monospace(true).left_margin(8).top_margin(6).bottom_margin(6).build();
+            let view = gtk::TextView::builder()
+                .editable(false)
+                .cursor_visible(false)
+                .monospace(true)
+                .left_margin(8)
+                .top_margin(6)
+                .bottom_margin(6)
+                .build();
             let buf = view.buffer();
-            let bold = buf.create_tag(Some("bold"), &[("weight", &700i32)]).unwrap();
-            let width = res.packages.iter().map(|p| p.name.len()).max().unwrap_or(10).min(48);
+            let bold = buf
+                .create_tag(Some("bold"), &[("weight", &700i32)])
+                .unwrap();
+            let width = res
+                .packages
+                .iter()
+                .map(|p| p.name.len())
+                .max()
+                .unwrap_or(10)
+                .min(48);
             for p in &res.packages {
                 let mut end = buf.end_iter();
                 let start = end.offset();
-                buf.insert(&mut end, &format!("{:<w$}  {:<24} {:<8} {} KiB\n", p.name, p.version, p.repo, p.csize >> 10, w = width));
+                buf.insert(
+                    &mut end,
+                    &format!(
+                        "{:<w$}  {:<24} {:<8} {} KiB\n",
+                        p.name,
+                        p.version,
+                        p.repo,
+                        p.csize >> 10,
+                        w = width
+                    ),
+                );
                 if p.explicit {
-                    let (s, e) = (buf.iter_at_offset(start), buf.iter_at_offset(start + width as i32));
+                    let (s, e) = (
+                        buf.iter_at_offset(start),
+                        buf.iter_at_offset(start + width as i32),
+                    );
                     buf.apply_tag(&bold, &s, &e);
                 }
             }
-            c.append(&gtk::ScrolledWindow::builder().min_content_height(220).max_content_height(220).has_frame(true).child(&view).build());
+            c.append(
+                &gtk::ScrolledWindow::builder()
+                    .min_content_height(220)
+                    .max_content_height(220)
+                    .has_frame(true)
+                    .child(&view)
+                    .build(),
+            );
             ui::hint(&c, "Bold: named in the list. The rest are dependencies.");
         }
         None => {
@@ -358,7 +490,10 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
     for (i, p) in pinned.iter().enumerate() {
         let r = ui::hbox(8);
         r.append(&ui::strong(&p.name));
-        r.append(&ui::dim(&format!("@ {}", &p.commit[..p.commit.len().min(8)])));
+        r.append(&ui::dim(&format!(
+            "@ {}",
+            &p.commit[..p.commit.len().min(8)]
+        )));
         if p.as_dep {
             r.append(&ui::chip("dependency", "chip-accent"));
         }
@@ -367,7 +502,11 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
         }
         let a = app.clone();
         let units_entry = ui::suggest(&p.services.join(", "), units.clone(), true, move |t| {
-            let v: Vec<String> = t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+            let v: Vec<String> = t
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
             a.edit(move |m| {
                 if let Some(x) = m.cfg.aur.get_mut(i) {
                     x.services = v;
@@ -375,7 +514,9 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
             });
         });
         units_entry.set_placeholder_text(Some("units to enable"));
-        units_entry.set_tooltip_text(Some("systemd units to enable once this package is installed, comma separated"));
+        units_entry.set_tooltip_text(Some(
+            "systemd units to enable once this package is installed, comma separated",
+        ));
         r.append(&units_entry);
         let a = app.clone();
         r.append(&ui::button("Remove", move || {
@@ -394,7 +535,14 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
     // Search: one row, with the busy state beside it.
     let (search, busy, results, message, fetching, pinning) = {
         let st = app.st.borrow();
-        (st.aur.search.clone(), st.aur.busy(), st.aur.results.clone(), st.aur.message.clone(), st.aur.fetching.clone(), st.aur.pin_rx.is_some())
+        (
+            st.aur.search.clone(),
+            st.aur.busy(),
+            st.aur.results.clone(),
+            st.aur.message.clone(),
+            st.aur.fetching.clone(),
+            st.aur.pin_rx.is_some(),
+        )
     };
     let sr = ui::hbox(8);
     let entry = ui::entry(&search, {
@@ -431,7 +579,13 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
     sr.append(&entry);
     sr.append(&go);
     if busy {
-        let what = if pinning { "pinning…".to_string() } else if let Some(n) = fetching { format!("fetching {n}…") } else { "searching…".to_string() };
+        let what = if pinning {
+            "pinning…".to_string()
+        } else if let Some(n) = fetching {
+            format!("fetching {n}…")
+        } else {
+            "searching…".to_string()
+        };
         sr.append(&ui::spinner_row(&what).0);
     }
     c.append(&sr);
@@ -448,7 +602,10 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
                 let name = ui::strong(&info.name);
                 name.set_hexpand(false);
                 row.append(&name);
-                row.append(&ui::dim(&format!("{}  ·  {} votes", info.version, info.votes)));
+                row.append(&ui::dim(&format!(
+                    "{}  ·  {} votes",
+                    info.version, info.votes
+                )));
                 if info.maintainer.is_none() {
                     row.append(&ui::chip("orphaned", "chip-warn"));
                 }
@@ -459,7 +616,11 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
                 spacer.set_hexpand(true);
                 row.append(&spacer);
                 row.append(&ui::dim("Review ›"));
-                let btn = gtk::Button::builder().child(&row).css_classes(["flat"]).sensitive(!busy).build();
+                let btn = gtk::Button::builder()
+                    .child(&row)
+                    .css_classes(["flat"])
+                    .sensitive(!busy)
+                    .build();
                 if let Some(desc) = &info.description {
                     btn.set_tooltip_text(Some(desc));
                 }
@@ -490,7 +651,10 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
 fn review(app: &Rc<App>, c: &gtk::Box, busy: bool) {
     let Some((rev, file, ack_rev, ack_vcs)) = ({
         let st = app.st.borrow();
-        st.aur.review.clone().map(|r| (r, st.aur.file.clone(), st.aur.ack_reviewed, st.aur.ack_vcs))
+        st.aur
+            .review
+            .clone()
+            .map(|r| (r, st.aur.file.clone(), st.aur.ack_reviewed, st.aur.ack_vcs))
     }) else {
         app.st.borrow_mut().aur_focused_commit = None;
         return;
@@ -499,7 +663,11 @@ fn review(app: &Rc<App>, c: &gtk::Box, busy: bool) {
     p.add_css_class("card-box");
     c.append(&p);
     let head = ui::hbox(8);
-    head.append(&ui::strong(&format!("Review {} {}", rev.name, rev.srcinfo.version())));
+    head.append(&ui::strong(&format!(
+        "Review {} {}",
+        rev.name,
+        rev.srcinfo.version()
+    )));
     head.append(&ui::dim(&format!("commit {}", &rev.commit[..12])));
     p.append(&head);
 
@@ -507,21 +675,43 @@ fn review(app: &Rc<App>, c: &gtk::Box, busy: bool) {
     let deps = rev.srcinfo.depends(&rev.name);
     let risky = aurbuild::plan::risky_lines(&rev.files);
     let n = rev.warnings.len();
-    let label = if n == 0 { "Automatic checks: nothing to report".to_string() } else { format!("Automatic checks: {n} thing{} to look at", if n == 1 { "" } else { "s" }) };
+    let label = if n == 0 {
+        "Automatic checks: nothing to report".to_string()
+    } else {
+        format!(
+            "Automatic checks: {n} thing{} to look at",
+            if n == 1 { "" } else { "s" }
+        )
+    };
     let exp = gtk::Expander::builder().label(label).build();
     let inner = ui::vbox(4);
     inner.set_margin_top(4);
     for w in &rev.warnings {
-        let l = gtk::Label::builder().label(format!("• {w}")).xalign(0.0).wrap(true).css_classes(["note-warn"]).build();
+        let l = gtk::Label::builder()
+            .label(format!("• {w}"))
+            .xalign(0.0)
+            .wrap(true)
+            .css_classes(["note-warn"])
+            .build();
         inner.append(&l);
     }
     if !deps.is_empty() {
         ui::hint(&inner, &format!("depends: {}", deps.join(", ")));
     }
     if !rev.srcinfo.makedepends().is_empty() {
-        ui::hint(&inner, &format!("makedepends: {}", rev.srcinfo.makedepends().join(", ")));
+        ui::hint(
+            &inner,
+            &format!("makedepends: {}", rev.srcinfo.makedepends().join(", ")),
+        );
     }
-    ui::hint(&inner, &format!("pkgbase {}   tree digest {}", rev.pkgbase, &rev.tree_sha256[..16]));
+    ui::hint(
+        &inner,
+        &format!(
+            "pkgbase {}   tree digest {}",
+            rev.pkgbase,
+            &rev.tree_sha256[..16]
+        ),
+    );
     exp.set_child(Some(&inner));
     p.append(&exp);
 
@@ -546,9 +736,19 @@ fn review(app: &Rc<App>, c: &gtk::Box, busy: bool) {
         p.append(&r);
     }
     if let Some(data) = rev.files.get(&file) {
-        let view = gtk::TextView::builder().editable(false).cursor_visible(false).monospace(true).left_margin(8).top_margin(6).bottom_margin(6).wrap_mode(gtk::WrapMode::None).build();
+        let view = gtk::TextView::builder()
+            .editable(false)
+            .cursor_visible(false)
+            .monospace(true)
+            .left_margin(8)
+            .top_margin(6)
+            .bottom_margin(6)
+            .wrap_mode(gtk::WrapMode::None)
+            .build();
         let buf = view.buffer();
-        let warn_tag = buf.create_tag(Some("risky"), &[("background", &"rgba(245,194,17,0.25)")]).unwrap();
+        let warn_tag = buf
+            .create_tag(Some("risky"), &[("background", &"rgba(245,194,17,0.25)")])
+            .unwrap();
         let text = String::from_utf8_lossy(data).into_owned();
         let mut any_risky = false;
         for (n, line) in text.lines().enumerate() {
@@ -561,9 +761,19 @@ fn review(app: &Rc<App>, c: &gtk::Box, busy: bool) {
                 buf.apply_tag(&warn_tag, &s, &e);
             }
         }
-        p.append(&gtk::ScrolledWindow::builder().min_content_height(240).max_content_height(300).has_frame(true).child(&view).build());
+        p.append(
+            &gtk::ScrolledWindow::builder()
+                .min_content_height(240)
+                .max_content_height(300)
+                .has_frame(true)
+                .child(&view)
+                .build(),
+        );
         if any_risky {
-            ui::hint(&p, "Highlighted lines use commands worth a second look (curl, sudo, eval, ...).");
+            ui::hint(
+                &p,
+                "Highlighted lines use commands worth a second look (curl, sudo, eval, ...).",
+            );
         }
     }
 
@@ -614,9 +824,14 @@ fn review(app: &Rc<App>, c: &gtk::Box, busy: bool) {
             }
             let (mirror, existing) = {
                 let st = a.st.borrow();
-                (st.model.cfg.mirrors.first().cloned().unwrap_or_default(), st.model.cfg.aur.clone())
+                (
+                    st.model.cfg.mirrors.first().cloned().unwrap_or_default(),
+                    st.model.cfg.aur.clone(),
+                )
             };
-            let cache = dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("archstaller-gui");
+            let cache = dirs::cache_dir()
+                .unwrap_or_else(std::env::temp_dir)
+                .join("archstaller-gui");
             {
                 let mut st = a.st.borrow_mut();
                 st.aur.ack_reviewed = true;

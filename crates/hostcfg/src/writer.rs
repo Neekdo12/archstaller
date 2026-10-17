@@ -13,7 +13,9 @@ pub fn aur_block(aur: &[config::AurPackage]) -> String {
         return String::new();
     }
     let mut o = String::new();
-    o.push_str("# Built on the installed system at its first boot, from the pinned and reviewed recipe.\n");
+    o.push_str(
+        "# Built on the installed system at its first boot, from the pinned and reviewed recipe.\n",
+    );
     for a in aur {
         o.push_str("[[packages.aur]]\n");
         o.push_str(&format!("name = \"{}\"\n", a.name));
@@ -46,7 +48,6 @@ pub fn to_toml(cfg: &Config, host: &HostConfig) -> String {
     let body = toml::to_string_pretty(&a).expect("AsConfig serializes to TOML");
     format!("{HEADER}\n# Edit by hand or with archstaller-gui. Password hashes only, never plaintext.\n\n{body}")
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -95,7 +96,8 @@ mod tests {
         let toml_text = to_toml(&cfg, &host);
         assert!(toml_text.starts_with(HEADER));
 
-        let loaded = crate::toml::load_str_unvalidated(&toml_text, std::path::Path::new(".")).unwrap();
+        let loaded =
+            crate::toml::load_str_unvalidated(&toml_text, std::path::Path::new(".")).unwrap();
         assert_eq!(loaded.config.hostname, cfg.hostname);
         assert_eq!(loaded.config.keymap, cfg.keymap);
         assert_eq!(loaded.config.disk.confirm_serial, cfg.disk.confirm_serial);

@@ -31,7 +31,10 @@ fn main() -> gtk::glib::ExitCode {
             }
         }
     }
-    let gapp = gtk::Application::builder().application_id("org.archstaller.Gui").flags(gtk::gio::ApplicationFlags::NON_UNIQUE).build();
+    let gapp = gtk::Application::builder()
+        .application_id("org.archstaller.Gui")
+        .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
+        .build();
     gapp.connect_shutdown(|_| polkit::stop());
     gapp.connect_activate(|gapp| {
         polkit::start();

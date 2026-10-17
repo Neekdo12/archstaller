@@ -26,7 +26,11 @@ fn rpmvercmp(a: &str, b: &str) -> Ordering {
             break;
         }
         if one - ptr1 != two - ptr2 {
-            return if one - ptr1 < two - ptr2 { Ordering::Less } else { Ordering::Greater };
+            return if one - ptr1 < two - ptr2 {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            };
         }
         ptr1 = one;
         ptr2 = two;
@@ -50,7 +54,11 @@ fn rpmvercmp(a: &str, b: &str) -> Ordering {
             return Ordering::Less;
         }
         if two == ptr2 {
-            return if isnum { Ordering::Greater } else { Ordering::Less };
+            return if isnum {
+                Ordering::Greater
+            } else {
+                Ordering::Less
+            };
         }
         let (mut s1, mut s2) = (&a[one..ptr1], &b[two..ptr2]);
         if isnum {
@@ -87,7 +95,10 @@ fn rpmvercmp(a: &str, b: &str) -> Ordering {
 fn parse_evr(evr: &str) -> (&str, &str, Option<&str>) {
     let digits = evr.bytes().take_while(|b| b.is_ascii_digit()).count();
     let (epoch, rest) = if evr.as_bytes().get(digits) == Some(&b':') {
-        (if digits == 0 { "0" } else { &evr[..digits] }, &evr[digits + 1..])
+        (
+            if digits == 0 { "0" } else { &evr[..digits] },
+            &evr[digits + 1..],
+        )
     } else {
         ("0", evr)
     };

@@ -38,8 +38,8 @@ pub const fn guid(s: &str) -> [u8; 16] {
         }
     }
     [
-        raw[3], raw[2], raw[1], raw[0], raw[5], raw[4], raw[7], raw[6], raw[8], raw[9], raw[10], raw[11], raw[12],
-        raw[13], raw[14], raw[15],
+        raw[3], raw[2], raw[1], raw[0], raw[5], raw[4], raw[7], raw[6], raw[8], raw[9], raw[10],
+        raw[11], raw[12], raw[13], raw[14], raw[15],
     ]
 }
 
@@ -73,12 +73,19 @@ impl Layout {
 
     /// BIOS boot (1 MiB), ESP (`esp_bytes`), root (rest), all 1 MiB aligned.
     /// `guids` supplies the disk GUID and the three partition GUIDs.
-    pub fn plan(sector_size: u32, total_sectors: u64, esp_bytes: u64, guids: [[u8; 16]; 4]) -> Result<Layout> {
+    pub fn plan(
+        sector_size: u32,
+        total_sectors: u64,
+        esp_bytes: u64,
+        guids: [[u8; 16]; 4],
+    ) -> Result<Layout> {
         let ss = sector_size as u64;
         let align = ALIGN / ss;
         let table_sectors = (ENTRIES * ENTRY_SIZE) as u64 / ss;
         let first_usable = 2 + table_sectors;
-        let last_usable = total_sectors.checked_sub(1 + table_sectors + 1).ok_or(Error::Size("disk too small"))?;
+        let last_usable = total_sectors
+            .checked_sub(1 + table_sectors + 1)
+            .ok_or(Error::Size("disk too small"))?;
         let bios_first = align;
         let bios_last = bios_first + align - 1;
         let esp_first = bios_last + 1;
@@ -89,7 +96,13 @@ impl Layout {
             return Err(Error::Size("disk too small for the layout"));
         }
         let [disk_guid, g1, g2, g3] = guids;
-        let mk = |type_guid, unique_guid, first_lba, last_lba, name| Partition { type_guid, unique_guid, first_lba, last_lba, name };
+        let mk = |type_guid, unique_guid, first_lba, last_lba, name| Partition {
+            type_guid,
+            unique_guid,
+            first_lba,
+            last_lba,
+            name,
+        };
         Ok(Layout {
             disk_guid,
             sector_size,
@@ -104,7 +117,10 @@ impl Layout {
 
     pub fn byte_range(&self, index: usize) -> (u64, u64) {
         let p = &self.partitions[index];
-        (p.first_lba * self.sector_size as u64, p.sectors() * self.sector_size as u64)
+        (
+            p.first_lba * self.sector_size as u64,
+            p.sectors() * self.sector_size as u64,
+        )
     }
 
     /// Writes protective MBR, both headers and both entry arrays.
@@ -161,7 +177,10 @@ impl Layout {
         dev.write_at(ss as u64, &header(1, last_lba, 2))?;
         dev.write_at(2 * ss as u64, &entries)?;
         dev.write_at(backup_entries_lba * ss as u64, &entries)?;
-        dev.write_at(last_lba * ss as u64, &header(last_lba, 1, backup_entries_lba))?;
+        dev.write_at(
+            last_lba * ss as u64,
+            &header(last_lba, 1, backup_entries_lba),
+        )?;
         dev.flush()
     }
 }

@@ -193,7 +193,7 @@ fn put_be32(b: &mut [u8], off: usize, v: u32) {
 }
 
 fn is_power_of(mut n: u32, base: u32) -> bool {
-    while n % base == 0 {
+    while n.is_multiple_of(base) {
         n /= base;
     }
     n == 1
@@ -281,14 +281,29 @@ impl<S: Storage> Ext4Writer<S> {
         w.inodes.resize_with(FIRST_INO as usize + 1, || None);
 
         let now = w.opts.now;
-        let mut root = Inode::new(FileKind::Dir, &Meta { mode: 0o755, mtime: now, ..Default::default() });
+        let mut root = Inode::new(
+            FileKind::Dir,
+            &Meta {
+                mode: 0o755,
+                mtime: now,
+                ..Default::default()
+            },
+        );
         root.parent = ROOT_INO;
         root.nlink = 2;
-        let mut lpf = Inode::new(FileKind::Dir, &Meta { mode: 0o700, mtime: now, ..Default::default() });
+        let mut lpf = Inode::new(
+            FileKind::Dir,
+            &Meta {
+                mode: 0o700,
+                mtime: now,
+                ..Default::default()
+            },
+        );
         lpf.parent = ROOT_INO;
         lpf.nlink = 2;
         lpf.min_dir_blocks = LPF_BLOCKS;
-        root.children.insert(b"lost+found".to_vec(), (LPF_INO, FileKind::Dir));
+        root.children
+            .insert(b"lost+found".to_vec(), (LPF_INO, FileKind::Dir));
         root.nlink += 1;
         w.inodes[ROOT_INO as usize] = Some(root);
         w.inodes[LPF_INO as usize] = Some(lpf);
@@ -307,13 +322,24 @@ impl<S: Storage> Ext4Writer<S> {
         let mut done = 0u64;
         while done < jblocks {
             let (pblk, len) = self.alloc_run(jblocks - done)?;
-            extents.push(Extent { lblk: done as u32, len: len as u32, pblk });
+            extents.push(Extent {
+                lblk: done as u32,
+                len: len as u32,
+                pblk,
+            });
             done += len;
         }
         if extents.len() > 4 {
             return Err(Error::Invalid("journal too fragmented"));
         }
-        let mut j = Inode::new(FileKind::Regular, &Meta { mode: 0o600, mtime: self.opts.now, ..Default::default() });
+        let mut j = Inode::new(
+            FileKind::Regular,
+            &Meta {
+                mode: 0o600,
+                mtime: self.opts.now,
+                ..Default::default()
+            },
+        );
         j.size = jblocks * BS as u64;
         j.extents = extents.clone();
         self.inodes[JOURNAL_INO as usize] = Some(j);
@@ -326,13 +352,12 @@ impl<S: Storage> Ext4Writer<S> {
         put_be32(&mut jsb, 16, jblocks as u32); // length of the journal in blocks
         put_be32(&mut jsb, 20, 1); // first log block
         put_be32(&mut jsb, 24, 1); // first expected commit sequence
-        // s_start (28) stays 0: the journal is empty and needs no recovery.
+                                   // s_start (28) stays 0: the journal is empty and needs no recovery.
         jsb[48..64].copy_from_slice(&self.opts.uuid);
         put_be32(&mut jsb, 64, 1); // users
         self.st.write_at(extents[0].pblk * BS as u64, &jsb)?;
         Ok(())
     }
-
 
     pub fn into_storage(self) -> S {
         self.st
@@ -346,7 +371,11 @@ impl<S: Storage> Ext4Writer<S> {
 
     fn layout(&self, g: u32) -> GroupLayout {
         let start = g as u64 * BPG;
-        let sb_blocks = if has_backup(g) { 1 + self.gdt_blocks } else { 0 };
+        let sb_blocks = if has_backup(g) {
+            1 + self.gdt_blocks
+        } else {
+            0
+        };
         let block_bitmap = start + sb_blocks;
         let inode_bitmap = block_bitmap + 1;
         let inode_table = inode_bitmap + 1;
@@ -370,7 +399,7 @@ impl<S: Storage> Ext4Writer<S> {
             let bm = &mut self.bitmaps[g as usize];
             // Skip used blocks.
             while rel < group_blocks {
-                if rel % 8 == 0 && bm[rel / 8] == 0xff {
+                if rel.is_multiple_of(8) && bm[rel / 8] == 0xff {
                     rel += 8;
                 } else if bm[rel / 8] & (1 << (rel % 8)) != 0 {
                     rel += 1;
@@ -389,7 +418,10 @@ impl<S: Storage> Ext4Writer<S> {
             let start = rel;
             let max = want.min(MAX_EXTENT_LEN) as usize;
             let mut len = 0;
-            while len < max && start + len < group_blocks && bm[(start + len) / 8] & (1 << ((start + len) % 8)) == 0 {
+            while len < max
+                && start + len < group_blocks
+                && bm[(start + len) / 8] & (1 << ((start + len) % 8)) == 0
+            {
                 bm[(start + len) / 8] |= 1 << ((start + len) % 8);
                 len += 1;
             }
@@ -457,7 +489,15 @@ impl<S: Storage> Ext4Writer<S> {
             cur = match self.lookup_in(cur, d) {
                 Some((ino, FileKind::Dir)) => ino,
                 Some(_) => return Err(Error::NotDir),
-                None => self.new_dir(cur, d, &Meta { mode: 0o755, mtime: self.opts.now, ..Default::default() })?,
+                None => self.new_dir(
+                    cur,
+                    d,
+                    &Meta {
+                        mode: 0o755,
+                        mtime: self.opts.now,
+                        ..Default::default()
+                    },
+                )?,
             };
         }
         Ok((cur, name))
@@ -470,13 +510,16 @@ impl<S: Storage> Ext4Writer<S> {
         d.nlink = 2;
         self.inodes[ino as usize] = Some(d);
         let p = self.dir_mut(parent);
-        p.children.insert(name.as_bytes().to_vec(), (ino, FileKind::Dir));
+        p.children
+            .insert(name.as_bytes().to_vec(), (ino, FileKind::Dir));
         p.nlink += 1;
         Ok(ino)
     }
 
     fn link_new(&mut self, parent: u32, name: &str, kind: FileKind, ino: u32) {
-        self.dir_mut(parent).children.insert(name.as_bytes().to_vec(), (ino, kind));
+        self.dir_mut(parent)
+            .children
+            .insert(name.as_bytes().to_vec(), (ino, kind));
     }
 
     /// Creates `path` as a directory, or updates the attributes of an existing one.
@@ -534,7 +577,12 @@ impl<S: Storage> Ext4Writer<S> {
         let ino = self.alloc_ino()?;
         self.inodes[ino as usize] = Some(Inode::new(FileKind::Regular, meta));
         self.link_new(parent, name, FileKind::Regular, ino);
-        self.open = Some(OpenFile { ino, buf: Vec::new(), size: 0, next_lblk: 0 });
+        self.open = Some(OpenFile {
+            ino,
+            buf: Vec::new(),
+            size: 0,
+            next_lblk: 0,
+        });
         Ok(ino)
     }
 
@@ -551,7 +599,7 @@ impl<S: Storage> Ext4Writer<S> {
     fn flush_open(&mut self, last: bool) -> Result<()> {
         let mut of = self.open.take().unwrap();
         let mut buf = core::mem::take(&mut of.buf);
-        if last && buf.len() % BS != 0 {
+        if last && !buf.len().is_multiple_of(BS) {
             buf.resize(round_up(buf.len() as u64, BS as u64) as usize, 0);
         }
         let full = buf.len() / BS * BS;
@@ -570,10 +618,18 @@ impl<S: Storage> Ext4Writer<S> {
                     let lblk = of.next_lblk;
                     let n = self.dir_mut(ino);
                     match n.extents.last_mut() {
-                        Some(e) if e.pblk + e.len as u64 == pblk && e.lblk + e.len == lblk && e.len as u64 + len <= MAX_EXTENT_LEN => {
+                        Some(e)
+                            if e.pblk + e.len as u64 == pblk
+                                && e.lblk + e.len == lblk
+                                && e.len as u64 + len <= MAX_EXTENT_LEN =>
+                        {
                             e.len += len as u32
                         }
-                        _ => n.extents.push(Extent { lblk, len: len as u32, pblk }),
+                        _ => n.extents.push(Extent {
+                            lblk,
+                            len: len as u32,
+                            pblk,
+                        }),
                     }
                     of.next_lblk += len as u32;
                     done += bytes;
@@ -615,7 +671,11 @@ impl<S: Storage> Ext4Writer<S> {
             let mut blk = vec![0u8; BS];
             blk[..target.len()].copy_from_slice(target.as_bytes());
             self.st.write_at(b * BS as u64, &blk)?;
-            n.extents.push(Extent { lblk: 0, len: 1, pblk: b });
+            n.extents.push(Extent {
+                lblk: 0,
+                len: 1,
+                pblk: b,
+            });
         } else {
             return Err(Error::Invalid("symlink target too long"));
         }
@@ -624,8 +684,18 @@ impl<S: Storage> Ext4Writer<S> {
         Ok(ino)
     }
 
-    pub fn mknod(&mut self, path: &str, kind: FileKind, major: u32, minor: u32, meta: &Meta) -> Result<u32> {
-        if !matches!(kind, FileKind::CharDev | FileKind::BlockDev | FileKind::Fifo) {
+    pub fn mknod(
+        &mut self,
+        path: &str,
+        kind: FileKind,
+        major: u32,
+        minor: u32,
+        meta: &Meta,
+    ) -> Result<u32> {
+        if !matches!(
+            kind,
+            FileKind::CharDev | FileKind::BlockDev | FileKind::Fifo
+        ) {
             return Err(Error::Invalid("not a special file kind"));
         }
         let (parent, name) = self.parent_of(path)?;
@@ -680,11 +750,15 @@ impl<S: Storage> Ext4Writer<S> {
         while done < len {
             let pos = offset + done as u64;
             let lblk = (pos / BS as u64) as u32;
-            let e = extents.iter().find(|e| lblk >= e.lblk && lblk < e.lblk + e.len).ok_or(Error::Io)?;
+            let e = extents
+                .iter()
+                .find(|e| lblk >= e.lblk && lblk < e.lblk + e.len)
+                .ok_or(Error::Io)?;
             let in_ext = (lblk - e.lblk) as u64 * BS as u64 + pos % BS as u64;
             let avail = e.len as u64 * BS as u64 - in_ext;
             let take = (len - done).min(avail as usize);
-            self.st.read_at(e.pblk * BS as u64 + in_ext, &mut buf[done..done + take])?;
+            self.st
+                .read_at(e.pblk * BS as u64 + in_ext, &mut buf[done..done + take])?;
             done += take;
         }
         Ok(len)
@@ -694,7 +768,10 @@ impl<S: Storage> Ext4Writer<S> {
 
     fn ext_csum(&self, ino: u32) -> u32 {
         // Inodes are created with generation 0.
-        crc32c(crc32c(self.csum_seed, &ino.to_le_bytes()), &0u32.to_le_bytes())
+        crc32c(
+            crc32c(self.csum_seed, &ino.to_le_bytes()),
+            &0u32.to_le_bytes(),
+        )
     }
 
     fn build_dir_blocks(&self, ino: u32) -> Vec<u8> {
@@ -754,7 +831,12 @@ impl<S: Storage> Ext4Writer<S> {
             "system.posix_acl_access" => (2, ""),
             "system.posix_acl_default" => (3, ""),
             _ => {
-                for (p, i) in [("user.", 1u8), ("trusted.", 4), ("security.", 6), ("system.", 7)] {
+                for (p, i) in [
+                    ("user.", 1u8),
+                    ("trusted.", 4),
+                    ("security.", 6),
+                    ("system.", 7),
+                ] {
                     if let Some(rest) = name.strip_prefix(p) {
                         return (i, rest);
                     }
@@ -864,12 +946,18 @@ impl<S: Storage> Ext4Writer<S> {
         put32(&mut b, 0x0c, t as u32);
         put32(&mut b, 0x10, t as u32);
         put16(&mut b, 0x18, n.gid as u16);
-        let links = if n.kind == FileKind::Dir && n.nlink >= 65000 { 1 } else { n.nlink.min(65000) };
+        let links = if n.kind == FileKind::Dir && n.nlink >= 65000 {
+            1
+        } else {
+            n.nlink.min(65000)
+        };
         put16(&mut b, 0x1a, links as u16);
         let data_blocks: u64 = n.extents.iter().map(|e| e.len as u64).sum();
-        let sectors = (data_blocks + n.meta_blocks + (n.xattr_block != 0) as u64) * (BS as u64 / 512);
+        let sectors =
+            (data_blocks + n.meta_blocks + (n.xattr_block != 0) as u64) * (BS as u64 / 512);
         put32(&mut b, 0x1c, sectors as u32);
-        let uses_extents = matches!(n.kind, FileKind::Regular | FileKind::Dir) || (n.kind == FileKind::Symlink && n.fast_symlink.is_empty());
+        let uses_extents = matches!(n.kind, FileKind::Regular | FileKind::Dir)
+            || (n.kind == FileKind::Symlink && n.fast_symlink.is_empty());
         put32(&mut b, 0x20, if uses_extents { FL_EXTENTS } else { 0 });
         b[0x28..0x28 + 60].copy_from_slice(&n.i_block);
         put32(&mut b, 0x68, n.xattr_block as u32);
@@ -895,7 +983,11 @@ impl<S: Storage> Ext4Writer<S> {
         let mut sb = vec![0u8; 1024];
         put32(&mut sb, 0x00, self.ipg * self.groups);
         put32(&mut sb, 0x04, self.blocks as u32);
-        put32(&mut sb, 0x08, (self.blocks * self.opts.reserved_percent / 100) as u32);
+        put32(
+            &mut sb,
+            0x08,
+            (self.blocks * self.opts.reserved_percent / 100) as u32,
+        );
         put32(&mut sb, 0x0c, free_blocks as u32);
         put32(&mut sb, 0x10, free_inodes as u32);
         put32(&mut sb, 0x14, 0); // first data block
@@ -914,8 +1006,15 @@ impl<S: Storage> Ext4Writer<S> {
         put32(&mut sb, 0x54, FIRST_INO);
         put16(&mut sb, 0x58, ISIZE as u16);
         put16(&mut sb, 0x5a, group as u16);
-        let journal = self.inodes.get(JOURNAL_INO as usize).and_then(|n| n.as_ref());
-        put32(&mut sb, 0x5c, 0x8 | 0x20 | if journal.is_some() { 0x4 } else { 0 }); // ext_attr, dir_index, has_journal
+        let journal = self
+            .inodes
+            .get(JOURNAL_INO as usize)
+            .and_then(|n| n.as_ref());
+        put32(
+            &mut sb,
+            0x5c,
+            0x8 | 0x20 | if journal.is_some() { 0x4 } else { 0 },
+        ); // ext_attr, dir_index, has_journal
         put32(&mut sb, 0x60, 0x2 | 0x40); // filetype, extents
         put32(&mut sb, 0x64, 0x1 | 0x2 | 0x20 | 0x40 | 0x400); // sparse_super, large_file, dir_nlink, extra_isize, metadata_csum
         sb[0x68..0x78].copy_from_slice(&self.opts.uuid);
@@ -929,7 +1028,7 @@ impl<S: Storage> Ext4Writer<S> {
         put32(&mut sb, 0x100, 0x0c); // default mount opts: user_xattr, acl
         if let Some(j) = journal {
             put32(&mut sb, 0xe0, JOURNAL_INO); // s_journal_inum (journal_uuid and journal_dev stay 0: internal)
-            // s_jnl_blocks: backup of the journal inode's block map, then its size (high, low).
+                                               // s_jnl_blocks: backup of the journal inode's block map, then its size (high, low).
             sb[0x10c..0x10c + 60].copy_from_slice(&j.i_block);
             put32(&mut sb, 0x10c + 60, (j.size >> 32) as u32);
             put32(&mut sb, 0x10c + 64, j.size as u32);
@@ -967,8 +1066,15 @@ impl<S: Storage> Ext4Writer<S> {
                 let mut lblk = 0u32;
                 while done < nblocks {
                     let (pblk, len) = self.alloc_run(nblocks - done)?;
-                    self.st.write_at(pblk * BS as u64, &data[done as usize * BS..(done + len) as usize * BS])?;
-                    self.dir_mut(ino).extents.push(Extent { lblk, len: len as u32, pblk });
+                    self.st.write_at(
+                        pblk * BS as u64,
+                        &data[done as usize * BS..(done + len) as usize * BS],
+                    )?;
+                    self.dir_mut(ino).extents.push(Extent {
+                        lblk,
+                        len: len as u32,
+                        pblk,
+                    });
                     lblk += len as u32;
                     done += len;
                 }
@@ -1067,7 +1173,8 @@ impl<S: Storage> Ext4Writer<S> {
                 }
                 let used_table = highest[gi] as usize * ISIZE;
                 let bytes = used_table.div_ceil(BS) * BS;
-                self.st.write_at(l.inode_table * BS as u64, &table[..bytes])?;
+                self.st
+                    .write_at(l.inode_table * BS as u64, &table[..bytes])?;
             }
 
             let free_blocks = self.free_blocks[gi];

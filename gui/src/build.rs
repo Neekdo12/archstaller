@@ -39,9 +39,18 @@ fn is_root(p: &Path) -> bool {
 /// `find_root` without the environment. An installed executable takes its own tree before a checkout the
 /// current directory happens to be in.
 fn search_root(exe: Option<&Path>, cwd: Option<&Path>) -> Option<PathBuf> {
-    let checkout = |start: &Path| start.ancestors().find(|p| is_root(p)).map(Path::to_path_buf);
-    let installed = exe.and_then(|e| Some(e.parent()?.parent()?.join("share/archstaller"))).filter(|p| is_root(p));
-    exe.and_then(checkout).or(installed).or_else(|| cwd.and_then(checkout))
+    let checkout = |start: &Path| {
+        start
+            .ancestors()
+            .find(|p| is_root(p))
+            .map(Path::to_path_buf)
+    };
+    let installed = exe
+        .and_then(|e| Some(e.parent()?.parent()?.join("share/archstaller")))
+        .filter(|p| is_root(p));
+    exe.and_then(checkout)
+        .or(installed)
+        .or_else(|| cwd.and_then(checkout))
 }
 
 /// Cargo's build directory for `root`: `CARGO_TARGET_DIR`, else `target/` of a checkout we may write to, else
@@ -52,11 +61,16 @@ pub fn target_dir(root: &Path) -> PathBuf {
         return root.join(dir);
     }
     use std::os::unix::ffi::OsStrExt;
-    let writable = || std::ffi::CString::new(root.as_os_str().as_bytes()).is_ok_and(|p| unsafe { libc::access(p.as_ptr(), libc::W_OK) } == 0);
+    let writable = || {
+        std::ffi::CString::new(root.as_os_str().as_bytes())
+            .is_ok_and(|p| unsafe { libc::access(p.as_ptr(), libc::W_OK) } == 0)
+    };
     if !root.starts_with("/usr") && writable() {
         root.join("target")
     } else {
-        dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("archstaller/target")
+        dirs::cache_dir()
+            .unwrap_or_else(std::env::temp_dir)
+            .join("archstaller/target")
     }
 }
 
@@ -76,7 +90,13 @@ impl Build {
         Self::start_cmd(root, config, id, "rpi-build", "archstaller-rpi.img")
     }
 
-    fn start_cmd(root: &Path, config: &Path, id: &str, cmd: &str, out_file: &str) -> Result<Build, String> {
+    fn start_cmd(
+        root: &Path,
+        config: &Path,
+        id: &str,
+        cmd: &str,
+        out_file: &str,
+    ) -> Result<Build, String> {
         let target = target_dir(root);
         let base = target.join("gui-builds");
         let workdir = base.join(id);
@@ -135,7 +155,12 @@ impl Build {
                 }
             }
         });
-        Ok(Build { rx, child, workdir, log_path })
+        Ok(Build {
+            rx,
+            child,
+            workdir,
+            log_path,
+        })
     }
 
     /// Stops the build: cargo, the xtask it runs and everything that starts (compilers, xorriso). Only this
@@ -178,7 +203,8 @@ mod tests {
 
     #[test]
     fn an_installed_executable_finds_the_tree_beside_it() {
-        let base = std::env::temp_dir().join(format!("archstaller-installed-{}", std::process::id()));
+        let base =
+            std::env::temp_dir().join(format!("archstaller-installed-{}", std::process::id()));
         let tree = base.join("usr/share/archstaller");
         std::fs::create_dir_all(tree.join("xtask")).unwrap();
         std::fs::write(tree.join("rust-toolchain.toml"), "").unwrap();
@@ -186,9 +212,18 @@ mod tests {
         let checkout = find_root().unwrap();
         assert_eq!(search_root(Some(&exe), None), Some(tree.clone()));
         // Started inside a checkout, the installed executable still uses its own tree.
-        assert_eq!(search_root(Some(&exe), Some(&checkout.join("gui"))), Some(tree));
+        assert_eq!(
+            search_root(Some(&exe), Some(&checkout.join("gui"))),
+            Some(tree)
+        );
         // A copied executable with no tree beside it falls back to the current directory.
-        assert_eq!(search_root(Some(&base.join("bin/archstaller-gui")), Some(&checkout.join("gui"))), Some(checkout));
+        assert_eq!(
+            search_root(
+                Some(&base.join("bin/archstaller-gui")),
+                Some(&checkout.join("gui"))
+            ),
+            Some(checkout)
+        );
         let _ = std::fs::remove_dir_all(&base);
     }
 }

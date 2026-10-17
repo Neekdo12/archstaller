@@ -195,7 +195,9 @@ impl AhciDisk {
 
         p.write32(P_IS, 0xffff_ffff);
         p.write32(P_CI, 1);
-        platform::wait_until(5000, || p.read32(P_CI) & 1 == 0 || p.read32(P_IS) & IS_TFES != 0)?;
+        platform::wait_until(5000, || {
+            p.read32(P_CI) & 1 == 0 || p.read32(P_IS) & IS_TFES != 0
+        })?;
         if p.read32(P_IS) & IS_TFES != 0 || p.read32(P_TFD) & (TFD_ERR | TFD_DF) != 0 {
             return Err(Error::Io);
         }
@@ -204,7 +206,11 @@ impl AhciDisk {
 
     fn check(&self, lba: u64, len: usize) -> Result<()> {
         let ss = self.sector_size as usize;
-        if len % ss != 0 || lba.checked_add((len / ss) as u64).map_or(true, |e| e > self.sectors) {
+        if !len.is_multiple_of(ss)
+            || lba
+                .checked_add((len / ss) as u64)
+                .is_none_or(|e| e > self.sectors)
+        {
             return Err(Error::InvalidArgument);
         }
         Ok(())
@@ -237,7 +243,13 @@ impl BlockDevice for AhciDisk {
         let ss = self.sector_size as usize;
         for (i, chunk) in buf.chunks_mut(CHUNK).enumerate() {
             let l = lba + (i * CHUNK / ss) as u64;
-            self.command(ATA_READ_DMA_EXT, l, (chunk.len() / ss) as u32, chunk.len(), false)?;
+            self.command(
+                ATA_READ_DMA_EXT,
+                l,
+                (chunk.len() / ss) as u32,
+                chunk.len(),
+                false,
+            )?;
             chunk.copy_from_slice(&self.data.as_slice()[..chunk.len()]);
         }
         Ok(())
@@ -249,7 +261,13 @@ impl BlockDevice for AhciDisk {
         for (i, chunk) in buf.chunks(CHUNK).enumerate() {
             let l = lba + (i * CHUNK / ss) as u64;
             self.data.as_mut_slice()[..chunk.len()].copy_from_slice(chunk);
-            self.command(ATA_WRITE_DMA_EXT, l, (chunk.len() / ss) as u32, chunk.len(), true)?;
+            self.command(
+                ATA_WRITE_DMA_EXT,
+                l,
+                (chunk.len() / ss) as u32,
+                chunk.len(),
+                true,
+            )?;
         }
         Ok(())
     }

@@ -71,7 +71,9 @@ pub fn probe(dev: &PciDevice, out: &mut Devices) {
         return;
     }
     // BAR0 is I/O space, BAR1 the same registers in memory space.
-    let Some(Bar::Io { port, .. }) = dev.bar(0) else { return };
+    let Some(Bar::Io { port, .. }) = dev.bar(0) else {
+        return;
+    };
     dev.enable();
     if let Ok(d) = Rtl8139::new(port) {
         out.net.push(Box::new(d));
@@ -111,7 +113,14 @@ impl Rtl8139 {
         if (rx.phys() + RX_ALLOC as u64) >> 32 != 0 || (tx.phys() + 4 * TX_SLOT as u64) >> 32 != 0 {
             return Err(Error::Unsupported);
         }
-        let mut d = Rtl8139 { io, rx, tx, rx_off: 0, tx_next: 0, mac: [0; 6] };
+        let mut d = Rtl8139 {
+            io,
+            rx,
+            tx,
+            rx_off: 0,
+            tx_next: 0,
+            mac: [0; 6],
+        };
         d.w8(CONFIG1, 0); // power on
         d.w8(CR, CR_RST);
         platform::wait_until(100, || d.r8(CR) & CR_RST == 0)?;
@@ -151,9 +160,14 @@ impl NetDevice for Rtl8139 {
         let buf = self.tx.as_mut_slice();
         buf[slot * TX_SLOT..slot * TX_SLOT + frame.len()].copy_from_slice(frame);
         let len = frame.len().max(60); // the chip does not pad
-        self.w32(TSAD0 + 4 * slot as u16, self.tx.phys_at(slot * TX_SLOT) as u32);
+        self.w32(
+            TSAD0 + 4 * slot as u16,
+            self.tx.phys_at(slot * TX_SLOT) as u32,
+        );
         self.w32(TSD0 + 4 * slot as u16, len as u32); // OWN clear: start
-        platform::wait_until(1000, || self.r32(TSD0 + 4 * slot as u16) & (TSD_TOK | TSD_OWN) != 0)
+        platform::wait_until(1000, || {
+            self.r32(TSD0 + 4 * slot as u16) & (TSD_TOK | TSD_OWN) != 0
+        })
     }
 
     fn receive(&mut self, buf: &mut [u8]) -> Option<usize> {

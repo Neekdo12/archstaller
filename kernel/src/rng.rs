@@ -56,7 +56,10 @@ fn jitter_fill(buf: &mut [u8]) {
         let mut h = Sha256::new();
         h.update(b"archstaller jitter seed");
         gather_jitter(&mut h, 4096);
-        Drbg { state: h.finalize().into(), counter: 0 }
+        Drbg {
+            state: h.finalize().into(),
+            counter: 0,
+        }
     });
     for chunk in buf.chunks_mut(32) {
         // Fresh jitter on every block as well, so the output is not a function of the seed alone.

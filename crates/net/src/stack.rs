@@ -7,7 +7,9 @@ use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet};
 use smoltcp::phy::{self, Device, DeviceCapabilities, Medium};
 use smoltcp::socket::{dhcpv4, dns, tcp};
 use smoltcp::time::Instant;
-use smoltcp::wire::{DnsQueryType, EthernetAddress, HardwareAddress, IpAddress, IpCidr, IpEndpoint, Ipv4Address};
+use smoltcp::wire::{
+    DnsQueryType, EthernetAddress, HardwareAddress, IpAddress, IpCidr, IpEndpoint, Ipv4Address,
+};
 
 const MTU: usize = 1514;
 /// How long a leased address is ARP-probed for conflicts, and how many conflicting offers are declined.
@@ -64,7 +66,11 @@ impl Counts {
             (0x0800, Some(6)) => self.tcp += 1,
             _ => {
                 self.other += 1;
-                if let Some(slot) = self.types.iter_mut().find(|(t, _)| *t == ethertype || *t == 0) {
+                if let Some(slot) = self
+                    .types
+                    .iter_mut()
+                    .find(|(t, _)| *t == ethertype || *t == 0)
+                {
                     slot.0 = ethertype;
                     slot.1 += 1;
                 }
@@ -164,7 +170,13 @@ impl Stack {
     /// `now_ms` must be monotonic; `seed` should differ per boot.
     pub fn new(dev: Box<dyn NetDevice>, now_ms: fn() -> u64, seed: u64) -> Stack {
         let mac = dev.mac();
-        let mut dev = Adapter { dev, rx: Counts::default(), tx: Counts::default(), watch_ip: None, conflict: None };
+        let mut dev = Adapter {
+            dev,
+            rx: Counts::default(),
+            tx: Counts::default(),
+            watch_ip: None,
+            conflict: None,
+        };
         let mut cfg = Config::new(HardwareAddress::Ethernet(EthernetAddress(mac)));
         cfg.random_seed = seed;
         let iface = Interface::new(cfg, &mut dev, Instant::from_millis(now_ms() as i64));
@@ -260,8 +272,17 @@ impl Stack {
                         dns.push(fallback);
                     }
                 }
-                hal::log!("net: DNS servers {:?}", dns.iter().map(|d| alloc::format!("{}.{}.{}.{}", d[0], d[1], d[2], d[3])).collect::<Vec<_>>());
-                hal::log!("net: DHCP server {} (identifier {}), declined {declined} address(es)", server.address, server.identifier);
+                hal::log!(
+                    "net: DNS servers {:?}",
+                    dns.iter()
+                        .map(|d| alloc::format!("{}.{}.{}.{}", d[0], d[1], d[2], d[3]))
+                        .collect::<Vec<_>>()
+                );
+                hal::log!(
+                    "net: DHCP server {} (identifier {}), declined {declined} address(es)",
+                    server.address,
+                    server.identifier
+                );
                 self.gateway = router.map(|r| r.octets());
                 self.dns_servers = dhcp_dns.iter().map(|d| d.octets()).collect();
                 self.iface.update_ip_addrs(|a| {
@@ -337,7 +358,20 @@ impl Stack {
         f.extend_from_slice(&mac);
         f.extend_from_slice(&0x0800u16.to_be_bytes());
         let ip_start = f.len();
-        f.extend_from_slice(&[0x45, 0, (ip_len >> 8) as u8, ip_len as u8, 0, 0, 0, 0, 64, 17, 0, 0]);
+        f.extend_from_slice(&[
+            0x45,
+            0,
+            (ip_len >> 8) as u8,
+            ip_len as u8,
+            0,
+            0,
+            0,
+            0,
+            64,
+            17,
+            0,
+            0,
+        ]);
         f.extend_from_slice(&[0, 0, 0, 0]); // source 0.0.0.0
         f.extend_from_slice(&[255, 255, 255, 255]);
         let mut sum = 0u32;
@@ -357,7 +391,6 @@ impl Stack {
         self.dev.tx.note("sent", &f);
         let _ = self.dev.dev.transmit(&f);
     }
-
 
     /// Resolves an IPv4 address (dotted quads are parsed directly). The resolvers are tried one at a
     /// time, starting with the one that answered last, each with an equal share of the time left:
@@ -382,13 +415,25 @@ impl Stack {
             match self.query(name, server, now + (end - now) / (n - k) as u64) {
                 Ok(ip) => {
                     if i != self.resolver {
-                        hal::info!("net: DNS server {}.{}.{}.{} answered; using it from now on", server[0], server[1], server[2], server[3]);
+                        hal::info!(
+                            "net: DNS server {}.{}.{}.{} answered; using it from now on",
+                            server[0],
+                            server[1],
+                            server[2],
+                            server[3]
+                        );
                         self.resolver = i;
                     }
                     return Ok(ip);
                 }
                 Err(e) => {
-                    hal::log!("net: DNS server {}.{}.{}.{} gave no answer for {name}: {e:?}", server[0], server[1], server[2], server[3]);
+                    hal::log!(
+                        "net: DNS server {}.{}.{}.{} gave no answer for {name}: {e:?}",
+                        server[0],
+                        server[1],
+                        server[2],
+                        server[3]
+                    );
                     last = e;
                 }
             }
@@ -401,10 +446,16 @@ impl Stack {
     fn query(&mut self, name: &str, server: [u8; 4], until: u64) -> Result<[u8; 4]> {
         let sock = self.sockets.get_mut::<dns::Socket>(self.dns);
         sock.update_servers(&[IpAddress::Ipv4(Ipv4Address::from(server))]);
-        let h = sock.start_query(self.iface.context(), name, DnsQueryType::A).map_err(|_| Error::Dns)?;
+        let h = sock
+            .start_query(self.iface.context(), name, DnsQueryType::A)
+            .map_err(|_| Error::Dns)?;
         while (self.now_ms)() < until {
             self.poll();
-            match self.sockets.get_mut::<dns::Socket>(self.dns).get_query_result(h) {
+            match self
+                .sockets
+                .get_mut::<dns::Socket>(self.dns)
+                .get_query_result(h)
+            {
                 Ok(addrs) => {
                     return match addrs.first() {
                         Some(IpAddress::Ipv4(v4)) => Ok(v4.octets()),
@@ -415,7 +466,9 @@ impl Stack {
                 Err(_) => return Err(Error::Dns),
             }
         }
-        self.sockets.get_mut::<dns::Socket>(self.dns).cancel_query(h);
+        self.sockets
+            .get_mut::<dns::Socket>(self.dns)
+            .cancel_query(h);
         Err(Error::Timeout)
     }
 
@@ -458,7 +511,11 @@ impl Stack {
         let result = (|| {
             let sock = self.sockets.get_mut::<icmp::Socket>(h);
             sock.bind(icmp::Endpoint::Ident(ident)).ok()?;
-            let repr = Icmpv4Repr::EchoRequest { ident, seq_no: 1, data: b"archstaller" };
+            let repr = Icmpv4Repr::EchoRequest {
+                ident,
+                seq_no: 1,
+                data: b"archstaller",
+            };
             let buf = sock.send(repr.buffer_len(), dst).ok()?;
             repr.emit(&mut Icmpv4Packet::new_unchecked(buf), &caps);
             let start = (self.now_ms)();
@@ -468,7 +525,8 @@ impl Stack {
                 if sock.can_recv() {
                     let (payload, _) = sock.recv().ok()?;
                     let pkt = Icmpv4Packet::new_checked(payload).ok()?;
-                    if matches!(Icmpv4Repr::parse(&pkt, &caps), Ok(Icmpv4Repr::EchoReply { ident: i, .. }) if i == ident) {
+                    if matches!(Icmpv4Repr::parse(&pkt, &caps), Ok(Icmpv4Repr::EchoReply { ident: i, .. }) if i == ident)
+                    {
                         return Some((self.now_ms)() - start);
                     }
                 }
@@ -483,8 +541,12 @@ impl Stack {
     /// Frames sent and received so far, by kind (diagnostics).
     pub fn counters(&self) -> alloc::string::String {
         let (r, t) = (&self.dev.rx, &self.dev.tx);
-        let types: alloc::vec::Vec<alloc::string::String> =
-            r.types.iter().filter(|(t, _)| *t != 0).map(|(t, n)| alloc::format!("{t:04x}x{n}")).collect();
+        let types: alloc::vec::Vec<alloc::string::String> = r
+            .types
+            .iter()
+            .filter(|(t, _)| *t != 0)
+            .map(|(t, n)| alloc::format!("{t:04x}x{n}"))
+            .collect();
         alloc::format!(
             "rx: {} arp, {} udp, {} tcp, {} other ({} unicast; other ethertypes {:?}); tx: {} arp, {} udp, {} tcp, {} other",
             r.arp, r.udp, r.tcp, r.other, r.unicast, types, t.arp, t.udp, t.tcp, t.other
@@ -492,10 +554,17 @@ impl Stack {
     }
 
     pub fn connect(&mut self, ip: [u8; 4], port: u16, timeout_ms: u64) -> Result<TcpConn<'_>> {
-        let sock = tcp::Socket::new(tcp::SocketBuffer::new(vec![0; TCP_RX]), tcp::SocketBuffer::new(vec![0; TCP_TX]));
+        let sock = tcp::Socket::new(
+            tcp::SocketBuffer::new(vec![0; TCP_RX]),
+            tcp::SocketBuffer::new(vec![0; TCP_TX]),
+        );
         let handle = self.sockets.add(sock);
         let local = self.next_port;
-        self.next_port = if self.next_port >= 60000 { 49152 } else { self.next_port + 1 };
+        self.next_port = if self.next_port >= 60000 {
+            49152
+        } else {
+            self.next_port + 1
+        };
         let remote = IpEndpoint::new(IpAddress::Ipv4(Ipv4Address::from(ip)), port);
         let s = self.sockets.get_mut::<tcp::Socket>(handle);
         s.set_nagle_enabled(false);
@@ -503,7 +572,11 @@ impl Stack {
             self.sockets.remove(handle);
             return Err(Error::Connect);
         }
-        let mut conn = TcpConn { stack: self, handle, timeout_ms: 30_000 };
+        let mut conn = TcpConn {
+            stack: self,
+            handle,
+            timeout_ms: 30_000,
+        };
         let end = conn.stack.deadline(timeout_ms);
         loop {
             conn.stack.poll();
@@ -609,16 +682,24 @@ impl Drop for TcpConn<'_> {
 mod tests {
     extern crate std;
     use super::*;
-    use core::sync::atomic::{AtomicU64, Ordering};
     use smoltcp::phy::ChecksumCapabilities;
-    use smoltcp::wire::{DhcpMessageType, DhcpPacket, DhcpRepr, EthernetFrame, EthernetProtocol, IpProtocol, Ipv4Packet, Ipv4Repr, UdpPacket, UdpRepr};
+    use smoltcp::wire::{
+        DhcpMessageType, DhcpPacket, DhcpRepr, EthernetFrame, EthernetProtocol, IpProtocol,
+        Ipv4Packet, Ipv4Repr, UdpPacket, UdpRepr,
+    };
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    static CLOCK: AtomicU64 = AtomicU64::new(0);
+    std::thread_local! {
+        static CLOCK: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    }
     /// A clock that moves 5 ms per reading, so loops that wait for time terminate.
     fn clock() -> u64 {
-        CLOCK.fetch_add(5, Ordering::Relaxed)
+        CLOCK.with(|c| {
+            let now = c.get();
+            c.set(now + 5);
+            now
+        })
     }
 
     #[derive(Default)]
@@ -637,19 +718,34 @@ mod tests {
         fn respond(&mut self, f: &[u8]) {
             if let Some(mac) = self.arp_mac {
                 if f.len() >= 42 && f[12..14] == [0x08, 0x06] && f[20..22] == [0, 1] {
-                    let mut r = arp_frame(mac, f[38..42].try_into().unwrap(), f[28..32].try_into().unwrap());
+                    let mut r = arp_frame(
+                        mac,
+                        f[38..42].try_into().unwrap(),
+                        f[28..32].try_into().unwrap(),
+                    );
                     r[0..6].copy_from_slice(&f[6..12]);
                     r[32..38].copy_from_slice(&f[22..28]);
                     self.inbox.push_back(r);
                 }
             }
-            let Some((server, answer)) = self.dns else { return };
-            let Ok(eth) = EthernetFrame::new_checked(f) else { return };
-            let Ok(ip) = Ipv4Packet::new_checked(eth.payload()) else { return };
-            if eth.ethertype() != EthernetProtocol::Ipv4 || ip.next_header() != IpProtocol::Udp || ip.dst_addr().octets() != server {
+            let Some((server, answer)) = self.dns else {
+                return;
+            };
+            let Ok(eth) = EthernetFrame::new_checked(f) else {
+                return;
+            };
+            let Ok(ip) = Ipv4Packet::new_checked(eth.payload()) else {
+                return;
+            };
+            if eth.ethertype() != EthernetProtocol::Ipv4
+                || ip.next_header() != IpProtocol::Udp
+                || ip.dst_addr().octets() != server
+            {
                 return;
             }
-            let Ok(udp) = UdpPacket::new_checked(ip.payload()) else { return };
+            let Ok(udp) = UdpPacket::new_checked(ip.payload()) else {
+                return;
+            };
             if udp.dst_port() != 53 {
                 return;
             }
@@ -665,9 +761,19 @@ mod tests {
             r[6..12].copy_from_slice(&f[0..6]);
             r[12..14].copy_from_slice(&0x0800u16.to_be_bytes());
             let (src, dst) = (ip.dst_addr(), ip.src_addr());
-            Ipv4Repr { src_addr: src, dst_addr: dst, next_header: IpProtocol::Udp, payload_len: 8 + dns.len(), hop_limit: 64 }
-                .emit(&mut Ipv4Packet::new_unchecked(&mut r[14..]), &caps);
-            UdpRepr { src_port: 53, dst_port: udp.src_port() }.emit(
+            Ipv4Repr {
+                src_addr: src,
+                dst_addr: dst,
+                next_header: IpProtocol::Udp,
+                payload_len: 8 + dns.len(),
+                hop_limit: 64,
+            }
+            .emit(&mut Ipv4Packet::new_unchecked(&mut r[14..]), &caps);
+            UdpRepr {
+                src_port: 53,
+                dst_port: udp.src_port(),
+            }
+            .emit(
                 &mut UdpPacket::new_unchecked(&mut r[34..]),
                 &IpAddress::Ipv4(src),
                 &IpAddress::Ipv4(dst),
@@ -683,9 +789,12 @@ mod tests {
             self.sent
                 .iter()
                 .filter_map(|f| {
-                    let ip = Ipv4Packet::new_checked(EthernetFrame::new_checked(&f[..]).ok()?.payload()).ok()?;
+                    let ip =
+                        Ipv4Packet::new_checked(EthernetFrame::new_checked(&f[..]).ok()?.payload())
+                            .ok()?;
                     let udp = UdpPacket::new_checked(ip.payload()).ok()?;
-                    (ip.next_header() == IpProtocol::Udp && udp.dst_port() == 53).then(|| ip.dst_addr().octets())
+                    (ip.next_header() == IpProtocol::Udp && udp.dst_port() == 53)
+                        .then(|| ip.dst_addr().octets())
                 })
                 .collect()
         }
@@ -750,16 +859,29 @@ mod tests {
         let repr = DhcpRepr::parse(&dhcp).unwrap();
         assert_eq!(repr.message_type, DhcpMessageType::Decline);
         assert_eq!(repr.requested_ip, Some(Ipv4Address::new(10, 21, 14, 2)));
-        assert_eq!(repr.server_identifier, Some(Ipv4Address::new(10, 21, 14, 1)));
-        assert_eq!(repr.client_hardware_address, EthernetAddress([2, 0, 0, 0, 0, 1]));
+        assert_eq!(
+            repr.server_identifier,
+            Some(Ipv4Address::new(10, 21, 14, 1))
+        );
+        assert_eq!(
+            repr.client_hardware_address,
+            EthernetAddress([2, 0, 0, 0, 0, 1])
+        );
     }
 
     #[test]
     fn probe_sees_another_host_using_the_address() {
         let (mut s, wire) = stack();
         // Someone else answers the probe for 10.21.14.2.
-        wire.borrow_mut().inbox.push_back(arp_frame([0x5c, 0xf9, 0xdd, 0x55, 0x07, 0x0c], [10, 21, 14, 2], [10, 21, 14, 2]));
-        assert_eq!(s.probe_address([10, 21, 14, 2]), Some([0x5c, 0xf9, 0xdd, 0x55, 0x07, 0x0c]));
+        wire.borrow_mut().inbox.push_back(arp_frame(
+            [0x5c, 0xf9, 0xdd, 0x55, 0x07, 0x0c],
+            [10, 21, 14, 2],
+            [10, 21, 14, 2],
+        ));
+        assert_eq!(
+            s.probe_address([10, 21, 14, 2]),
+            Some([0x5c, 0xf9, 0xdd, 0x55, 0x07, 0x0c])
+        );
         // The probe itself: ARP request, sender IP 0.0.0.0, target the probed address.
         let w = wire.borrow();
         let p = &w.sent[0];
@@ -772,11 +894,24 @@ mod tests {
     fn probe_ignores_unrelated_and_own_arp() {
         let (mut s, wire) = stack();
         // An ARP about another address, and our own MAC echoed back.
-        wire.borrow_mut().inbox.push_back(arp_frame([0x5c, 0, 0, 0, 0, 9], [10, 21, 14, 7], [10, 21, 14, 7]));
-        wire.borrow_mut().inbox.push_back(arp_frame([2, 0, 0, 0, 0, 1], [10, 21, 14, 2], [10, 21, 14, 2]));
+        wire.borrow_mut().inbox.push_back(arp_frame(
+            [0x5c, 0, 0, 0, 0, 9],
+            [10, 21, 14, 7],
+            [10, 21, 14, 7],
+        ));
+        wire.borrow_mut().inbox.push_back(arp_frame(
+            [2, 0, 0, 0, 0, 1],
+            [10, 21, 14, 2],
+            [10, 21, 14, 2],
+        ));
         assert_eq!(s.probe_address([10, 21, 14, 2]), None);
         // (The stack's own DHCP socket may also have sent a DISCOVER meanwhile; count only the probes.)
-        let probes = wire.borrow().sent.iter().filter(|f| f[12..14] == [0x08, 0x06] && f[28..32] == [0, 0, 0, 0]).count();
+        let probes = wire
+            .borrow()
+            .sent
+            .iter()
+            .filter(|f| f[12..14] == [0x08, 0x06] && f[28..32] == [0, 0, 0, 0])
+            .count();
         assert_eq!(probes, 3, "three ARP probes were sent");
     }
 
@@ -786,7 +921,10 @@ mod tests {
         s.iface.update_ip_addrs(|a| {
             let _ = a.push(IpCidr::new(IpAddress::v4(10, 0, 0, 2), 24));
         });
-        let _ = s.iface.routes_mut().add_default_ipv4_route(Ipv4Address::new(10, 0, 0, 1));
+        let _ = s
+            .iface
+            .routes_mut()
+            .add_default_ipv4_route(Ipv4Address::new(10, 0, 0, 1));
         // The DHCP-provided resolver never answers; the first fallback does.
         s.resolvers = std::vec![[10, 0, 0, 53], [1, 1, 1, 1], [8, 8, 8, 8]];
         {
@@ -794,15 +932,28 @@ mod tests {
             w.arp_mac = Some([2, 0, 0, 0, 0, 0xfe]);
             w.dns = Some(([1, 1, 1, 1], [93, 184, 216, 34]));
         }
-        assert_eq!(s.resolve("mirror.example.org", 6000), Ok([93, 184, 216, 34]));
+        assert_eq!(
+            s.resolve("mirror.example.org", 6000),
+            Ok([93, 184, 216, 34])
+        );
         let q = wire.borrow().dns_queries();
-        assert_eq!(q.first(), Some(&[10, 0, 0, 53]), "the DHCP-provided server is asked first");
+        assert_eq!(
+            q.first(),
+            Some(&[10, 0, 0, 53]),
+            "the DHCP-provided server is asked first"
+        );
         assert_eq!(q.last(), Some(&[1, 1, 1, 1]));
-        assert!(!q.contains(&[8, 8, 8, 8]), "no need to ask the second fallback");
+        assert!(
+            !q.contains(&[8, 8, 8, 8]),
+            "no need to ask the second fallback"
+        );
 
         // The next lookup goes straight to the server that answered.
         wire.borrow_mut().sent.clear();
-        assert_eq!(s.resolve("mirror.example.org", 6000), Ok([93, 184, 216, 34]));
+        assert_eq!(
+            s.resolve("mirror.example.org", 6000),
+            Ok([93, 184, 216, 34])
+        );
         assert_eq!(wire.borrow().dns_queries(), std::vec![[1, 1, 1, 1]]);
     }
 
@@ -812,7 +963,10 @@ mod tests {
         s.iface.update_ip_addrs(|a| {
             let _ = a.push(IpCidr::new(IpAddress::v4(10, 0, 0, 2), 24));
         });
-        let _ = s.iface.routes_mut().add_default_ipv4_route(Ipv4Address::new(10, 0, 0, 1));
+        let _ = s
+            .iface
+            .routes_mut()
+            .add_default_ipv4_route(Ipv4Address::new(10, 0, 0, 1));
         s.resolvers = std::vec![[10, 0, 0, 53], [1, 1, 1, 1]];
         wire.borrow_mut().arp_mac = Some([2, 0, 0, 0, 0, 0xfe]);
         assert_eq!(s.resolve("mirror.example.org", 6000), Err(Error::Timeout));

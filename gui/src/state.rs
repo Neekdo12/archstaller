@@ -9,9 +9,9 @@ use crate::official::OfficialState;
 use hostcfg::progress::State as StageState;
 use hostcfg::resolve::Resolution;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Receiver;
-use std::rc::Rc;
 use std::sync::Arc;
 
 /// Suggestion lists, read once at start.
@@ -131,7 +131,9 @@ impl State {
             build: BuildState::default(),
             media: MediaState::default(),
             next_build: 0,
-            presets: crate::build::find_root().map(|r| crate::model::presets(&r)).unwrap_or_default(),
+            presets: crate::build::find_root()
+                .map(|r| crate::model::presets(&r))
+                .unwrap_or_default(),
             ui_dirty: false,
             aur_auto_review: false,
             aur_focused_commit: None,

@@ -37,7 +37,9 @@ pub struct ZAdapter<R>(R);
 
 impl<R: Read> ruzstd::io::Read for ZAdapter<R> {
     fn read(&mut self, buf: &mut [u8]) -> core::result::Result<usize, ruzstd::io::Error> {
-        self.0.read(buf).map_err(|_| ruzstd::io::Error::from(ruzstd::io::ErrorKind::Other))
+        self.0
+            .read(buf)
+            .map_err(|_| ruzstd::io::Error::from(ruzstd::io::ErrorKind::Other))
     }
 }
 
@@ -106,7 +108,12 @@ impl<R: Read> Read for Gzip<R> {
             }
             let eof = self.in_len == 0;
             let flush = if eof { MZFlush::Finish } else { MZFlush::None };
-            let r = inflate(&mut self.state, &self.inbuf[self.in_pos..self.in_len], out, flush);
+            let r = inflate(
+                &mut self.state,
+                &self.inbuf[self.in_pos..self.in_len],
+                out,
+                flush,
+            );
             self.in_pos += r.bytes_consumed;
             match r.status {
                 Ok(MZStatus::StreamEnd) => self.done = true,
@@ -125,7 +132,8 @@ impl<R: Read> Read for Gzip<R> {
     }
 }
 
-type ZstdReader<R> = ruzstd::decoding::StreamingDecoder<ZAdapter<Peeked<R>>, ruzstd::decoding::FrameDecoder>;
+type ZstdReader<R> =
+    ruzstd::decoding::StreamingDecoder<ZAdapter<Peeked<R>>, ruzstd::decoding::FrameDecoder>;
 
 pub enum Decompressor<R: Read> {
     Plain(Peeked<R>),
@@ -144,11 +152,20 @@ pub fn open<R: Read>(mut src: R) -> Result<Decompressor<R>> {
         }
         len += n;
     }
-    let peeked = Peeked { head, pos: 0, len, inner: src };
+    let peeked = Peeked {
+        head,
+        pos: 0,
+        len,
+        inner: src,
+    };
     if head[..2] == [0x1f, 0x8b] {
         Ok(Decompressor::Gzip(Gzip::new(peeked)?))
     } else if head == [0x28, 0xb5, 0x2f, 0xfd] {
-        let d = ruzstd::decoding::StreamingDecoder::new_with_max_window_size(ZAdapter(peeked), ZSTD_MAX_WINDOW).map_err(|_| Error::Format("bad zstd frame"))?;
+        let d = ruzstd::decoding::StreamingDecoder::new_with_max_window_size(
+            ZAdapter(peeked),
+            ZSTD_MAX_WINDOW,
+        )
+        .map_err(|_| Error::Format("bad zstd frame"))?;
         Ok(Decompressor::Zstd(Box::new(d)))
     } else if head == [0xfd, b'7', b'z', b'X'] {
         Err(Error::Unsupported("xz"))
@@ -162,7 +179,8 @@ impl<R: Read> Read for Decompressor<R> {
         match self {
             Decompressor::Plain(r) => r.read(buf),
             Decompressor::Gzip(r) => r.read(buf),
-            Decompressor::Zstd(r) => ruzstd::io::Read::read(&mut **r, buf).map_err(|_| Error::Format("corrupt zstd stream")),
+            Decompressor::Zstd(r) => ruzstd::io::Read::read(&mut **r, buf)
+                .map_err(|_| Error::Format("corrupt zstd stream")),
         }
     }
 }
@@ -204,6 +222,9 @@ mod tests {
     #[test]
     fn a_window_larger_than_128_mib_is_refused() {
         // exponent 18 -> 256 MiB
-        assert!(matches!(decode(&frame(0x90)), Err(Error::Format("bad zstd frame"))));
+        assert!(matches!(
+            decode(&frame(0x90)),
+            Err(Error::Format("bad zstd frame"))
+        ));
     }
 }

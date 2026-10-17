@@ -29,7 +29,10 @@ fn scratch(name: &str) -> PathBuf {
 fn opts() -> Options {
     Options {
         label: "archroot".into(),
-        uuid: [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x01],
+        uuid: [
+            0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee,
+            0xff, 0x01,
+        ],
         hash_seed: [1, 2, 3, 4],
         now: 1_790_000_000,
         reserved_percent: 1,
@@ -37,7 +40,13 @@ fn opts() -> Options {
 }
 
 fn meta_of(e: &pkg::tar::Entry) -> Meta {
-    Meta { mode: (e.mode & 0o7777) as u16, uid: e.uid, gid: e.gid, mtime: e.mtime, xattrs: e.xattrs.clone() }
+    Meta {
+        mode: (e.mode & 0o7777) as u16,
+        uid: e.uid,
+        gid: e.gid,
+        mtime: e.mtime,
+        xattrs: e.xattrs.clone(),
+    }
 }
 
 /// Installs a package's file tree (skipping package metadata files).
@@ -72,10 +81,12 @@ fn install(w: &mut Ext4Writer<FileStorage>, pkg_path: &Path) {
                 w.hardlink(&e.path, &e.link).unwrap();
             }
             Kind::CharDev => {
-                w.mknod(&e.path, FileKind::CharDev, e.dev_major, e.dev_minor, &m).unwrap();
+                w.mknod(&e.path, FileKind::CharDev, e.dev_major, e.dev_minor, &m)
+                    .unwrap();
             }
             Kind::BlockDev => {
-                w.mknod(&e.path, FileKind::BlockDev, e.dev_major, e.dev_minor, &m).unwrap();
+                w.mknod(&e.path, FileKind::BlockDev, e.dev_major, e.dev_minor, &m)
+                    .unwrap();
             }
             Kind::Fifo => {
                 w.mknod(&e.path, FileKind::Fifo, 0, 0, &m).unwrap();
@@ -85,8 +96,14 @@ fn install(w: &mut Ext4Writer<FileStorage>, pkg_path: &Path) {
 }
 
 fn find_pkgs(prefixes: &[&str]) -> Vec<PathBuf> {
-    let Ok(rd) = std::fs::read_dir("/var/cache/pacman/pkg") else { return vec![] };
-    let all: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.to_string_lossy().ends_with(".pkg.tar.zst")).collect();
+    let Ok(rd) = std::fs::read_dir("/var/cache/pacman/pkg") else {
+        return vec![];
+    };
+    let all: Vec<PathBuf> = rd
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.to_string_lossy().ends_with(".pkg.tar.zst"))
+        .collect();
     let mut out = Vec::new();
     for pre in prefixes {
         // Match "<name>-<digit>" so "bash" does not pick "bash-completion".
@@ -94,7 +111,9 @@ fn find_pkgs(prefixes: &[&str]) -> Vec<PathBuf> {
             .iter()
             .filter(|p| {
                 let n = p.file_name().unwrap().to_string_lossy().to_string();
-                n.strip_prefix(pre).is_some_and(|r| r.starts_with('-') && r[1..].starts_with(|c: char| c.is_ascii_digit()))
+                n.strip_prefix(pre).is_some_and(|r| {
+                    r.starts_with('-') && r[1..].starts_with(|c: char| c.is_ascii_digit())
+                })
             })
             .collect();
         m.sort();
@@ -107,22 +126,43 @@ fn find_pkgs(prefixes: &[&str]) -> Vec<PathBuf> {
 
 fn run_ok(cmd: &mut Command) -> String {
     let out = cmd.output().unwrap();
-    let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert!(out.status.success(), "{cmd:?} failed:\n{text}");
     text
 }
 
 /// e2fsck -n exits 0 even for ignored checksum errors, so inspect the report too.
 fn fsck_clean(img: &Path) {
-    let out = Command::new("e2fsck").args(["-fn"]).arg(img).output().unwrap();
-    let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-    let bad = out.status.code() != Some(0) || ["Fix?", "IGNORED", "WARNING", "differences", "invalid"].iter().any(|m| text.contains(m));
+    let out = Command::new("e2fsck")
+        .args(["-fn"])
+        .arg(img)
+        .output()
+        .unwrap();
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let bad = out.status.code() != Some(0)
+        || ["Fix?", "IGNORED", "WARNING", "differences", "invalid"]
+            .iter()
+            .any(|m| text.contains(m));
     assert!(!bad, "e2fsck reported problems:\n{text}");
 }
 
 fn build_image(dir: &Path, size: u64, pkgs: &[PathBuf]) -> PathBuf {
     let img = dir.join("root.img");
-    let f = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(true).open(&img).unwrap();
+    let f = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&img)
+        .unwrap();
     f.set_len(size).unwrap();
     let mut w = Ext4Writer::new(FileStorage(f), size, opts()).unwrap();
     for p in pkgs {
@@ -138,13 +178,24 @@ fn empty_filesystem_is_clean() {
     let img = build_image(&dir, 64 << 20, &[]);
     fsck_clean(&img);
     let info = run_ok(Command::new("tune2fs").arg("-l").arg(&img));
-    assert!(info.contains("Filesystem features:") && info.contains("metadata_csum"), "{info}");
+    assert!(
+        info.contains("Filesystem features:") && info.contains("metadata_csum"),
+        "{info}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn package_tree_matches_tar_and_fsck_is_clean() {
-    let pkgs = find_pkgs(&["filesystem", "bash", "shadow", "gstreamer", "coreutils", "systemd-libs", "tzdata"]);
+    let pkgs = find_pkgs(&[
+        "filesystem",
+        "bash",
+        "shadow",
+        "gstreamer",
+        "coreutils",
+        "systemd-libs",
+        "tzdata",
+    ]);
     if pkgs.len() < 4 {
         return;
     }
@@ -156,14 +207,43 @@ fn package_tree_matches_tar_and_fsck_is_clean() {
     let reference = dir.join("ref");
     std::fs::create_dir_all(&reference).unwrap();
     for p in &pkgs {
-        run_ok(Command::new("tar").args(["--zstd", "-xf"]).arg(p).arg("-C").arg(&reference).args(["--exclude=.PKGINFO", "--exclude=.MTREE", "--exclude=.BUILDINFO", "--exclude=.INSTALL", "--exclude=.CHANGELOG"]));
+        run_ok(
+            Command::new("tar")
+                .args(["--zstd", "-xf"])
+                .arg(p)
+                .arg("-C")
+                .arg(&reference)
+                .args([
+                    "--exclude=.PKGINFO",
+                    "--exclude=.MTREE",
+                    "--exclude=.BUILDINFO",
+                    "--exclude=.INSTALL",
+                    "--exclude=.CHANGELOG",
+                ]),
+        );
     }
     let dumped = dir.join("dump");
     std::fs::create_dir_all(&dumped).unwrap();
-    run_ok(Command::new("debugfs").args(["-R", &format!("rdump / {}", dumped.display())]).arg(&img));
+    run_ok(
+        Command::new("debugfs")
+            .args(["-R", &format!("rdump / {}", dumped.display())])
+            .arg(&img),
+    );
     let dumped = dumped.join("");
-    let d = Command::new("diff").args(["-r", "--no-dereference", "-x", "lost+found"]).arg(&reference).arg(&dumped).output().unwrap();
-    assert!(d.status.success(), "diff:\n{}", String::from_utf8_lossy(&d.stdout).chars().take(3000).collect::<String>());
+    let d = Command::new("diff")
+        .args(["-r", "--no-dereference", "-x", "lost+found"])
+        .arg(&reference)
+        .arg(&dumped)
+        .output()
+        .unwrap();
+    assert!(
+        d.status.success(),
+        "diff:\n{}",
+        String::from_utf8_lossy(&d.stdout)
+            .chars()
+            .take(3000)
+            .collect::<String>()
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -176,7 +256,11 @@ fn xattrs_and_special_files_survive() {
     let dir = scratch("xattr");
     let img = build_image(&dir, 1 << 30, &pkgs);
     fsck_clean(&img);
-    let out = run_ok(Command::new("debugfs").args(["-R", "ea_list /usr/lib/gstreamer-1.0/gst-ptp-helper"]).arg(&img));
+    let out = run_ok(
+        Command::new("debugfs")
+            .args(["-R", "ea_list /usr/lib/gstreamer-1.0/gst-ptp-helper"])
+            .arg(&img),
+    );
     assert!(out.contains("security.capability"), "{out}");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -185,11 +269,21 @@ fn xattrs_and_special_files_survive() {
 fn read_back_and_replace() {
     let dir = scratch("readback");
     let img = dir.join("r.img");
-    let f = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(true).open(&img).unwrap();
+    let f = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&img)
+        .unwrap();
     f.set_len(64 << 20).unwrap();
     let mut w = Ext4Writer::new(FileStorage(f), 64 << 20, opts()).unwrap();
     let data: Vec<u8> = (0..300_000u32).map(|i| (i * 31 + 7) as u8).collect();
-    let m = Meta { mode: 0o644, mtime: 1_700_000_000, ..Default::default() };
+    let m = Meta {
+        mode: 0o644,
+        mtime: 1_700_000_000,
+        ..Default::default()
+    };
     w.begin_file("var/cache/pkg/a.bin", &m).unwrap();
     w.write_file(&data[..100_000]).unwrap();
     w.write_file(&data[100_000..]).unwrap();
@@ -208,24 +302,44 @@ fn read_back_and_replace() {
     w.symlink("usr/lib/short", "target", &m).unwrap();
     w.finish().unwrap();
     fsck_clean(&img);
-    let out = Command::new("debugfs").args(["-R", "cat /var/cache/pkg/a.bin"]).arg(&img).output().unwrap();
+    let out = Command::new("debugfs")
+        .args(["-R", "cat /var/cache/pkg/a.bin"])
+        .arg(&img)
+        .output()
+        .unwrap();
     assert_eq!(String::from_utf8_lossy(&out.stdout), "hello");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn huge_file_needs_extent_tree_and_big_directory() {
-    let dir = std::env::current_dir().unwrap().join("../../target/ext4w-test");
+    let dir = std::env::current_dir()
+        .unwrap()
+        .join("../../target/ext4w-test");
     std::fs::create_dir_all(&dir).unwrap();
     let dir = dir.canonicalize().unwrap();
     let img = dir.join("big.img");
     let size = 1500u64 << 20;
-    let f = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(true).open(&img).unwrap();
+    let f = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&img)
+        .unwrap();
     f.set_len(size).unwrap();
     let mut w = Ext4Writer::new(FileStorage(f), size, opts()).unwrap();
-    let m = Meta { mode: 0o644, mtime: 1_700_000_000, uid: 70000, gid: 80000, ..Default::default() };
+    let m = Meta {
+        mode: 0o644,
+        mtime: 1_700_000_000,
+        uid: 70000,
+        gid: 80000,
+        ..Default::default()
+    };
     // 900 MiB of a block-dependent pattern.
-    let chunk: Vec<u8> = (0..(1u32 << 20)).map(|i| (i / 4096) as u8 ^ (i as u8)).collect();
+    let chunk: Vec<u8> = (0..(1u32 << 20))
+        .map(|i| (i / 4096) as u8 ^ (i as u8))
+        .collect();
     w.begin_file("big/data.bin", &m).unwrap();
     for _ in 0..900 {
         w.write_file(&chunk).unwrap();
@@ -233,19 +347,39 @@ fn huge_file_needs_extent_tree_and_big_directory() {
     let ino = w.end_file().unwrap();
     assert_eq!(w.file_size(ino), 900 << 20);
     for i in 0..6000 {
-        w.begin_file(&format!("big/many/file-with-a-fairly-long-name-{i:05}"), &m).unwrap();
+        w.begin_file(&format!("big/many/file-with-a-fairly-long-name-{i:05}"), &m)
+            .unwrap();
         w.write_file(&[i as u8; 100]).unwrap();
         w.end_file().unwrap();
     }
     w.finish().unwrap();
     fsck_clean(&img);
-    let ex = run_ok(Command::new("debugfs").args(["-R", "ex /big/data.bin"]).arg(&img));
+    let ex = run_ok(
+        Command::new("debugfs")
+            .args(["-R", "ex /big/data.bin"])
+            .arg(&img),
+    );
     assert!(ex.contains("Level Entries") || ex.contains("Level"), "{ex}");
-    assert!(ex.lines().any(|l| l.trim_start().starts_with("0/") || l.contains("1/")), "expected an index level:\n{ex}");
-    let stat = run_ok(Command::new("debugfs").args(["-R", "stat /big/data.bin"]).arg(&img));
-    assert!(stat.contains("User: 70000") && stat.contains("Group: 80000"), "{stat}");
+    assert!(
+        ex.lines()
+            .any(|l| l.trim_start().starts_with("0/") || l.contains("1/")),
+        "expected an index level:\n{ex}"
+    );
+    let stat = run_ok(
+        Command::new("debugfs")
+            .args(["-R", "stat /big/data.bin"])
+            .arg(&img),
+    );
+    assert!(
+        stat.contains("User: 70000") && stat.contains("Group: 80000"),
+        "{stat}"
+    );
     let dump = dir.join("data.out");
-    run_ok(Command::new("debugfs").args(["-R", &format!("dump /big/data.bin {}", dump.display())]).arg(&img));
+    run_ok(
+        Command::new("debugfs")
+            .args(["-R", &format!("dump /big/data.bin {}", dump.display())])
+            .arg(&img),
+    );
     let got = std::fs::read(&dump).unwrap();
     assert_eq!(got.len(), 900 << 20);
     for (i, c) in got.chunks(1 << 20).enumerate() {
@@ -266,9 +400,19 @@ fn internal_journal_is_valid() {
         let info = run_ok(Command::new("dumpe2fs").arg("-h").arg(&img));
         assert!(info.contains("has_journal"), "{info}");
         assert!(info.contains("Journal inode:            8"), "{info}");
-        assert!(info.contains("Journal backup:           inode blocks"), "{info}");
-        let size_text = if journal_kib >= 1024 && journal_kib % 1024 == 0 && journal_kib > 4096 { format!("{}M", journal_kib / 1024) } else { format!("{journal_kib}k") };
-        assert!(info.contains(&format!("Total journal size:       {size_text}")), "{info}");
+        assert!(
+            info.contains("Journal backup:           inode blocks"),
+            "{info}"
+        );
+        let size_text = if journal_kib >= 1024 && journal_kib % 1024 == 0 && journal_kib > 4096 {
+            format!("{}M", journal_kib / 1024)
+        } else {
+            format!("{journal_kib}k")
+        };
+        assert!(
+            info.contains(&format!("Total journal size:       {size_text}")),
+            "{info}"
+        );
         assert!(info.contains("Journal start:            0"), "{info}");
         // The journal superblock parses and the journal is empty (nothing to recover).
         let log = run_ok(Command::new("debugfs").args(["-R", "logdump"]).arg(&img));

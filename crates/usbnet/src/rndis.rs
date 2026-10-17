@@ -24,7 +24,9 @@ pub const STATUS_SUCCESS: u32 = 0;
 pub const PACKET_HDR: usize = 44;
 
 fn le(buf: &[u8], off: usize) -> Result<u32> {
-    buf.get(off..off + 4).map(|b| u32::from_le_bytes(b.try_into().unwrap())).ok_or(Error::Io)
+    buf.get(off..off + 4)
+        .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+        .ok_or(Error::Io)
 }
 
 fn header(msg_type: u32, len: usize, id: u32) -> Vec<u8> {
@@ -98,13 +100,22 @@ pub fn parse_reply(buf: &[u8]) -> Result<Reply> {
     let buf = &buf[..len];
     let request_id = le(buf, 8)?;
     let status = if len >= 16 { le(buf, 12)? } else { 0 };
-    let mut r = Reply { msg_type, request_id, status, info: Vec::new(), max_transfer: 0 };
+    let mut r = Reply {
+        msg_type,
+        request_id,
+        status,
+        info: Vec::new(),
+        max_transfer: 0,
+    };
     if msg_type == MSG_INIT | CMPLT {
         r.max_transfer = le(buf, 36)?;
     } else if msg_type == MSG_QUERY | CMPLT && status == STATUS_SUCCESS {
         let info_len = le(buf, 16)? as usize;
         let info_off = 8 + le(buf, 20)? as usize;
-        r.info = buf.get(info_off..info_off + info_len).ok_or(Error::Io)?.to_vec();
+        r.info = buf
+            .get(info_off..info_off + info_len)
+            .ok_or(Error::Io)?
+            .to_vec();
     }
     Ok(r)
 }
@@ -128,7 +139,11 @@ pub fn unwrap_frames(buf: &[u8]) -> Vec<Vec<u8>> {
     let mut pos = 0;
     while pos + 16 <= buf.len() {
         let msg = &buf[pos..];
-        let (Ok(ty), Ok(len), Ok(off), Ok(dlen)) = (le(msg, 0), le(msg, 4), le(msg, 8), le(msg, 12)) else { break };
+        let (Ok(ty), Ok(len), Ok(off), Ok(dlen)) =
+            (le(msg, 0), le(msg, 4), le(msg, 8), le(msg, 12))
+        else {
+            break;
+        };
         let (len, start, dlen) = (len as usize, 8 + off as usize, dlen as usize);
         if ty != MSG_PACKET || len < 16 || len > msg.len() || start + dlen > len {
             break;

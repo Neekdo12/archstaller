@@ -15,8 +15,15 @@ fn flatten(elf: &[u8], base: u64) -> Result<Vec<u8>> {
     let u64le = |at: usize| u64::from_le_bytes(elf[at..at + 8].try_into().unwrap());
     let (phoff, phentsize, phnum) = (u64le(0x20) as usize, u16le(0x36), u16le(0x38));
     let mut image = Vec::new();
-    for ph in (0..phnum).map(|i| phoff + i * phentsize).filter(|&ph| u32le(ph) == 1) {
-        let (off, vaddr, filesz) = (u64le(ph + 8) as usize, u64le(ph + 16), u64le(ph + 32) as usize);
+    for ph in (0..phnum)
+        .map(|i| phoff + i * phentsize)
+        .filter(|&ph| u32le(ph) == 1)
+    {
+        let (off, vaddr, filesz) = (
+            u64le(ph + 8) as usize,
+            u64le(ph + 16),
+            u64le(ph + 32) as usize,
+        );
         // A segment may start below `base` (it then maps the ELF headers): keep what is at or above it.
         let skip = base.saturating_sub(vaddr) as usize;
         if skip >= filesz {
@@ -33,18 +40,38 @@ fn flatten(elf: &[u8], base: u64) -> Result<Vec<u8>> {
 }
 
 fn cargo_build(package: &str) -> Result<Vec<u8>> {
-    crate::run(std::process::Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into())).current_dir(crate::root()).args([
-        "build", "-p", package, "--target", TARGET, "--profile", "small",
-        "-Z", "build-std=core,compiler_builtins", "-Z", "build-std-features=compiler-builtins-mem",
-    ]))?;
-    Ok(std::fs::read(crate::target_dir().join(TARGET).join("small").join(package))?)
+    crate::run(
+        std::process::Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+            .current_dir(crate::root())
+            .args([
+                "build",
+                "-p",
+                package,
+                "--target",
+                TARGET,
+                "--profile",
+                "small",
+                "-Z",
+                "build-std=core,compiler_builtins",
+                "-Z",
+                "build-std-features=compiler-builtins-mem",
+            ]),
+    )?;
+    Ok(std::fs::read(
+        crate::target_dir().join(TARGET).join("small").join(package),
+    )?)
 }
 
 /// Builds stage 1 (exactly 512 bytes) and stage 2 (padded to whole sectors).
 pub fn build() -> Result<Bios> {
     let s1 = flatten(&cargo_build("boot-bios-s1")?, 0x7c00)?;
     if s1.len() > 440 || s1.len() < bootinfo::bios::S1_PATCH + 12 {
-        return Err(format!("BIOS stage 1 is {} bytes, it must be {}..=440", s1.len(), bootinfo::bios::S1_PATCH + 12).into());
+        return Err(format!(
+            "BIOS stage 1 is {} bytes, it must be {}..=440",
+            s1.len(),
+            bootinfo::bios::S1_PATCH + 12
+        )
+        .into());
     }
     let mut stage1 = [0u8; 512];
     stage1[..s1.len()].copy_from_slice(&s1);
@@ -52,7 +79,14 @@ pub fn build() -> Result<Bios> {
     stage1[511] = 0xaa;
     let mut stage2 = flatten(&cargo_build("boot-bios")?, bootinfo::bios::S2_BASE as u64)?;
     stage2.resize(stage2.len().next_multiple_of(512), 0);
-    println!("BIOS stage 1: {} of 424 bytes, stage 2: {} bytes", s1.iter().rposition(|&b| b != 0).map_or(0, |p| p + 1).min(424), stage2.len());
+    println!(
+        "BIOS stage 1: {} of 424 bytes, stage 2: {} bytes",
+        s1.iter()
+            .rposition(|&b| b != 0)
+            .map_or(0, |p| p + 1)
+            .min(424),
+        stage2.len()
+    );
     Ok(Bios { stage1, stage2 })
 }
 
@@ -81,8 +115,14 @@ pub fn iso_extent(img: &[u8], path: &str) -> Option<(u64, u64)> {
                 continue;
             }
             let name_len = dir[at + 32] as usize;
-            let name = String::from_utf8_lossy(&dir[at + 33..at + 33 + name_len]).to_ascii_lowercase();
-            let name = name.split(';').next().unwrap().trim_end_matches('.').to_string();
+            let name =
+                String::from_utf8_lossy(&dir[at + 33..at + 33 + name_len]).to_ascii_lowercase();
+            let name = name
+                .split(';')
+                .next()
+                .unwrap()
+                .trim_end_matches('.')
+                .to_string();
             if name == *part {
                 found = Some((le32(dir, at + 2) as usize, le32(dir, at + 10) as usize));
                 break;
@@ -101,13 +141,24 @@ pub fn iso_extent(img: &[u8], path: &str) -> Option<(u64, u64)> {
 
 /// Patches the finished ISO: stage 1 into the El Torito image and the hybrid MBR, stage 2's header
 /// with the payload's location. `bios_img` is where `boot/bios.img` (stage 1 followed by stage 2) lies.
-pub fn patch_iso(img: &mut [u8], bios: &Bios, bios_img: u64, payload_off: u64, payload_len: u64) -> Result<()> {
+pub fn patch_iso(
+    img: &mut [u8],
+    bios: &Bios,
+    bios_img: u64,
+    payload_off: u64,
+    payload_len: u64,
+) -> Result<()> {
     let stage2_off = bios_img + bootinfo::bios::S2_ALIGN as u64;
     let mut s1 = bios.stage1;
     bootinfo::bios::patch_stage1(&mut s1, stage2_off, bios.stage2.len() as u32);
     let mut s2 = bios.stage2.clone();
     if s2.len() >= bootinfo::bios::S2_HEADER + bootinfo::bios::S2_HEADER_LEN {
-        bootinfo::bios::patch_stage2(&mut s2, bootinfo::bios::MODE_PAYLOAD, &[(payload_off, payload_len)], "")?;
+        bootinfo::bios::patch_stage2(
+            &mut s2,
+            bootinfo::bios::MODE_PAYLOAD,
+            &[(payload_off, payload_len)],
+            "",
+        )?;
     }
     img[bios_img as usize..bios_img as usize + 512].copy_from_slice(&s1);
     img[stage2_off as usize..stage2_off as usize + s2.len()].copy_from_slice(&s2);

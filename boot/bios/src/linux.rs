@@ -15,7 +15,10 @@ fn put<T: Copy>(base: usize, off: usize, v: T) {
 }
 
 fn get<T: Copy>(k: &[u8], off: usize) -> T {
-    assert!(off + core::mem::size_of::<T>() <= k.len(), "the kernel image is too small");
+    assert!(
+        off + core::mem::size_of::<T>() <= k.len(),
+        "the kernel image is too small"
+    );
     unsafe { core::ptr::read_unaligned(k.as_ptr().add(off) as *const T) }
 }
 
@@ -26,14 +29,24 @@ struct Gdtr {
 }
 
 static GDT: [u64; 4] = [0, 0, 0x00af_9a00_0000_ffff, 0x00cf_9200_0000_ffff]; // 0x10 code64, 0x18 data
-static mut GDTR: Gdtr = Gdtr { limit: 4 * 8 - 1, base: 0 };
+static mut GDTR: Gdtr = Gdtr {
+    limit: 4 * 8 - 1,
+    base: 0,
+};
 
 /// `bz`: the bzImage, `initrd`: where the initramfs lies, `e820`: the raw BIOS memory map
 /// (count at 0x500, entries at 0x600).
 ///
 /// # Safety
 /// Last step of the loader: it never returns.
-pub unsafe fn boot(map: &Map, bz: &[u8], initrd: (u64, u64), cmdline: &str, fb: &Framebuffer, staged_end: u64) -> ! {
+pub unsafe fn boot(
+    map: &Map,
+    bz: &[u8],
+    initrd: (u64, u64),
+    cmdline: &str,
+    fb: &Framebuffer,
+    staged_end: u64,
+) -> ! {
     if get::<u32>(bz, 0x202) != 0x5372_6448 {
         panic!("the kernel is not a Linux bzImage");
     }
@@ -51,7 +64,11 @@ pub unsafe fn boot(map: &Map, bz: &[u8], initrd: (u64, u64), cmdline: &str, fb: 
     let init_size = get::<u32>(bz, 0x260) as u64;
     let dest = (staged_end + align - 1) & !(align - 1);
     // The decompressor works in [dest, dest + init_size): it has to be ordinary memory below 4 GiB.
-    let ok = map.entries().iter().any(|e| e.kind == bootinfo::MEM_USABLE && e.base <= dest && dest + init_size.max(pm.len() as u64) <= e.base + e.len);
+    let ok = map.entries().iter().any(|e| {
+        e.kind == bootinfo::MEM_USABLE
+            && e.base <= dest
+            && dest + init_size.max(pm.len() as u64) <= e.base + e.len
+    });
     if !ok || dest + init_size > 4 << 30 {
         panic!("no room for the kernel");
     }
@@ -59,7 +76,11 @@ pub unsafe fn boot(map: &Map, bz: &[u8], initrd: (u64, u64), cmdline: &str, fb: 
 
     // Zero page: the setup header from the image, then what the loader knows.
     core::ptr::write_bytes(ZERO_PAGE as *mut u8, 0, 4096);
-    core::ptr::copy_nonoverlapping(bz.as_ptr().add(0x1f1), (ZERO_PAGE + 0x1f1) as *mut u8, 0x268 - 0x1f1);
+    core::ptr::copy_nonoverlapping(
+        bz.as_ptr().add(0x1f1),
+        (ZERO_PAGE + 0x1f1) as *mut u8,
+        0x268 - 0x1f1,
+    );
     put(ZERO_PAGE, 0x210, 0xffu8); // type_of_loader: unregistered
     let loadflags: u8 = get(bz, 0x211);
     put(ZERO_PAGE, 0x211, loadflags | 1); // loaded high
@@ -91,7 +112,11 @@ pub unsafe fn boot(map: &Map, bz: &[u8], initrd: (u64, u64), cmdline: &str, fb: 
         put(ZERO_PAGE, 0x14, fb.height as u16);
         put(ZERO_PAGE, 0x16, 32u16);
         put(ZERO_PAGE, 0x18, fb.addr as u32);
-        put(ZERO_PAGE, 0x1c, (fb.pitch as u64 * fb.height as u64).div_ceil(65536) as u32);
+        put(
+            ZERO_PAGE,
+            0x1c,
+            (fb.pitch as u64 * fb.height as u64).div_ceil(65536) as u32,
+        );
         put(ZERO_PAGE, 0x24, fb.pitch as u16);
         put(ZERO_PAGE, 0x26, 8u8);
         put(ZERO_PAGE, 0x27, fb.red_shift);
@@ -102,7 +127,10 @@ pub unsafe fn boot(map: &Map, bz: &[u8], initrd: (u64, u64), cmdline: &str, fb: 
     }
 
     loadcore::log("boot: starting Linux\n");
-    (*(&raw mut GDTR)).base = GDT.as_ptr() as u64;
+    #[allow(clippy::deref_addrof)]
+    unsafe {
+        (*(&raw mut GDTR)).base = GDT.as_ptr() as u64;
+    }
     asm!(
         "cli",
         "lgdt [rcx]",

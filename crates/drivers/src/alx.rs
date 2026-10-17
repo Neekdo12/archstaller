@@ -28,13 +28,23 @@ enum Chip {
     L1d2,
 }
 
-const ATL1C_IDS: &[(u16, Chip)] = &[(0x1063, Chip::L1c), (0x1062, Chip::L2c), (0x2060, Chip::L2cB), (0x2062, Chip::L2cB2), (0x1073, Chip::L1d), (0x1083, Chip::L1d2)];
+const ATL1C_IDS: &[(u16, Chip)] = &[
+    (0x1063, Chip::L1c),
+    (0x1062, Chip::L2c),
+    (0x2060, Chip::L2cB),
+    (0x2062, Chip::L2cB2),
+    (0x1073, Chip::L1d),
+    (0x1083, Chip::L1d2),
+];
 
 fn chip_of(device: u16) -> Option<Option<Chip>> {
     if ALX_IDS.contains(&device) {
         Some(None)
     } else {
-        ATL1C_IDS.iter().find(|&&(d, _)| d == device).map(|&(_, c)| Some(c))
+        ATL1C_IDS
+            .iter()
+            .find(|&&(d, _)| d == device)
+            .map(|&(_, c)| Some(c))
     }
 }
 
@@ -130,12 +140,18 @@ pub fn probe(dev: &PciDevice, out: &mut Devices) {
     if dev.vendor != VENDOR {
         return;
     }
-    let Some(chip) = chip_of(dev.device) else { return };
+    let Some(chip) = chip_of(dev.device) else {
+        return;
+    };
     let Some(regs) = dev.map_bar(0) else { return };
     dev.enable();
     match Alx::new(dev, regs, chip) {
         Ok(d) => out.net.push(Box::new(d)),
-        Err(e) => hal::info!("alx: {:04x}:{:04x} not brought up ({e:?})", dev.vendor, dev.device),
+        Err(e) => hal::info!(
+            "alx: {:04x}:{:04x} not brought up ({e:?})",
+            dev.vendor,
+            dev.device
+        ),
     }
 }
 
@@ -199,21 +215,30 @@ impl Alx {
 
     fn phy_read(&self, reg: u32) -> Result<u16> {
         self.stop_polling();
-        self.w(MDIO, bit(22) | self.clk_sel() << 24 | reg << 16 | bit(23) | bit(21));
+        self.w(
+            MDIO,
+            bit(22) | self.clk_sel() << 24 | reg << 16 | bit(23) | bit(21),
+        );
         self.mdio_wait()?;
         Ok(self.r(MDIO) as u16)
     }
 
     fn phy_write(&self, reg: u32, val: u16) -> Result<()> {
         self.stop_polling();
-        self.w(MDIO, bit(22) | self.clk_sel() << 24 | reg << 16 | (val as u32) << 0 | bit(23));
+        self.w(
+            MDIO,
+            bit(22) | self.clk_sel() << 24 | reg << 16 | (val as u32) | bit(23),
+        );
         self.mdio_wait()
     }
 
     fn phy_ext_write(&self, dev: u32, reg: u32, val: u16) -> Result<()> {
         self.stop_polling();
         self.w(MDIO_EXTN, dev << 16 | reg);
-        self.w(MDIO, bit(22) | self.clk_sel() << 24 | (val as u32) | bit(23) | bit(30));
+        self.w(
+            MDIO,
+            bit(22) | self.clk_sel() << 24 | (val as u32) | bit(23) | bit(30),
+        );
         self.mdio_wait()
     }
 
@@ -331,13 +356,17 @@ impl Alx {
 
     fn reset_phy(&self) {
         let mut v = self.r(PHY_CTRL);
-        v &= !(PHY_CTRL_DSPRST_OUT | PHY_CTRL_IDDQ | PHY_CTRL_GATE_25M | PHY_CTRL_POWER_DOWN | PHY_CTRL_CLS);
+        v &= !(PHY_CTRL_DSPRST_OUT
+            | PHY_CTRL_IDDQ
+            | PHY_CTRL_GATE_25M
+            | PHY_CTRL_POWER_DOWN
+            | PHY_CTRL_CLS);
         v |= PHY_CTRL_RST_ANALOG | PHY_CTRL_HIB_PULSE | PHY_CTRL_HIB_EN;
         self.w(PHY_CTRL, v);
         spin_us(10);
         self.w(PHY_CTRL, v | PHY_CTRL_DSPRST_OUT);
         spin_us(800); // the DSP needs about 800 us (80 x 10 us in Linux)
-        // Power saving and tuning, values from the vendor driver.
+                      // Power saving and tuning, values from the vendor driver.
         let _ = self.phy_dbg_write(0x29, 0x129d); // legacy power saving
         let _ = self.phy_dbg_write(0x04, 0xbb8b); // system mode control
         let _ = self.phy_ext_write(3, 0x8062, 0x3); // VDRVBIAS
@@ -368,7 +397,14 @@ impl Alx {
 
     fn read_mac(&self) -> Option<[u8; 6]> {
         let (m0, m1) = (self.r(STAD0), self.r(STAD1));
-        let a = [(m1 >> 8) as u8, m1 as u8, (m0 >> 24) as u8, (m0 >> 16) as u8, (m0 >> 8) as u8, m0 as u8];
+        let a = [
+            (m1 >> 8) as u8,
+            m1 as u8,
+            (m0 >> 24) as u8,
+            (m0 >> 16) as u8,
+            (m0 >> 8) as u8,
+            m0 as u8,
+        ];
         (a != [0; 6] && a != [0xff; 6] && a[0] & 1 == 0).then_some(a)
     }
 
@@ -424,9 +460,13 @@ impl Alx {
         // Max read request size: keep what the BIOS set unless it is below 256 bytes.
         let max_payload = 2u32; // read request size field: 512 bytes, the minimum Linux enforces
         self.w(TXQ0, 5 | (1 << 6) | (1 << 7) | (1 << 4) | (0x200 << 16)); // burst pref, enhance, LSO 802.3, IP options
-        self.w(HQTPD, 5 << 0 | 5 << 4 | 5 << 8 | (1 << 31));
+        self.w(HQTPD, 5 | 5 << 4 | 5 << 8 | (1 << 31));
         let sram = (self.r(SRAM5) & 0xfff) << 3;
-        let (xoff, xon) = if sram > 8 * 1024 { (1536 >> 3, (sram - 3212) >> 3) } else { (1536 >> 3, (sram - 1536) >> 3) };
+        let (xoff, xon) = if sram > 8 * 1024 {
+            (1536 >> 3, (sram - 3212) >> 3)
+        } else {
+            (1536 >> 3, (sram - 1536) >> 3)
+        };
         self.w(RXQ2, xoff << 16 | xon);
         let mut rxq = 8 << 20 | (0x100 << 8) | (1 << 7) | (0xf << 2) | (1 << 29);
         if self.giga {
@@ -434,10 +474,12 @@ impl Alx {
         }
         self.w(RXQ0, rxq & !(1 << 29)); // RSS off
         let chnl = if rev >= 2 { 4 } else { 2 };
-        self.w(DMA, 4 | (1 << 10) | max_payload << 4 | 4 << 16 | 15 << 11 | (chnl - 1) << 26);
+        self.w(
+            DMA,
+            4 | (1 << 10) | max_payload << 4 | 4 << 16 | 15 << 11 | (chnl - 1) << 26,
+        );
         self.w(WRR, 3 << 29 | 4 | 4 << 8 | 4 << 16 | 4 << 24);
     }
-
 
     // --- atl1c generation ------------------------------------------------------------------------------
 
@@ -470,7 +512,11 @@ impl Alx {
 
     fn reset_phy_c(&self, chip: Chip) {
         let mut v = self.r(PHY_CTRL);
-        v &= !(PHY_CTRL_DSPRST_OUT | PHY_CTRL_IDDQ | PHY_CTRL_GATE_25M | PHY_CTRL_POWER_DOWN | PHY_CTRL_CLS);
+        v &= !(PHY_CTRL_DSPRST_OUT
+            | PHY_CTRL_IDDQ
+            | PHY_CTRL_GATE_25M
+            | PHY_CTRL_POWER_DOWN
+            | PHY_CTRL_CLS);
         v |= PHY_CTRL_RST_ANALOG | PHY_CTRL_HIB_EN | PHY_CTRL_HIB_PULSE;
         self.w(PHY_CTRL, v);
         spin_us(10);
@@ -490,7 +536,14 @@ impl Alx {
                 let _ = self.phy_dbg_write(0x3b, d & !0x0008); // lower voltage
             }
         }
-        let _ = self.phy_dbg_write(0x29, if matches!(chip, Chip::L1d | Chip::L1d2) { 0x129d } else { 0x36dd }); // power saving
+        let _ = self.phy_dbg_write(
+            0x29,
+            if matches!(chip, Chip::L1d | Chip::L1d2) {
+                0x129d
+            } else {
+                0x36dd
+            },
+        ); // power saving
         let _ = self.phy_dbg_write(0x04, 0x88bb); // hibernate
         if matches!(chip, Chip::L1d | Chip::L1d2 | Chip::L2cB2) {
             self.w(0x1440, self.r(0x1440) & !1); // LPI_CTRL: EEE off
@@ -507,7 +560,14 @@ impl Alx {
     fn configure_c(&self, chip: Chip) {
         self.w(ISR, 0xffff_ffff);
         self.w(WOL0, 0);
-        self.w(CLK_GATE, if chip == Chip::L2cB { 0x3f & !0x20 } else { 0x3f });
+        self.w(
+            CLK_GATE,
+            if chip == Chip::L2cB {
+                0x3f & !0x20
+            } else {
+                0x3f
+            },
+        );
         self.w(INT_RETRIG, 50_000);
         // Descriptor rings were programmed by init_rings; the B chips also need their SRAM carved up.
         if chip == Chip::L2cB {
@@ -525,7 +585,11 @@ impl Alx {
         self.w(SMB_TIMER, 200_000);
         self.w(MTU, 1500 + 14 + 4 + 4);
         self.w(TXQ1, ((7 * 1024) >> 3) & 0x7ff); // TSO offload threshold
-        let burst: u32 = if matches!(chip, Chip::L2cB | Chip::L2cB2) { 0x40 } else { 0x200 };
+        let burst: u32 = if matches!(chip, Chip::L2cB | Chip::L2cB2) {
+            0x40
+        } else {
+            0x200
+        };
         self.w(TXQ0, 5 | (1 << 6) | (1 << 7) | (1 << 4) | burst << 16);
         let mut rxq = 8u32 << 20;
         if self.giga && chip != Chip::L1d2 {
@@ -537,7 +601,14 @@ impl Alx {
 
     fn init_rings(&mut self) -> Result<()> {
         let hi = (self.tpd.phys() >> 32) as u32;
-        for p in [self.tpd.phys(), self.rfd.phys(), self.rrd.phys(), self.tpd.phys() + (RING * 16) as u64, self.rfd.phys() + (RING * 8) as u64, self.rrd.phys() + (RING * 16) as u64] {
+        for p in [
+            self.tpd.phys(),
+            self.rfd.phys(),
+            self.rrd.phys(),
+            self.tpd.phys() + (RING * 16) as u64,
+            self.rfd.phys() + (RING * 8) as u64,
+            self.rrd.phys() + (RING * 16) as u64,
+        ] {
             if (p >> 32) as u32 != hi {
                 return Err(Error::Unsupported); // one shared high address register for all descriptors
             }
@@ -552,7 +623,7 @@ impl Alx {
         self.w(RFD_RING_SZ, RING as u32);
         self.w(RFD_BUF_SZ, BUF as u32);
         self.w(SRAM9, 1); // load the pointers into the chip
-        // Arm all but one receive slot.
+                          // Arm all but one receive slot.
         let rfd = Mmio::new(self.rfd.as_ptr());
         for i in 0..RING {
             rfd.write64(8 * i, self.bufs.phys_at(i * BUF));
@@ -577,7 +648,15 @@ impl Alx {
             giga: dev.device & 1 != 0,
             // Linux's default MAC control: wake-speed switching (alx) or software speed (atl1c), hash,
             // broadcast, pad+CRC, flow control, preamble length 7.
-            rx_ctrl: (1 << 30) | (1 << 29) | (1 << 26) | (1 << 7) | (1 << 6) | (1 << 3) | (1 << 2) | (7 << 10) | if chip.is_some() { 1 << 28 } else { 0 },
+            rx_ctrl: (1 << 30)
+                | (1 << 29)
+                | (1 << 26)
+                | (1 << 7)
+                | (1 << 6)
+                | (1 << 3)
+                | (1 << 2)
+                | (7 << 10)
+                | if chip.is_some() { 1 << 28 } else { 0 },
             mac: [0; 6],
             tpd: Dma::new(RING * 16, 64),
             rfd: Dma::new(RING * 8, 64),
@@ -616,7 +695,14 @@ impl Alx {
             }
         }
         a.w(MAC_CTRL, a.rx_ctrl);
-        hal::log!("alx: {:04x}:{:04x} rev {:#04x} ({}), mac {:02x?}", dev.vendor, dev.device, revision, chip.map_or("alx".into(), |c| alloc::format!("atl1c {c:?}")), a.mac);
+        hal::log!(
+            "alx: {:04x}:{:04x} rev {:#04x} ({}), mac {:02x?}",
+            dev.vendor,
+            dev.device,
+            revision,
+            chip.map_or("alx".into(), |c| alloc::format!("atl1c {c:?}")),
+            a.mac
+        );
         // Wait for a link (auto-negotiation takes a second or two).
         let _ = platform::wait_until(5000, || a.poll_link());
         Ok(a)
@@ -626,7 +712,7 @@ impl Alx {
     fn poll_link(&mut self) -> bool {
         // The link bit is latched low: read twice.
         let _ = self.phy_read(1);
-        let up = self.phy_read(1).map_or(false, |b| b & 0x0004 != 0);
+        let up = self.phy_read(1).is_ok_and(|b| b & 0x0004 != 0);
         if !up {
             if self.link_speed != 0 {
                 self.link_speed = 0;
@@ -635,7 +721,9 @@ impl Alx {
             return false;
         }
         if self.link_speed == 0 {
-            let Ok(pssr) = self.phy_read(0x11) else { return false };
+            let Ok(pssr) = self.phy_read(0x11) else {
+                return false;
+            };
             if pssr & 0x0800 == 0 {
                 return false; // speed/duplex not resolved yet
             }
@@ -656,7 +744,10 @@ impl Alx {
             mac |= MAC_CTRL_TX_EN | MAC_CTRL_RX_EN;
             self.rx_ctrl = mac;
             self.w(MAC_CTRL, mac);
-            hal::log!("alx: link up at {speed} Mbit/s {}", if full { "full duplex" } else { "half duplex" });
+            hal::log!(
+                "alx: link up at {speed} Mbit/s {}",
+                if full { "full duplex" } else { "half duplex" }
+            );
         }
         true
     }

@@ -147,8 +147,20 @@ impl<'a> Reader<'a> {
             0x2 | 0x3 => {
                 // real / date (date is seconds since 2001; we don't need the distinction)
                 let v = match info {
-                    2 => f64::from(f32::from_be_bytes(self.buf.get(p..p + 4).ok_or(Error::Malformed)?.try_into().map_err(|_| Error::Malformed)?)),
-                    3 => f64::from_be_bytes(self.buf.get(p..p + 8).ok_or(Error::Malformed)?.try_into().map_err(|_| Error::Malformed)?),
+                    2 => f64::from(f32::from_be_bytes(
+                        self.buf
+                            .get(p..p + 4)
+                            .ok_or(Error::Malformed)?
+                            .try_into()
+                            .map_err(|_| Error::Malformed)?,
+                    )),
+                    3 => f64::from_be_bytes(
+                        self.buf
+                            .get(p..p + 8)
+                            .ok_or(Error::Malformed)?
+                            .try_into()
+                            .map_err(|_| Error::Malformed)?,
+                    ),
                     _ => return Err(Error::Malformed),
                 };
                 Ok(Value::Real(v))
@@ -162,8 +174,16 @@ impl<'a> Reader<'a> {
                 Ok(Value::String(String::from_utf8_lossy(d).into_owned()))
             }
             0x6 => {
-                let d = self.buf.get(p..p + 2 * len_or_count).ok_or(Error::Malformed)?;
-                let units: Vec<u16> = d.chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
+                let d = self
+                    .buf
+                    .get(p..p + 2 * len_or_count)
+                    .ok_or(Error::Malformed)?;
+                let units: Vec<u16> = d
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|&c| u16::from_be_bytes(c))
+                    .collect();
                 Ok(Value::String(String::from_utf16_lossy(&units)))
             }
             0xA => {
@@ -210,8 +230,14 @@ fn parse_binary(buf: &[u8]) -> Result<Value> {
     let ref_size = t[7] as usize;
     let num = u64::from_be_bytes(t[8..16].try_into().map_err(|_| Error::Malformed)?) as usize;
     let top = u64::from_be_bytes(t[16..24].try_into().map_err(|_| Error::Malformed)?) as usize;
-    let off_start = u64::from_be_bytes(t[24..32].try_into().map_err(|_| Error::Malformed)?) as usize;
-    if off_size == 0 || off_size > 8 || ref_size == 0 || ref_size > 8 || off_start + num * off_size > buf.len() {
+    let off_start =
+        u64::from_be_bytes(t[24..32].try_into().map_err(|_| Error::Malformed)?) as usize;
+    if off_size == 0
+        || off_size > 8
+        || ref_size == 0
+        || ref_size > 8
+        || off_start + num * off_size > buf.len()
+    {
         return Err(Error::Malformed);
     }
     let mut offsets = Vec::with_capacity(num);
@@ -226,5 +252,10 @@ fn parse_binary(buf: &[u8]) -> Result<Value> {
         }
         offsets.push(v);
     }
-    Reader { buf, offsets, ref_size }.obj(top, 0)
+    Reader {
+        buf,
+        offsets,
+        ref_size,
+    }
+    .obj(top, 0)
 }

@@ -39,7 +39,9 @@ struct PartitionStorage<'a> {
 
 impl exfatw::Storage for PartitionStorage<'_> {
     fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> exfatw::Result<()> {
-        let end = offset.checked_add(buf.len() as u64).ok_or(exfatw::Error::Invalid("offset"))?;
+        let end = offset
+            .checked_add(buf.len() as u64)
+            .ok_or(exfatw::Error::Invalid("offset"))?;
         if end > self.len {
             return Err(exfatw::Error::Invalid("read beyond partition"));
         }
@@ -51,7 +53,9 @@ impl exfatw::Storage for PartitionStorage<'_> {
             let skip = (pos % ss) as usize;
             let n = (ss as usize - skip).min(buf.len() - done);
             let mut sector = vec![0u8; ss as usize];
-            self.dev.read(lba, &mut sector).map_err(|_| exfatw::Error::Io)?;
+            self.dev
+                .read(lba, &mut sector)
+                .map_err(|_| exfatw::Error::Io)?;
             buf[done..done + n].copy_from_slice(&sector[skip..skip + n]);
             done += n;
             pos += n as u64;
@@ -60,7 +64,9 @@ impl exfatw::Storage for PartitionStorage<'_> {
     }
 
     fn write_at(&mut self, offset: u64, data: &[u8]) -> exfatw::Result<()> {
-        let end = offset.checked_add(data.len() as u64).ok_or(exfatw::Error::Invalid("offset"))?;
+        let end = offset
+            .checked_add(data.len() as u64)
+            .ok_or(exfatw::Error::Invalid("offset"))?;
         if end > self.len {
             return Err(exfatw::Error::Invalid("write beyond partition"));
         }
@@ -73,10 +79,14 @@ impl exfatw::Storage for PartitionStorage<'_> {
             let n = (ss as usize - skip).min(data.len() - done);
             let mut sector = vec![0u8; ss as usize];
             if skip != 0 || n != ss as usize {
-                self.dev.read(lba, &mut sector).map_err(|_| exfatw::Error::Io)?;
+                self.dev
+                    .read(lba, &mut sector)
+                    .map_err(|_| exfatw::Error::Io)?;
             }
             sector[skip..skip + n].copy_from_slice(&data[done..done + n]);
-            self.dev.write(lba, &sector).map_err(|_| exfatw::Error::Io)?;
+            self.dev
+                .write(lba, &sector)
+                .map_err(|_| exfatw::Error::Io)?;
             done += n;
             pos += n as u64;
         }
@@ -145,7 +155,10 @@ fn partitions(dev: &mut dyn BlockDevice) -> Vec<Part> {
                 if last < first {
                     continue;
                 }
-                out.push(Part { offset: first * ss, len: (last - first + 1) * ss });
+                out.push(Part {
+                    offset: first * ss,
+                    len: (last - first + 1) * ss,
+                });
             }
             return out;
         }
@@ -164,7 +177,10 @@ fn partitions(dev: &mut dyn BlockDevice) -> Vec<Part> {
         if start == 0 || sectors == 0 {
             continue;
         }
-        out.push(Part { offset: start * ss, len: sectors * ss });
+        out.push(Part {
+            offset: start * ss,
+            len: sectors * ss,
+        });
     }
     out
 }
@@ -216,7 +232,11 @@ pub fn run(devs: &mut Devices) -> Outcome {
                 continue;
             }
             // Is this partition an exFAT volume with Ventoy's marker?
-            let mut storage = PartitionStorage { dev: d, base: p.offset, len: p.len };
+            let mut storage = PartitionStorage {
+                dev: d,
+                base: p.offset,
+                len: p.len,
+            };
             let mut vbr = [0u8; 512];
             if exfatw::Storage::read_at(&mut storage, 0, &mut vbr).is_err() {
                 continue;
@@ -237,7 +257,9 @@ pub fn run(devs: &mut Devices) -> Outcome {
             };
             match a.append(LOG_NAME, &log) {
                 Ok(()) => return Outcome::Written(format!("{LOG_NAME} ({} bytes)", log.len())),
-                Err(exfatw::Error::Exists) => return Outcome::Skipped("the log file already exists on the stick"),
+                Err(exfatw::Error::Exists) => {
+                    return Outcome::Skipped("the log file already exists on the stick")
+                }
                 Err(_) => return Outcome::Skipped("writing the log file failed"),
             }
         }

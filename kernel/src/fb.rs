@@ -84,7 +84,9 @@ impl FbConsole {
 
     fn cells(&mut self) -> &mut [u8] {
         // SAFETY: there is one console, and it is only used under the console lock.
-        unsafe { core::slice::from_raw_parts_mut((&raw mut CELLS).cast::<u8>(), self.cols * self.rows) }
+        unsafe {
+            core::slice::from_raw_parts_mut((&raw mut CELLS).cast::<u8>(), self.cols * self.rows)
+        }
     }
 
     fn clear(&mut self) {
@@ -98,7 +100,11 @@ impl FbConsole {
     fn scroll(&mut self) {
         let cols = self.cols;
         for i in 0..cols * self.rows {
-            let below = if i + cols < cols * self.rows { self.cells()[i + cols] } else { b' ' };
+            let below = if i + cols < cols * self.rows {
+                self.cells()[i + cols]
+            } else {
+                b' '
+            };
             if self.cells()[i] != below {
                 self.cells()[i] = below;
                 self.render(i % cols, i / cols, below);
@@ -133,7 +139,10 @@ impl FbConsole {
             let line = unsafe { self.base.add((y * self.glyph_h + r) * self.pitch) } as *mut u32;
             for c in 0..8 {
                 let on = bits & (0x80 >> c) != 0;
-                unsafe { line.add(x * 8 + c).write_volatile(if on { self.fg } else { self.bg }) };
+                unsafe {
+                    line.add(x * 8 + c)
+                        .write_volatile(if on { self.fg } else { self.bg })
+                };
             }
         }
     }

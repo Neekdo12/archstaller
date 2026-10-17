@@ -21,10 +21,14 @@ pub struct Params {
 }
 
 fn le16(b: &[u8], o: usize) -> Result<u16> {
-    b.get(o..o + 2).map(|x| u16::from_le_bytes(x.try_into().unwrap())).ok_or(Error::Io)
+    b.get(o..o + 2)
+        .map(|x| u16::from_le_bytes(x.try_into().unwrap()))
+        .ok_or(Error::Io)
 }
 fn le32(b: &[u8], o: usize) -> Result<u32> {
-    b.get(o..o + 4).map(|x| u32::from_le_bytes(x.try_into().unwrap())).ok_or(Error::Io)
+    b.get(o..o + 4)
+        .map(|x| u32::from_le_bytes(x.try_into().unwrap()))
+        .ok_or(Error::Io)
 }
 
 /// Parses the 28-byte GET_NTB_PARAMETERS reply. The device must support the 16-bit format.
@@ -96,7 +100,10 @@ pub fn parse_ntb(b: &[u8]) -> Vec<Vec<u8>> {
         let next = le16(b, ndp + 6).unwrap_or(0) as usize;
         let mut e = ndp + 8;
         while e + 4 <= ndp + len {
-            let (idx, dlen) = (le16(b, e).unwrap_or(0) as usize, le16(b, e + 2).unwrap_or(0) as usize);
+            let (idx, dlen) = (
+                le16(b, e).unwrap_or(0) as usize,
+                le16(b, e + 2).unwrap_or(0) as usize,
+            );
             if idx == 0 && dlen == 0 {
                 break;
             }

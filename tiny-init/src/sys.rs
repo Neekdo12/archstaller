@@ -51,7 +51,16 @@ impl<const N: usize> CStr<N> {
 }
 
 pub fn write(fd: i32, data: &[u8]) -> isize {
-    unsafe { syscall(SYS_WRITE, fd as usize, data.as_ptr() as usize, data.len(), 0, 0) }
+    unsafe {
+        syscall(
+            SYS_WRITE,
+            fd as usize,
+            data.as_ptr() as usize,
+            data.len(),
+            0,
+            0,
+        )
+    }
 }
 
 pub fn open(path: &str, flags: usize) -> isize {
@@ -64,7 +73,16 @@ pub fn close(fd: isize) {
 }
 
 pub fn read(fd: isize, buf: &mut [u8]) -> isize {
-    unsafe { syscall(SYS_READ, fd as usize, buf.as_mut_ptr() as usize, buf.len(), 0, 0) }
+    unsafe {
+        syscall(
+            SYS_READ,
+            fd as usize,
+            buf.as_mut_ptr() as usize,
+            buf.len(),
+            0,
+            0,
+        )
+    }
 }
 
 pub fn pread(fd: isize, buf: &mut [u8], offset: u64) -> isize {

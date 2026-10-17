@@ -3,9 +3,9 @@
 pub mod build_page;
 pub mod disk;
 pub mod iso;
-pub mod toml;
 pub mod packages;
 pub mod scripts;
 pub mod services;
 pub mod system;
+pub mod toml;
 pub mod users;

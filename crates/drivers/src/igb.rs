@@ -67,10 +67,13 @@ const TX_DEXT: u32 = 1 << 29;
 const DD: u32 = 1;
 
 const IGB_IDS: &[u16] = &[
-    0x10c9, 0x10e6, 0x10e7, 0x10e8, 0x150a, 0x150d, 0x150e, 0x150f, 0x1510, 0x1511, 0x1516, 0x1518, 0x1521, 0x1522,
-    0x1523, 0x1524, 0x1533, 0x1534, 0x1535, 0x1536, 0x1537, 0x1538, 0x1539, 0x157b, 0x157c, 0x1f40, 0x1f41, 0x1f45,
+    0x10c9, 0x10e6, 0x10e7, 0x10e8, 0x150a, 0x150d, 0x150e, 0x150f, 0x1510, 0x1511, 0x1516, 0x1518,
+    0x1521, 0x1522, 0x1523, 0x1524, 0x1533, 0x1534, 0x1535, 0x1536, 0x1537, 0x1538, 0x1539, 0x157b,
+    0x157c, 0x1f40, 0x1f41, 0x1f45,
 ];
-const IGC_IDS: &[u16] = &[0x15f2, 0x15f3, 0x0d9f, 0x125b, 0x125c, 0x125d, 0x3100, 0x3101, 0x5502, 0x5503];
+const IGC_IDS: &[u16] = &[
+    0x15f2, 0x15f3, 0x0d9f, 0x125b, 0x125c, 0x125d, 0x3100, 0x3101, 0x5502, 0x5503,
+];
 
 #[derive(Clone, Copy, PartialEq)]
 enum Variant {
@@ -129,7 +132,11 @@ impl Igb {
         regs.write32(TCTL, TCTL_PSP);
         regs.read32(STATUS); // flush
         platform::delay_us(2_000);
-        let reset = if variant == Variant::Igc { CTRL_DEV_RST } else { CTRL_RST };
+        let reset = if variant == Variant::Igc {
+            CTRL_DEV_RST
+        } else {
+            CTRL_RST
+        };
         regs.write32(CTRL, regs.read32(CTRL) | reset);
         platform::delay_us(20_000);
         platform::wait_until(1000, || regs.read32(CTRL) & reset == 0)?;
@@ -144,7 +151,14 @@ impl Igb {
 
         let ral = regs.read32(RAL0);
         let rah = regs.read32(RAH0);
-        let mac = [ral as u8, (ral >> 8) as u8, (ral >> 16) as u8, (ral >> 24) as u8, rah as u8, (rah >> 8) as u8];
+        let mac = [
+            ral as u8,
+            (ral >> 8) as u8,
+            (ral >> 16) as u8,
+            (ral >> 24) as u8,
+            rah as u8,
+            (rah >> 8) as u8,
+        ];
         if mac == [0; 6] {
             return Err(Error::Unsupported);
         }
@@ -182,7 +196,17 @@ impl Igb {
         platform::wait_until(1000, || regs.read32(TXDCTL) & QUEUE_ENABLE != 0)?;
         regs.write32(TCTL, TCTL_EN | TCTL_PSP | (0x0f << 4) | (0x40 << 12));
 
-        Ok(Igb { regs, rx_ring, tx_ring, rx_bufs, tx_buf, rx_next: 0, tx_next: 0, mac, variant })
+        Ok(Igb {
+            regs,
+            rx_ring,
+            tx_ring,
+            rx_bufs,
+            tx_buf,
+            rx_next: 0,
+            tx_next: 0,
+            mac,
+            variant,
+        })
     }
 }
 
@@ -211,7 +235,10 @@ impl NetDevice for Igb {
         self.tx_buf.as_mut_slice()[..frame.len()].copy_from_slice(frame);
         d.write64(0, self.tx_buf.phys());
         d.write32(12, (frame.len() as u32) << 14); // PAYLEN, DD cleared
-        d.write32(8, frame.len() as u32 | TX_DTYP_DATA | TX_EOP | TX_IFCS | TX_RS | TX_DEXT);
+        d.write32(
+            8,
+            frame.len() as u32 | TX_DTYP_DATA | TX_EOP | TX_IFCS | TX_RS | TX_DEXT,
+        );
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
         self.tx_next = (self.tx_next + 1) % RING;
         self.regs.write32(TDT, self.tx_next as u32);

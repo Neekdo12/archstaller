@@ -115,7 +115,9 @@ fn cmd(opcode: u8, nsid: u32) -> [u32; 16] {
 }
 
 fn trimmed(b: &[u8]) -> String {
-    String::from_utf8_lossy(b).trim_matches(|c: char| c == ' ' || c == '\0').into()
+    String::from_utf8_lossy(b)
+        .trim_matches(|c: char| c == ' ' || c == '\0')
+        .into()
 }
 
 impl Nvme {
@@ -223,7 +225,11 @@ impl Nvme {
 
     fn check(&self, lba: u64, len: usize) -> Result<()> {
         let ss = self.lba_size as usize;
-        if len % ss != 0 || lba.checked_add((len / ss) as u64).map_or(true, |e| e > self.lbas) {
+        if !len.is_multiple_of(ss)
+            || lba
+                .checked_add((len / ss) as u64)
+                .is_none_or(|e| e > self.lbas)
+        {
             return Err(Error::InvalidArgument);
         }
         Ok(())

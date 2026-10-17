@@ -57,16 +57,20 @@ impl VirtioBlk {
             (h.add(8) as *mut u64).write_volatile(sector);
             h.add(16).write_volatile(0xff);
         }
-        self.q.set_desc(0, self.hdr.phys(), 16, DESC_F_NEXT, if len > 0 { 1 } else { 2 });
+        self.q.set_desc(
+            0,
+            self.hdr.phys(),
+            16,
+            DESC_F_NEXT,
+            if len > 0 { 1 } else { 2 },
+        );
         if len > 0 {
             let flags = DESC_F_NEXT | if dev_writes { DESC_F_WRITE } else { 0 };
             self.q.set_desc(1, self.data.phys(), len as u32, flags, 2);
         }
         self.q.set_desc(2, self.hdr.phys_at(16), 1, DESC_F_WRITE, 0);
         self.q.submit(0);
-        platform::wait_until(5000, || {
-            self.q.pop_used().is_some()
-        })?;
+        platform::wait_until(5000, || self.q.pop_used().is_some())?;
         match unsafe { h.add(16).read_volatile() } {
             0 => Ok(()),
             2 => Err(Error::Unsupported),
@@ -75,7 +79,11 @@ impl VirtioBlk {
     }
 
     fn check(&self, lba: u64, len: usize) -> Result<()> {
-        if len % SECTOR != 0 || lba.checked_add((len / SECTOR) as u64).map_or(true, |e| e > self.capacity) {
+        if !len.is_multiple_of(SECTOR)
+            || lba
+                .checked_add((len / SECTOR) as u64)
+                .is_none_or(|e| e > self.capacity)
+        {
             return Err(Error::InvalidArgument);
         }
         Ok(())

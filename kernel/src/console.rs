@@ -7,7 +7,10 @@ struct Console {
     fb: Option<FbConsole>,
 }
 
-static CONSOLE: Spinlock<Console> = Spinlock::new(Console { serial: Serial::new(), fb: None });
+static CONSOLE: Spinlock<Console> = Spinlock::new(Console {
+    serial: Serial::new(),
+    fb: None,
+});
 
 pub fn init_serial() {
     CONSOLE.lock().serial.init();

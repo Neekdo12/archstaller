@@ -4,7 +4,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum KeyMaterial {
     /// Big-endian modulus and exponent without leading zeros.
-    Rsa { n: Vec<u8>, e: Vec<u8> },
+    Rsa {
+        n: Vec<u8>,
+        e: Vec<u8>,
+    },
     Ed25519([u8; 32]),
 }
 

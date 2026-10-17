@@ -149,12 +149,20 @@ impl Signature {
             };
             let body = r.take(len)?;
             data = r.0;
-            let Some((&ty, val)) = body.split_first() else { return Err(Error::Malformed) };
+            let Some((&ty, val)) = body.split_first() else {
+                return Err(Error::Malformed);
+            };
             match ty & 0x7f {
-                2 if val.len() == 4 => self.created = Some(u32::from_be_bytes(val.try_into().unwrap()) as u64),
-                3 if val.len() == 4 => self.expires_after = Some(u32::from_be_bytes(val.try_into().unwrap()) as u64),
+                2 if val.len() == 4 => {
+                    self.created = Some(u32::from_be_bytes(val.try_into().unwrap()) as u64)
+                }
+                3 if val.len() == 4 => {
+                    self.expires_after = Some(u32::from_be_bytes(val.try_into().unwrap()) as u64)
+                }
                 16 if val.len() == 8 => self.issuer_key_id = Some(val.try_into().unwrap()),
-                33 if val.len() == 21 && val[0] == 4 => self.issuer_fingerprint = Some(val[1..].try_into().unwrap()),
+                33 if val.len() == 21 && val[0] == 4 => {
+                    self.issuer_fingerprint = Some(val[1..].try_into().unwrap())
+                }
                 _ => {}
             }
         }
@@ -244,7 +252,8 @@ fn verify_raw(sig: &Signature, key: &KeyEntry, digest: &[u8]) -> Result<()> {
     match (&key.material, sig.pk_algo) {
         (KeyMaterial::Rsa { n, e }, ALGO_RSA) => {
             use rsa::{BigUint, Pkcs1v15Sign, RsaPublicKey};
-            let pk = RsaPublicKey::new(BigUint::from_bytes_be(n), BigUint::from_bytes_be(e)).map_err(|_| Error::BadSignature)?;
+            let pk = RsaPublicKey::new(BigUint::from_bytes_be(n), BigUint::from_bytes_be(e))
+                .map_err(|_| Error::BadSignature)?;
             // Signature must be left-padded to the modulus length.
             let mut padded = alloc::vec![0u8; n.len()];
             let raw = &sig.mpis[0];
@@ -258,7 +267,8 @@ fn verify_raw(sig: &Signature, key: &KeyEntry, digest: &[u8]) -> Result<()> {
             } else {
                 Pkcs1v15Sign::new::<Sha512>()
             };
-            pk.verify(scheme, digest, &padded).map_err(|_| Error::BadSignature)
+            pk.verify(scheme, digest, &padded)
+                .map_err(|_| Error::BadSignature)
         }
         (KeyMaterial::Ed25519(pk), ALGO_EDDSA) => {
             use ed25519_dalek::{Signature as EdSig, VerifyingKey};
@@ -270,7 +280,8 @@ fn verify_raw(sig: &Signature, key: &KeyEntry, digest: &[u8]) -> Result<()> {
             raw[32 - r.len()..32].copy_from_slice(r);
             raw[64 - s.len()..].copy_from_slice(s);
             let vk = VerifyingKey::from_bytes(pk).map_err(|_| Error::BadSignature)?;
-            vk.verify_strict(digest, &EdSig::from_bytes(&raw)).map_err(|_| Error::BadSignature)
+            vk.verify_strict(digest, &EdSig::from_bytes(&raw))
+                .map_err(|_| Error::BadSignature)
         }
         _ => Err(Error::Unsupported),
     }

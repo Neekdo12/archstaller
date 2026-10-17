@@ -43,7 +43,11 @@ pub enum Bus {
 }
 
 fn hex16(s: &str, what: &str, line: usize) -> Result<u16> {
-    if s.len() != 4 || !s.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()) {
+    if s.len() != 4
+        || !s
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+    {
         return Err(format!("line {line}: {what} {s:?} must be 4 lower-case hex digits").into());
     }
     Ok(u16::from_str_radix(s, 16)?)
@@ -64,11 +68,20 @@ fn parse_era(s: &str, line: usize) -> Result<Option<(u16, u16)>> {
 
 fn triple(s: &str, line: usize) -> Result<(u8, u8, u8)> {
     let p: Vec<&str> = s.split('/').collect();
-    let ok = p.len() == 3 && p.iter().all(|x| x.len() == 2 && x.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+    let ok = p.len() == 3
+        && p.iter().all(|x| {
+            x.len() == 2
+                && x.chars()
+                    .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+        });
     if !ok {
         return Err(format!("line {line}: interface {s:?} must look like ff/ff/00").into());
     }
-    Ok((u8::from_str_radix(p[0], 16)?, u8::from_str_radix(p[1], 16)?, u8::from_str_radix(p[2], 16)?))
+    Ok((
+        u8::from_str_radix(p[0], 16)?,
+        u8::from_str_radix(p[1], 16)?,
+        u8::from_str_radix(p[2], 16)?,
+    ))
 }
 
 /// Parses a corpus. Columns (header row required, `#` lines ignored):
@@ -88,28 +101,68 @@ pub fn parse(text: &str, bus: Bus) -> Result<Vec<Entry>> {
             header = true;
             let want = if bus == Bus::Pci { "vendor" } else { "vid" };
             if c.first() != Some(&want) || c.len() != COLUMNS {
-                return Err(format!("line {n}: the header row must have {COLUMNS} columns and start with {want:?}").into());
+                return Err(format!(
+                    "line {n}: the header row must have {COLUMNS} columns and start with {want:?}"
+                )
+                .into());
             }
             continue;
         }
         if c.len() != COLUMNS {
-            return Err(format!("line {n}: expected {COLUMNS} tab-separated columns, found {}", c.len()).into());
+            return Err(format!(
+                "line {n}: expected {COLUMNS} tab-separated columns, found {}",
+                c.len()
+            )
+            .into());
         }
         let (vendor, device) = (hex16(c[0], "vendor id", n)?, hex16(c[1], "device id", n)?);
         if !seen.insert((vendor, device)) {
             return Err(format!("line {n}: {:04x}:{:04x} appears twice", vendor, device).into());
         }
-        let interfaces = if bus == Bus::Usb && !c[4].is_empty() && c[4] != "-" { c[4].split(';').map(|t| triple(t, n)).collect::<Result<Vec<_>>>()? } else { vec![] };
-        let era = if bus == Bus::Pci { parse_era(c[4], n)? } else { None };
+        let interfaces = if bus == Bus::Usb && !c[4].is_empty() && c[4] != "-" {
+            c[4].split(';')
+                .map(|t| triple(t, n))
+                .collect::<Result<Vec<_>>>()?
+        } else {
+            vec![]
+        };
+        let era = if bus == Bus::Pci {
+            parse_era(c[4], n)?
+        } else {
+            None
+        };
         if c[2].is_empty() || c[3].is_empty() || c[5].is_empty() {
             return Err(format!("line {n}: name, family and source must not be empty").into());
         }
         if !CONFIDENCE.contains(&c[6]) {
-            return Err(format!("line {n}: confidence {:?} must be one of {CONFIDENCE:?}", c[6]).into());
+            return Err(format!(
+                "line {n}: confidence {:?} must be one of {CONFIDENCE:?}",
+                c[6]
+            )
+            .into());
         }
-        let level = LEVELS.iter().position(|l| *l == c[7]).ok_or_else(|| format!("line {n}: test {:?} must be one of {LEVELS:?}", c[7]))?;
-        let weight = c[8].parse::<u64>().map_err(|_| format!("line {n}: weight {:?} must be a whole number (0 when unknown)", c[8]))?;
-        out.push(Entry { vendor, device, name: c[2].into(), family: c[3].into(), era, interfaces, source: c[5].into(), confidence: c[6].into(), level, weight });
+        let level = LEVELS
+            .iter()
+            .position(|l| *l == c[7])
+            .ok_or_else(|| format!("line {n}: test {:?} must be one of {LEVELS:?}", c[7]))?;
+        let weight = c[8].parse::<u64>().map_err(|_| {
+            format!(
+                "line {n}: weight {:?} must be a whole number (0 when unknown)",
+                c[8]
+            )
+        })?;
+        out.push(Entry {
+            vendor,
+            device,
+            name: c[2].into(),
+            family: c[3].into(),
+            era,
+            interfaces,
+            source: c[5].into(),
+            confidence: c[6].into(),
+            level,
+            weight,
+        });
     }
     if !header {
         return Err("the corpus has no header row".into());
@@ -129,7 +182,11 @@ pub fn recognized(bus: Bus, e: &Entry) -> Option<&'static str> {
 pub fn check(bus: Bus, entries: &[Entry]) -> Result<()> {
     for e in entries {
         if e.level >= 2 && recognized(bus, e).is_none() {
-            return Err(format!("{:04x}:{:04x} ({}) says test={} but no driver recognizes it", e.vendor, e.device, e.name, LEVELS[e.level]).into());
+            return Err(format!(
+                "{:04x}:{:04x} ({}) says test={} but no driver recognizes it",
+                e.vendor, e.device, e.name, LEVELS[e.level]
+            )
+            .into());
         }
     }
     Ok(())
@@ -172,7 +229,12 @@ fn tally(entries: &[Entry], bus: Bus, weighted: bool) -> Counts {
         if recognized(bus, e).is_some() {
             c.recognized += w;
         }
-        for (min, slot) in [(2, &mut c.initialized), (3, &mut c.link), (4, &mut c.network), (5, &mut c.e2e)] {
+        for (min, slot) in [
+            (2, &mut c.initialized),
+            (3, &mut c.link),
+            (4, &mut c.network),
+            (5, &mut c.e2e),
+        ] {
             if e.level >= min {
                 *slot += w;
             }
@@ -196,10 +258,24 @@ pub fn report(bus: Bus, entries: &[Entry]) -> Report {
             }
         }
     }
-    let mut missing: Vec<(u16, String, usize, u64)> = groups.into_iter().map(|((v, f), (n, w))| (v, f, n, w)).collect();
-    missing.sort_by(|a, b| b.3.cmp(&a.3).then(b.2.cmp(&a.2)).then(a.0.cmp(&b.0)).then(a.1.cmp(&b.1)));
+    let mut missing: Vec<(u16, String, usize, u64)> = groups
+        .into_iter()
+        .map(|((v, f), (n, w))| (v, f, n, w))
+        .collect();
+    missing.sort_by(|a, b| {
+        b.3.cmp(&a.3)
+            .then(b.2.cmp(&a.2))
+            .then(a.0.cmp(&b.0))
+            .then(a.1.cmp(&b.1))
+    });
     top_missing.sort_by(|a, b| b.3.cmp(&a.3).then(a.0.cmp(&b.0)).then(a.1.cmp(&b.1)));
-    Report { entries: tally(entries, bus, false), weighted: tally(entries, bus, true), by_driver, missing, top_missing }
+    Report {
+        entries: tally(entries, bus, false),
+        weighted: tally(entries, bus, true),
+        by_driver,
+        missing,
+        top_missing,
+    }
 }
 
 fn pct(n: u64, total: u64) -> f64 {
@@ -212,21 +288,69 @@ fn pct(n: u64, total: u64) -> f64 {
 
 fn print(label: &str, path: &Path, target: f64, r: &Report, missing: usize) {
     let weighted = r.has_weights();
-    println!("{label} corpus {} ({} entries{})", path.display(), r.entries.total, if weighted { format!(", weight {} in total", r.weighted.total) } else { ", unweighted: no weights in this corpus".into() });
-    println!("  {:<30} {:>6} {:>7}{}", "", "entries", "", if weighted { "   by weight" } else { "" });
-    let rows = |c: &Counts| [("recognized ids", c.recognized), ("initialized (probe or better)", c.initialized), ("link-tested", c.link), ("network-tested", c.network), ("installer e2e-tested", c.e2e)];
+    println!(
+        "{label} corpus {} ({} entries{})",
+        path.display(),
+        r.entries.total,
+        if weighted {
+            format!(", weight {} in total", r.weighted.total)
+        } else {
+            ", unweighted: no weights in this corpus".into()
+        }
+    );
+    println!(
+        "  {:<30} {:>6} {:>7}{}",
+        "",
+        "entries",
+        "",
+        if weighted { "   by weight" } else { "" }
+    );
+    let rows = |c: &Counts| {
+        [
+            ("recognized ids", c.recognized),
+            ("initialized (probe or better)", c.initialized),
+            ("link-tested", c.link),
+            ("network-tested", c.network),
+            ("installer e2e-tested", c.e2e),
+        ]
+    };
     for ((name, n), (_, w)) in rows(&r.entries).into_iter().zip(rows(&r.weighted)) {
-        let by_weight = if weighted { format!("   {:>5.1}%", pct(w, r.weighted.total)) } else { String::new() };
-        println!("  {name:<30} {n:>6} {:>6.1}%{by_weight}", pct(n, r.entries.total));
+        let by_weight = if weighted {
+            format!("   {:>5.1}%", pct(w, r.weighted.total))
+        } else {
+            String::new()
+        };
+        println!(
+            "  {name:<30} {n:>6} {:>6.1}%{by_weight}",
+            pct(n, r.entries.total)
+        );
     }
-    let (p, basis) = if weighted { (pct(r.weighted.recognized, r.weighted.total), "by weight") } else { (pct(r.entries.recognized, r.entries.total), "unweighted") };
-    println!("  target {target:.0}% recognized: {} ({p:.1}%, {basis})", if p >= target { "reached on this corpus" } else { "not reached" });
+    let (p, basis) = if weighted {
+        (pct(r.weighted.recognized, r.weighted.total), "by weight")
+    } else {
+        (pct(r.entries.recognized, r.entries.total), "unweighted")
+    };
+    println!(
+        "  target {target:.0}% recognized: {} ({p:.1}%, {basis})",
+        if p >= target {
+            "reached on this corpus"
+        } else {
+            "not reached"
+        }
+    );
     if !r.by_driver.is_empty() {
-        let parts: Vec<String> = r.by_driver.iter().map(|(d, n)| format!("{d} {n}")).collect();
+        let parts: Vec<String> = r
+            .by_driver
+            .iter()
+            .map(|(d, n)| format!("{d} {n}"))
+            .collect();
         println!("  recognized by: {}", parts.join(", "));
     }
     if missing > 0 && !r.missing.is_empty() {
-        println!("  largest unrecognized groups (vendor id, family, entries{}):", if weighted { ", weight" } else { "" });
+        println!(
+            "  largest unrecognized groups (vendor id, family, entries{}):",
+            if weighted { ", weight" } else { "" }
+        );
         for (v, f, n, w) in r.missing.iter().take(missing) {
             if weighted {
                 println!("    {v:04x}  {f:<28} {n:>4} {w:>8}");
@@ -247,7 +371,15 @@ fn print(label: &str, path: &Path, target: f64, r: &Report, missing: usize) {
 pub fn by_era(entries: &[Entry], from: u16, to: u16, contained: bool) -> Vec<Entry> {
     entries
         .iter()
-        .filter(|e| e.era.is_some_and(|(a, b)| if contained { a >= from && b <= to } else { a <= to && b >= from }))
+        .filter(|e| {
+            e.era.is_some_and(|(a, b)| {
+                if contained {
+                    a >= from && b <= to
+                } else {
+                    a <= to && b >= from
+                }
+            })
+        })
         .cloned()
         .collect()
 }
@@ -262,14 +394,48 @@ pub fn launched_in(entries: &[Entry], from: u16, to: u16) -> Vec<Entry> {
 }
 
 fn print_era(entries: &[Entry], bus: Bus, from: u16, to: u16) {
-    let no_era: Vec<Entry> = entries.iter().filter(|e| e.era.is_none()).cloned().collect();
+    let no_era: Vec<Entry> = entries
+        .iter()
+        .filter(|e| e.era.is_none())
+        .cloned()
+        .collect();
     println!("  by hardware era {from}-{to} (hand-estimated year ranges; a chip built for years counts in every era it spans):");
-    println!("  {:<42} {:>8} {:>9} {:>9} {:>9}", "", "entries", "weight", "recognized", "e2e-tested");
-    let sets = [("ids in use during the era (overlap)", by_era(entries, from, to, false)), ("ids launched in the era (first year)", launched_in(entries, from, to)), ("ids only from the era (contained)", by_era(entries, from, to, true)), ("no era known", no_era)];
+    println!(
+        "  {:<42} {:>8} {:>9} {:>9} {:>9}",
+        "", "entries", "weight", "recognized", "e2e-tested"
+    );
+    let sets = [
+        (
+            "ids in use during the era (overlap)",
+            by_era(entries, from, to, false),
+        ),
+        (
+            "ids launched in the era (first year)",
+            launched_in(entries, from, to),
+        ),
+        (
+            "ids only from the era (contained)",
+            by_era(entries, from, to, true),
+        ),
+        ("no era known", no_era),
+    ];
     for (name, set) in sets {
         let r = report(bus, &set);
-        let (rec, e2e) = if r.has_weights() { (pct(r.weighted.recognized, r.weighted.total), pct(r.weighted.e2e, r.weighted.total)) } else { (pct(r.entries.recognized, r.entries.total), pct(r.entries.e2e, r.entries.total)) };
-        println!("  {name:<42} {:>8} {:>9} {:>8.1}% {:>8.1}%", r.entries.total, r.weighted.total, rec, e2e);
+        let (rec, e2e) = if r.has_weights() {
+            (
+                pct(r.weighted.recognized, r.weighted.total),
+                pct(r.weighted.e2e, r.weighted.total),
+            )
+        } else {
+            (
+                pct(r.entries.recognized, r.entries.total),
+                pct(r.entries.e2e, r.entries.total),
+            )
+        };
+        println!(
+            "  {name:<42} {:>8} {:>9} {:>8.1}% {:>8.1}%",
+            r.entries.total, r.weighted.total, rec, e2e
+        );
     }
     println!("  (recognized and e2e-tested are by weight where the set has weights)");
 }
@@ -296,8 +462,15 @@ pub fn run(args: &[String]) -> Result<()> {
             other => return Err(format!("unknown option {other} (usage: cargo xtask coverage [--pci FILE] [--usb FILE] [--missing N] [--era FROM-TO])").into()),
         }
     }
-    for (bus, label, path, target) in [(Bus::Pci, "PCI Ethernet", &pci, PCI_TARGET), (Bus::Usb, "USB Ethernet/tethering", &usb, USB_TARGET)] {
-        let entries = parse(&std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?, bus).map_err(|e| format!("{}: {e}", path.display()))?;
+    for (bus, label, path, target) in [
+        (Bus::Pci, "PCI Ethernet", &pci, PCI_TARGET),
+        (Bus::Usb, "USB Ethernet/tethering", &usb, USB_TARGET),
+    ] {
+        let entries = parse(
+            &std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?,
+            bus,
+        )
+        .map_err(|e| format!("{}: {e}", path.display()))?;
         check(bus, &entries).map_err(|e| format!("{}: {e}", path.display()))?;
         print(label, path, target, &report(bus, &entries), missing);
         if let (Some((a, b)), Bus::Pci) = (era, bus) {
@@ -316,7 +489,8 @@ pub fn run(args: &[String]) -> Result<()> {
 mod tests {
     use super::*;
 
-    const HEAD: &str = "vendor\tdevice\tname\tfamily\tera\tsource\tconfidence\ttest\tweight\tnotes\n";
+    const HEAD: &str =
+        "vendor\tdevice\tname\tfamily\tera\tsource\tconfidence\ttest\tweight\tnotes\n";
 
     fn pci(rows: &[&str]) -> String {
         format!("{HEAD}{}", rows.join("\n"))
@@ -333,9 +507,29 @@ mod tests {
         let e = parse(&text, Bus::Pci).unwrap();
         check(Bus::Pci, &e).unwrap();
         let r = report(Bus::Pci, &e);
-        assert_eq!(r.entries, Counts { total: 4, recognized: 2, initialized: 2, link: 2, network: 2, e2e: 1 });
+        assert_eq!(
+            r.entries,
+            Counts {
+                total: 4,
+                recognized: 2,
+                initialized: 2,
+                link: 2,
+                network: 2,
+                e2e: 1
+            }
+        );
         // A heavily used id moves the weighted figures far more than the entry figures.
-        assert_eq!(r.weighted, Counts { total: 1000, recognized: 800, initialized: 800, link: 800, network: 800, e2e: 700 });
+        assert_eq!(
+            r.weighted,
+            Counts {
+                total: 1000,
+                recognized: 800,
+                initialized: 800,
+                link: 800,
+                network: 800,
+                e2e: 700
+            }
+        );
         assert!(r.has_weights());
         assert_eq!(r.top_missing[0].3, 150);
         assert_eq!(r.missing[0].1, "Intel");
@@ -354,7 +548,15 @@ mod tests {
         assert!(bad("10ec\t8168\tn\tf\t-\ts\thigh\tnone").contains("10 tab-separated"));
         assert!(bad("10ec\t8168\tn\tf\t-\ts\thigh\tnone\tmany\t").contains("weight"));
         assert!(bad("10ec\t8168\t\tf\t-\ts\thigh\tnone\t0\t").contains("must not be empty"));
-        let dup = parse(&pci(&["10ec\t8168\tn\tf\t-\ts\thigh\tnone\t0\t", "10ec\t8168\tn\tf\t-\ts\thigh\tnone\t0\t"]), Bus::Pci).unwrap_err().to_string();
+        let dup = parse(
+            &pci(&[
+                "10ec\t8168\tn\tf\t-\ts\thigh\tnone\t0\t",
+                "10ec\t8168\tn\tf\t-\ts\thigh\tnone\t0\t",
+            ]),
+            Bus::Pci,
+        )
+        .unwrap_err()
+        .to_string();
         assert!(dup.contains("twice"));
         assert!(parse("", Bus::Pci).is_err());
         assert!(parse("name\tx\n", Bus::Pci).is_err());
@@ -362,8 +564,15 @@ mod tests {
 
     #[test]
     fn tested_but_unrecognized_ids_are_refused() {
-        let e = parse(&pci(&["14e4\t1648\tNetXtreme\tBroadcom\t-\ts\tlow\tlink\t0\t"]), Bus::Pci).unwrap();
-        assert!(check(Bus::Pci, &e).unwrap_err().to_string().contains("no driver recognizes"));
+        let e = parse(
+            &pci(&["14e4\t1648\tNetXtreme\tBroadcom\t-\ts\tlow\tlink\t0\t"]),
+            Bus::Pci,
+        )
+        .unwrap();
+        assert!(check(Bus::Pci, &e)
+            .unwrap_err()
+            .to_string()
+            .contains("no driver recognizes"));
     }
 
     #[test]
@@ -372,13 +581,35 @@ mod tests {
         let text = format!("{head}0b95\t1790\tAX88179\tASIX\tff/ff/00\ts\thigh\tnetwork\t0\t");
         let e = parse(&text, Bus::Usb).unwrap();
         assert_eq!(recognized(Bus::Usb, &e[0]), Some("ax88179"));
-        let cdc = Entry { vendor: 0x1234, device: 0x5678, name: "x".into(), family: "x".into(), era: None, interfaces: vec![(0x02, 0x06, 0x00), (0x0a, 0x00, 0x00)], source: "s".into(), confidence: "low".into(), level: 0, weight: 0 };
+        let cdc = Entry {
+            vendor: 0x1234,
+            device: 0x5678,
+            name: "x".into(),
+            family: "x".into(),
+            era: None,
+            interfaces: vec![(0x02, 0x06, 0x00), (0x0a, 0x00, 0x00)],
+            source: "s".into(),
+            confidence: "low".into(),
+            level: 0,
+            weight: 0,
+        };
         assert_eq!(recognized(Bus::Usb, &cdc), Some("cdc-ecm"));
-        let unknown = Entry { interfaces: vec![], ..cdc.clone() };
+        let unknown = Entry {
+            interfaces: vec![],
+            ..cdc.clone()
+        };
         assert_eq!(recognized(Bus::Usb, &unknown), None);
-        let apple = Entry { vendor: 0x05ac, interfaces: vec![(0x02, 0x06, 0x00)], ..cdc };
+        let apple = Entry {
+            vendor: 0x05ac,
+            interfaces: vec![(0x02, 0x06, 0x00)],
+            ..cdc
+        };
         assert_eq!(recognized(Bus::Usb, &apple), None);
-        assert!(parse(&format!("{head}0b95\t1790\tn\tf\tff-ff-00\ts\thigh\tnone\t0\t"), Bus::Usb).is_err());
+        assert!(parse(
+            &format!("{head}0b95\t1790\tn\tf\tff-ff-00\ts\thigh\tnone\t0\t"),
+            Bus::Usb
+        )
+        .is_err());
     }
 
     #[test]
@@ -394,7 +625,14 @@ mod tests {
         assert_eq!(by_era(&e, 2010, 2019, true).len(), 1); // only I217 lies wholly inside
         assert_eq!(launched_in(&e, 2010, 2019).len(), 1); // I217 launched 2013; RTL8111 launched 2007
         assert_eq!(e.iter().filter(|x| x.era.is_none()).count(), 1);
-        let bad = |era: &str| parse(&pci(&[&format!("10ec\t8168\tn\tf\t{era}\ts\thigh\tnone\t0\t")]), Bus::Pci).unwrap_err().to_string();
+        let bad = |era: &str| {
+            parse(
+                &pci(&[&format!("10ec\t8168\tn\tf\t{era}\ts\thigh\tnone\t0\t")]),
+                Bus::Pci,
+            )
+            .unwrap_err()
+            .to_string()
+        };
         assert!(bad("2019-2010").contains("era"));
         assert!(bad("20x-2019").contains("era"));
         assert!(bad("2013").contains("era"));
@@ -404,7 +642,8 @@ mod tests {
     fn the_repository_corpora_parse_and_are_consistent() {
         for (bus, f) in [(Bus::Pci, "pci.tsv"), (Bus::Usb, "usb.tsv")] {
             let path = root().join("coverage").join(f);
-            let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            let text = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
             let e = parse(&text, bus).unwrap_or_else(|e| panic!("{f}: {e}"));
             check(bus, &e).unwrap_or_else(|e| panic!("{f}: {e}"));
             assert!(!e.is_empty(), "{f} is empty");

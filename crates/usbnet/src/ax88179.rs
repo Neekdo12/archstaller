@@ -52,10 +52,10 @@ pub const USB_HS: u8 = 0x02;
 
 /// RX bulk-in queue settings by (USB speed, link speed): `{ctrl, timer_l, timer_h, size, ifg}`.
 const BULKIN: [[u8; 5]; 4] = [
-    [7, 0x4f, 0, 0x12, 0xff],  // SuperSpeed, gigabit
-    [7, 0x20, 3, 0x16, 0xff],  // High-Speed, gigabit
-    [7, 0xae, 7, 0x18, 0xff],  // 100 Mbit on USB 2/3
-    [7, 0xcc, 0x4c, 0x18, 8],  // anything slower
+    [7, 0x4f, 0, 0x12, 0xff], // SuperSpeed, gigabit
+    [7, 0x20, 3, 0x16, 0xff], // High-Speed, gigabit
+    [7, 0xae, 7, 0x18, 0xff], // 100 Mbit on USB 2/3
+    [7, 0xcc, 0x4c, 0x18, 8], // anything slower
 ];
 
 /// Medium mode and RX queue settings for a link: `(medium, bulkin_ctrl, rx_urb_bytes)`.
@@ -76,7 +76,11 @@ pub fn link_settings(physr: u16, link_sts: u8) -> (u16, [u8; 5], usize) {
         }
         PHYSR_100 => {
             medium |= MEDIUM_PS;
-            if fast_usb { BULKIN[2] } else { BULKIN[3] }
+            if fast_usb {
+                BULKIN[2]
+            } else {
+                BULKIN[3]
+            }
         }
         _ => BULKIN[3],
     };
@@ -89,7 +93,11 @@ pub fn link_settings(physr: u16, link_sts: u8) -> (u16, [u8; 5], usize) {
 /// Prepends the 8-byte transmit header. When the transfer would end exactly on a packet
 /// boundary the header asks the chip to pad it, so no zero-length packet is needed.
 pub fn tx_frame(frame: &[u8], max_packet: usize) -> Vec<u8> {
-    let hdr2: u32 = if (frame.len() + 8) % max_packet.max(1) == 0 { 0x8000_8000 } else { 0 };
+    let hdr2: u32 = if (frame.len() + 8).is_multiple_of(max_packet.max(1)) {
+        0x8000_8000
+    } else {
+        0
+    };
     let mut b = Vec::with_capacity(8 + frame.len());
     b.extend_from_slice(&(frame.len() as u32).to_le_bytes());
     b.extend_from_slice(&hdr2.to_le_bytes());
@@ -116,7 +124,11 @@ pub fn parse_rx(buf: &[u8]) -> Vec<Vec<u8>> {
     let data = &body[..hdr_off];
     let mut pos = 0;
     for i in 0..count {
-        let h = u32::from_le_bytes(body[hdr_off + 4 * i..hdr_off + 4 * i + 4].try_into().unwrap());
+        let h = u32::from_le_bytes(
+            body[hdr_off + 4 * i..hdr_off + 4 * i + 4]
+                .try_into()
+                .unwrap(),
+        );
         let len = ((h >> 16) & 0x1fff) as usize;
         let padded = (len + 7) & !7;
         if len == 0 {

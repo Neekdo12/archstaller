@@ -70,7 +70,9 @@ pub fn probe(dev: &PciDevice, out: &mut Devices) {
             (false, _) => (0x170, 0x376),
         };
         let bm = match dev.bar(4) {
-            Some(Bar::Io { port, .. }) if dev.prog_if & 0x80 != 0 => Some(port + 8 * channel as u16),
+            Some(Bar::Io { port, .. }) if dev.prog_if & 0x80 != 0 => {
+                Some(port + 8 * channel as u16)
+            }
             _ => None,
         };
         for drive in 0..2 {
@@ -159,7 +161,16 @@ impl AtaDisk {
     }
 
     fn new(cmd: u16, ctl: u16, drive: u8, bm: Option<u16>) -> Result<AtaDisk> {
-        let mut d = AtaDisk { cmd, ctl, drive, lba48: false, model: String::new(), serial: String::new(), sectors: 0, dma: None };
+        let mut d = AtaDisk {
+            cmd,
+            ctl,
+            drive,
+            lba48: false,
+            model: String::new(),
+            serial: String::new(),
+            sectors: 0,
+            dma: None,
+        };
         // A floating bus reads 0xff (or 0x7f on some boards): no controller, no device.
         let st = d.alt_status();
         if st == 0xff || st == 0x7f {
@@ -190,14 +201,22 @@ impl AtaDisk {
         d.serial = ata_string(&w[10..20]);
         d.model = ata_string(&w[27..47]);
         d.lba48 = w[83] & (1 << 10) != 0;
-        d.sectors = if d.lba48 { w[100] as u64 | (w[101] as u64) << 16 | (w[102] as u64) << 32 | (w[103] as u64) << 48 } else { w[60] as u64 | (w[61] as u64) << 16 };
+        d.sectors = if d.lba48 {
+            w[100] as u64 | (w[101] as u64) << 16 | (w[102] as u64) << 32 | (w[103] as u64) << 48
+        } else {
+            w[60] as u64 | (w[61] as u64) << 16
+        };
         // Only 512-byte logical sectors (word 106 bit 12 says they are larger).
         if d.sectors == 0 || (w[106] & 0xc000 == 0x4000 && w[106] & (1 << 12) != 0) {
             return Err(Error::Unsupported);
         }
         // DMA, if the drive says it can (word 49 bit 8) and a real transfer works; else PIO.
         if let (Some(bm), true) = (bm, w[49] & (1 << 8) != 0) {
-            let eng = DmaEngine { bm, prd: Dma::new(16, 64), data: Dma::new(MAX_SECTORS * 512, 65536) };
+            let eng = DmaEngine {
+                bm,
+                prd: Dma::new(16, 64),
+                data: Dma::new(MAX_SECTORS * 512, 65536),
+            };
             if (eng.prd.phys() | eng.data.phys()) >> 32 == 0 {
                 d.dma = Some(eng);
                 let mut probe = [0u8; 512];
@@ -207,7 +226,18 @@ impl AtaDisk {
                 }
             }
         }
-        hal::info!("ata: {} ({} sectors) at {:#x}/{}, {}", d.model, d.sectors, cmd, drive, if d.dma.is_some() { "bus-master DMA" } else { "PIO" });
+        hal::info!(
+            "ata: {} ({} sectors) at {:#x}/{}, {}",
+            d.model,
+            d.sectors,
+            cmd,
+            drive,
+            if d.dma.is_some() {
+                "bus-master DMA"
+            } else {
+                "PIO"
+            }
+        );
         Ok(d)
     }
 
@@ -231,7 +261,20 @@ impl AtaDisk {
         let n = len / 512;
         let (cmd_byte, bm) = {
             let e = self.dma.as_ref().ok_or(Error::Unsupported)?;
-            (if self.lba48 { if write { CMD_WRITE_DMA_EXT } else { CMD_READ_DMA_EXT } } else if write { CMD_WRITE_DMA } else { CMD_READ_DMA }, e.bm)
+            (
+                if self.lba48 {
+                    if write {
+                        CMD_WRITE_DMA_EXT
+                    } else {
+                        CMD_READ_DMA_EXT
+                    }
+                } else if write {
+                    CMD_WRITE_DMA
+                } else {
+                    CMD_READ_DMA
+                },
+                e.bm,
+            )
         };
         {
             let e = self.dma.as_mut().unwrap();
@@ -252,7 +295,10 @@ impl AtaDisk {
         }
         self.issue_dma(lba, n, cmd_byte)?;
         unsafe { outb(bm + BM_CMD, (if write { 0 } else { BM_READ }) | BM_START) };
-        let done = platform::wait_until(10_000, || unsafe { inb(bm + BM_STATUS) } & BM_ACTIVE == 0 && self.alt_status() & ST_BSY == 0);
+        let done = platform::wait_until(
+            10_000,
+            || unsafe { inb(bm + BM_STATUS) } & BM_ACTIVE == 0 && self.alt_status() & ST_BSY == 0,
+        );
         let bm_status = unsafe { inb(bm + BM_STATUS) };
         unsafe { outb(bm + BM_CMD, 0) };
         done?;
@@ -318,7 +364,12 @@ impl AtaDisk {
     }
 
     fn check(&self, lba: u64, len: usize) -> Result<()> {
-        if len % 512 != 0 || lba.checked_add((len / 512) as u64).map_or(true, |e| e > self.sectors) || (!self.lba48 && lba + (len / 512) as u64 > 1 << 28) {
+        if !len.is_multiple_of(512)
+            || lba
+                .checked_add((len / 512) as u64)
+                .is_none_or(|e| e > self.sectors)
+            || (!self.lba48 && lba + (len / 512) as u64 > 1 << 28)
+        {
             return Err(Error::InvalidArgument);
         }
         Ok(())
@@ -345,7 +396,10 @@ impl hal::BlockDevice for AtaDisk {
         while done < buf.len() / 512 {
             let n = (buf.len() / 512 - done).min(MAX_SECTORS);
             if self.dma.is_some() {
-                self.dma_transfer(lba + done as u64, Data::Read(&mut buf[done * 512..(done + n) * 512]))?;
+                self.dma_transfer(
+                    lba + done as u64,
+                    Data::Read(&mut buf[done * 512..(done + n) * 512]),
+                )?;
                 done += n;
                 continue;
             }
@@ -353,7 +407,13 @@ impl hal::BlockDevice for AtaDisk {
             for s in 0..n {
                 self.wait_drq()?;
                 let at = (done + s) * 512;
-                unsafe { insw(self.cmd + DATA, buf[at..at + 512].as_mut_ptr() as *mut u16, 256) };
+                unsafe {
+                    insw(
+                        self.cmd + DATA,
+                        buf[at..at + 512].as_mut_ptr() as *mut u16,
+                        256,
+                    )
+                };
             }
             done += n;
         }
@@ -366,7 +426,10 @@ impl hal::BlockDevice for AtaDisk {
         while done < buf.len() / 512 {
             let n = (buf.len() / 512 - done).min(MAX_SECTORS);
             if self.dma.is_some() {
-                self.dma_transfer(lba + done as u64, Data::Write(&buf[done * 512..(done + n) * 512]))?;
+                self.dma_transfer(
+                    lba + done as u64,
+                    Data::Write(&buf[done * 512..(done + n) * 512]),
+                )?;
                 done += n;
                 continue;
             }
@@ -374,7 +437,13 @@ impl hal::BlockDevice for AtaDisk {
             for s in 0..n {
                 self.wait_drq()?;
                 let at = (done + s) * 512;
-                unsafe { outsw(self.cmd + DATA, buf[at..at + 512].as_ptr() as *const u16, 256) };
+                unsafe {
+                    outsw(
+                        self.cmd + DATA,
+                        buf[at..at + 512].as_ptr() as *const u16,
+                        256,
+                    )
+                };
             }
             // The device is done with the last sector when BSY drops.
             let st = self.wait_not_busy(5000)?;

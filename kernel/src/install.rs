@@ -74,7 +74,10 @@ impl<S: Storage> Read for CacheReader<S> {
                 return Ok(0);
             }
             self.buf.resize(n, 0);
-            self.w.borrow_mut().read_file(self.ino, self.pos, &mut self.buf).map_err(|_| pkg::Error::Io)?;
+            self.w
+                .borrow_mut()
+                .read_file(self.ino, self.pos, &mut self.buf)
+                .map_err(|_| pkg::Error::Io)?;
             self.pos += n as u64;
             self.off = 0;
         }
@@ -120,31 +123,59 @@ fn select_disk(cfg: &Config, devs: &mut Devices) -> R<Box<dyn BlockDevice>> {
     }
     println!("disks found: {}", devs.block.len());
     for d in &devs.block {
-        println!("  {} serial '{}' {} MiB", d.model(), d.serial(), d.sector_count() * d.sector_size() as u64 >> 20);
+        println!(
+            "  {} serial '{}' {} MiB",
+            d.model(),
+            d.serial(),
+            (d.sector_count() * d.sector_size() as u64) >> 20
+        );
     }
     match hits.len() {
         0 => return Err("no disk matches the selector; nothing was written".into()),
         1 => {}
-        n => return Err(format!("selector matches {n} disks (need exactly one); nothing was written")),
+        n => {
+            return Err(format!(
+                "selector matches {n} disks (need exactly one); nothing was written"
+            ))
+        }
     }
     let d = devs.block.remove(hits[0]);
     if d.serial().trim() != want {
-        return Err(format!("selected disk has serial '{}' but confirm_serial is '{want}'; nothing was written", d.serial()));
+        return Err(format!(
+            "selected disk has serial '{}' but confirm_serial is '{want}'; nothing was written",
+            d.serial()
+        ));
     }
     Ok(d)
 }
 
 /// `disk.auto_largest`: the biggest disk is erased. A tie for the biggest is refused.
 fn select_largest(devs: &mut Devices) -> R<Box<dyn BlockDevice>> {
-    let size = |d: &Box<dyn BlockDevice>| d.sector_count() * d.sector_size() as u64;
+    let size = |d: &dyn BlockDevice| d.sector_count() * d.sector_size() as u64;
     println!("disks found: {}", devs.block.len());
     for d in &devs.block {
-        println!("  {} serial '{}' {} MiB", d.model(), d.serial(), size(d) >> 20);
+        println!(
+            "  {} serial '{}' {} MiB",
+            d.model(),
+            d.serial(),
+            size(&**d) >> 20
+        );
     }
-    let max = devs.block.iter().map(size).max().ok_or("no disk found; nothing was written")?;
-    let biggest: Vec<usize> = (0..devs.block.len()).filter(|&i| size(&devs.block[i]) == max).collect();
+    let max = devs
+        .block
+        .iter()
+        .map(|d| size(&**d))
+        .max()
+        .ok_or("no disk found; nothing was written")?;
+    let biggest: Vec<usize> = (0..devs.block.len())
+        .filter(|&i| size(&*devs.block[i]) == max)
+        .collect();
     if biggest.len() != 1 {
-        return Err(format!("{} disks tie for the largest size ({} MiB); refusing to guess, nothing was written", biggest.len(), max >> 20));
+        return Err(format!(
+            "{} disks tie for the largest size ({} MiB); refusing to guess, nothing was written",
+            biggest.len(),
+            max >> 20
+        ));
     }
     println!("disk.auto_largest is set: the largest disk will be ERASED");
     Ok(devs.block.remove(biggest[0]))
@@ -154,7 +185,12 @@ pub(crate) const USER_FILE_MAX: usize = 1 << 20;
 pub(crate) const USER_ARCHIVE_MAX: usize = 16 << 20;
 
 /// Downloads a small optional file; any failure is reported as text, never as a hard error.
-pub(crate) fn fetch_optional(client: &Client, stack: &mut net::Stack, url: &str, max: usize) -> Result<Vec<u8>, String> {
+pub(crate) fn fetch_optional(
+    client: &Client,
+    stack: &mut net::Stack,
+    url: &str,
+    max: usize,
+) -> Result<Vec<u8>, String> {
     let mut data = Vec::new();
     let mut too_big = false;
     let r = client.get(stack, url, &mut |d| {
@@ -192,15 +228,30 @@ pub(crate) fn bring_up_network(devs: &mut Devices) -> R<net::Stack> {
     match found {
         Some(_) => println!("network: {} link up", nic.name()),
         // DHCP still gets its chance: auto-negotiation can finish late.
-        None => println!("network: no link on any interface after 10 s; trying {} anyway", nic.name()),
+        None => println!(
+            "network: no link on any interface after 10 s; trying {} anyway",
+            nic.name()
+        ),
     }
     let mut stack = net::Stack::new(nic, now_ms, unsafe { core::arch::x86_64::_rdtsc() });
     let lease = stack.dhcp(30_000).map_err(dbg_err("DHCP"))?;
-    hal::info!("network: {:?}/{} gateway {:?} dns {:?}", lease.address, lease.prefix, lease.router, lease.dns);
+    hal::info!(
+        "network: {:?}/{} gateway {:?} dns {:?}",
+        lease.address,
+        lease.prefix,
+        lease.router,
+        lease.dns
+    );
     Ok(stack)
 }
 
-pub(crate) fn fetch_to_vec(client: &Client, stack: &mut net::Stack, cfg: &Config, path: &str, repo: &str) -> R<Vec<u8>> {
+pub(crate) fn fetch_to_vec(
+    client: &Client,
+    stack: &mut net::Stack,
+    cfg: &Config,
+    path: &str,
+    repo: &str,
+) -> R<Vec<u8>> {
     let mut last = String::new();
     for m in &cfg.mirrors {
         let url = format!("{}/{}", expand(m, repo), path);
@@ -236,22 +287,32 @@ fn download_package<S: Storage>(
     }
     let sig = pgp_lite::base64_decode(&p.pgpsig).map_err(dbg_err("PGPSIG"))?;
     let path = format!("{CACHE_DIR}/{}", p.filename);
-    let meta = Meta { mode: 0o644, mtime: time::unix_time(), ..Default::default() };
+    let meta = Meta {
+        mode: 0o644,
+        mtime: time::unix_time(),
+        ..Default::default()
+    };
     let mut last = String::new();
     for attempt in 0..cfg.mirrors.len() * 2 {
         let mirror = &cfg.mirrors[attempt % cfg.mirrors.len()];
         let url = format!("{}/{}", expand(mirror, &p.repo), p.filename);
         let hasher = RefCell::new(Sha256::new());
-        let verifier = RefCell::new(Some(pgp_lite::Verifier::from_packet(&sig).map_err(dbg_err("signature packet"))?));
+        let verifier = RefCell::new(Some(
+            pgp_lite::Verifier::from_packet(&sig).map_err(dbg_err("signature packet"))?,
+        ));
         let received = Cell::new(0u64);
-        w.borrow_mut().begin_file(&path, &meta).map_err(dbg_err("cache file"))?;
+        w.borrow_mut()
+            .begin_file(&path, &meta)
+            .map_err(dbg_err("cache file"))?;
         let res = client.get(stack, &url, &mut |d| {
             hasher.borrow_mut().update(d);
             if let Some(v) = verifier.borrow_mut().as_mut() {
                 v.update(d);
             }
             received.set(received.get() + d.len() as u64);
-            w.borrow_mut().write_file(d).map_err(|_| net::Error::Http("cache write failed"))
+            w.borrow_mut()
+                .write_file(d)
+                .map_err(|_| net::Error::Http("cache write failed"))
         });
         let ino = w.borrow_mut().end_file().map_err(dbg_err("cache file"))?;
         match res {
@@ -300,7 +361,12 @@ struct KernelIndex {
 
 impl KernelIndex {
     fn note(&mut self, path: &str) {
-        let Some((ver, file)) = path.strip_prefix("usr/lib/modules/").and_then(|r| r.split_once('/')) else { return };
+        let Some((ver, file)) = path
+            .strip_prefix("usr/lib/modules/")
+            .and_then(|r| r.split_once('/'))
+        else {
+            return;
+        };
         let k = self.kernels.entry(ver.to_string()).or_default();
         match file {
             "vmlinuz" => k.vmlinuz = Some(path.into()),
@@ -325,7 +391,9 @@ impl KernelIndex {
             }
             first.get_or_insert(k);
         }
-        first.ok_or_else(|| "the installed packages contain no kernel (add the 'linux' package)".into())
+        first.ok_or_else(|| {
+            "the installed packages contain no kernel (add the 'linux' package)".into()
+        })
     }
 }
 
@@ -333,8 +401,20 @@ fn clean_path(p: &str) -> &str {
     p.trim_start_matches("./").trim_end_matches('/')
 }
 
-fn extract_package<S: Storage>(w: &Rc<RefCell<Ext4Writer<S>>>, ino: u32, size: u64, idx: &mut KernelIndex) -> R<()> {
-    let reader = CacheReader { w: w.clone(), ino, pos: 0, size, buf: Vec::new(), off: 0 };
+fn extract_package<S: Storage>(
+    w: &Rc<RefCell<Ext4Writer<S>>>,
+    ino: u32,
+    size: u64,
+    idx: &mut KernelIndex,
+) -> R<()> {
+    let reader = CacheReader {
+        w: w.clone(),
+        ino,
+        pos: 0,
+        size,
+        buf: Vec::new(),
+        off: 0,
+    };
     let dec = pkg::compress::open(reader).map_err(dbg_err("package compression"))?;
     let mut tar = TarReader::new(dec);
     let mut buf = alloc::vec![0u8; 64 * 1024];
@@ -343,38 +423,62 @@ fn extract_package<S: Storage>(w: &Rc<RefCell<Ext4Writer<S>>>, ino: u32, size: u
         if path.is_empty() || (path.starts_with('.') && !path.contains('/')) {
             continue; // .PKGINFO, .MTREE, .BUILDINFO, .INSTALL, .CHANGELOG
         }
-        let meta = Meta { mode: (e.mode & 0o7777) as u16, uid: e.uid, gid: e.gid, mtime: e.mtime, xattrs: e.xattrs.clone() };
+        let meta = Meta {
+            mode: (e.mode & 0o7777) as u16,
+            uid: e.uid,
+            gid: e.gid,
+            mtime: e.mtime,
+            xattrs: e.xattrs.clone(),
+        };
         let ctx = |what: &str| format!("{path}: {what}");
         match e.kind {
             Kind::Dir => {
-                w.borrow_mut().mkdir(&path, &meta).map_err(|er| ctx(&format!("mkdir {er:?}")))?;
+                w.borrow_mut()
+                    .mkdir(&path, &meta)
+                    .map_err(|er| ctx(&format!("mkdir {er:?}")))?;
             }
             Kind::File => {
-                w.borrow_mut().begin_file(&path, &meta).map_err(|er| ctx(&format!("create {er:?}")))?;
+                w.borrow_mut()
+                    .begin_file(&path, &meta)
+                    .map_err(|er| ctx(&format!("create {er:?}")))?;
                 loop {
                     let n = tar.read_data(&mut buf).map_err(dbg_err("package data"))?;
                     if n == 0 {
                         break;
                     }
-                    w.borrow_mut().write_file(&buf[..n]).map_err(|er| ctx(&format!("write {er:?}")))?;
+                    w.borrow_mut()
+                        .write_file(&buf[..n])
+                        .map_err(|er| ctx(&format!("write {er:?}")))?;
                 }
-                w.borrow_mut().end_file().map_err(|er| ctx(&format!("close {er:?}")))?;
+                w.borrow_mut()
+                    .end_file()
+                    .map_err(|er| ctx(&format!("close {er:?}")))?;
                 idx.note(&path);
             }
             Kind::Symlink => {
-                w.borrow_mut().symlink(&path, &e.link, &meta).map_err(|er| ctx(&format!("symlink {er:?}")))?;
+                w.borrow_mut()
+                    .symlink(&path, &e.link, &meta)
+                    .map_err(|er| ctx(&format!("symlink {er:?}")))?;
             }
             Kind::Hardlink => {
-                w.borrow_mut().hardlink(&path, clean_path(&e.link)).map_err(|er| ctx(&format!("hardlink {er:?}")))?;
+                w.borrow_mut()
+                    .hardlink(&path, clean_path(&e.link))
+                    .map_err(|er| ctx(&format!("hardlink {er:?}")))?;
             }
             Kind::CharDev => {
-                w.borrow_mut().mknod(&path, FileKind::CharDev, e.dev_major, e.dev_minor, &meta).map_err(|er| ctx(&format!("mknod {er:?}")))?;
+                w.borrow_mut()
+                    .mknod(&path, FileKind::CharDev, e.dev_major, e.dev_minor, &meta)
+                    .map_err(|er| ctx(&format!("mknod {er:?}")))?;
             }
             Kind::BlockDev => {
-                w.borrow_mut().mknod(&path, FileKind::BlockDev, e.dev_major, e.dev_minor, &meta).map_err(|er| ctx(&format!("mknod {er:?}")))?;
+                w.borrow_mut()
+                    .mknod(&path, FileKind::BlockDev, e.dev_major, e.dev_minor, &meta)
+                    .map_err(|er| ctx(&format!("mknod {er:?}")))?;
             }
             Kind::Fifo => {
-                w.borrow_mut().mknod(&path, FileKind::Fifo, 0, 0, &meta).map_err(|er| ctx(&format!("mkfifo {er:?}")))?;
+                w.borrow_mut()
+                    .mknod(&path, FileKind::Fifo, 0, 0, &meta)
+                    .map_err(|er| ctx(&format!("mkfifo {er:?}")))?;
             }
         }
     }
@@ -383,9 +487,12 @@ fn extract_package<S: Storage>(w: &Rc<RefCell<Ext4Writer<S>>>, ino: u32, size: u
 
 fn read_whole<S: Storage>(w: &Rc<RefCell<Ext4Writer<S>>>, path: &str) -> R<Vec<u8>> {
     let mut wr = w.borrow_mut();
-    let ino = wr.lookup(path).ok_or_else(|| format!("{path} not found in the installed system"))?;
+    let ino = wr
+        .lookup(path)
+        .ok_or_else(|| format!("{path} not found in the installed system"))?;
     let mut out = alloc::vec![0u8; wr.file_size(ino) as usize];
-    wr.read_file(ino, 0, &mut out).map_err(dbg_err("read back"))?;
+    wr.read_file(ino, 0, &mut out)
+        .map_err(dbg_err("read back"))?;
     Ok(out)
 }
 
@@ -401,7 +508,11 @@ impl<S: Storage> initrd::modules::ModuleSource for ExtModules<'_, S> {
 }
 
 fn put<S: Storage>(w: &Rc<RefCell<Ext4Writer<S>>>, path: &str, mode: u16, data: &[u8]) -> R<()> {
-    let meta = Meta { mode, mtime: time::unix_time(), ..Default::default() };
+    let meta = Meta {
+        mode,
+        mtime: time::unix_time(),
+        ..Default::default()
+    };
     let mut wr = w.borrow_mut();
     wr.begin_file(path, &meta).map_err(dbg_err("write file"))?;
     wr.write_file(data).map_err(dbg_err("write file"))?;
@@ -445,7 +556,7 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
 
     // 12. Network, databases, resolution.
     let mut stack = bring_up_network(devs)?;
-    let client = Client::new(|| time::unix_time());
+    let client = Client::new(time::unix_time);
     let mut dbs = Vec::new();
     let mut db_bytes: Vec<(&str, Vec<u8>)> = Vec::new();
     for repo in REPOS {
@@ -455,12 +566,21 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
         db_bytes.push((repo, bytes));
     }
     let providers: BTreeMap<String, String> = cfg.providers.iter().cloned().collect();
-    let resolution = pkg::resolve::Resolver::new(&dbs, &providers).resolve(&wanted_packages(cfg)).map_err(dbg_err("dependency resolution"))?;
+    let resolution = pkg::resolve::Resolver::new(&dbs, &providers)
+        .resolve(&wanted_packages(cfg))
+        .map_err(dbg_err("dependency resolution"))?;
     for a in &resolution.ambiguities {
-        println!("note: {} is provided by {:?}; using {} (set providers.{} to choose)", a.dep, a.candidates, a.chosen, a.dep);
+        println!(
+            "note: {} is provided by {:?}; using {} (set providers.{} to choose)",
+            a.dep, a.candidates, a.chosen, a.dep
+        );
     }
     let total: u64 = resolution.packages.iter().map(|s| s.pkg.csize).sum();
-    println!("resolved {} packages, {} MiB to download", resolution.packages.len(), total >> 20);
+    println!(
+        "resolved {} packages, {} MiB to download",
+        resolution.packages.len(),
+        total >> 20
+    );
 
     // 13. Partition.
     let ss = disk.sector_size();
@@ -468,7 +588,11 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
     // 4 KiB sectors; formatting it would only fail after every package has been downloaded.
     let esp_bytes = (cfg.disk.esp_mib as u64 * 1024 * 1024).max(disk::fat32::min_volume_bytes(ss));
     if esp_bytes >> 20 > cfg.disk.esp_mib as u64 {
-        println!("note: the ESP is {} MiB instead of {} MiB: FAT32 on {ss}-byte sectors needs that much", esp_bytes >> 20, cfg.disk.esp_mib);
+        println!(
+            "note: the ESP is {} MiB instead of {} MiB: FAT32 on {ss}-byte sectors needs that much",
+            esp_bytes >> 20,
+            cfg.disk.esp_mib
+        );
     }
     // The packages stay in the cache for the first boot's `pacman -U` and are unpacked beside it; with
     // room for metadata, the journal and the first boot's initramfs. A disk that is too small would
@@ -482,9 +606,17 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
             have >> 20
         ));
     }
-    let guids = [random::<16>(), random::<16>(), random::<16>(), random::<16>()];
-    let layout = Layout::plan(ss, disk.sector_count(), esp_bytes, guids).map_err(dbg_err("partitioning"))?;
-    layout.write(&mut Region::whole(disk.as_mut())).map_err(dbg_err("writing the partition table"))?;
+    let guids = [
+        random::<16>(),
+        random::<16>(),
+        random::<16>(),
+        random::<16>(),
+    ];
+    let layout =
+        Layout::plan(ss, disk.sector_count(), esp_bytes, guids).map_err(dbg_err("partitioning"))?;
+    layout
+        .write(&mut Region::whole(disk.as_mut()))
+        .map_err(dbg_err("writing the partition table"))?;
     println!("partition table written");
 
     let root_uuid: [u8; 16] = random();
@@ -493,15 +625,51 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
     // The directory hash seed is all random, as mke2fs makes it: a predictable one lets anyone who can
     // name files force hash collisions once the kernel indexes a directory.
     let seed: [u8; 16] = random();
-    let hash_seed = core::array::from_fn(|i| u32::from_le_bytes([seed[4 * i], seed[4 * i + 1], seed[4 * i + 2], seed[4 * i + 3]]));
+    let hash_seed = core::array::from_fn(|i| {
+        u32::from_le_bytes([
+            seed[4 * i],
+            seed[4 * i + 1],
+            seed[4 * i + 2],
+            seed[4 * i + 3],
+        ])
+    });
     let storage = RegionStorage(Region::new(disk.as_mut(), root_off, root_len));
-    let writer = Ext4Writer::new(storage, root_len, ExtOptions { label: "archroot".into(), uuid: root_uuid, hash_seed, now, reserved_percent: 1 })
+    let writer = Ext4Writer::new(
+        storage,
+        root_len,
+        ExtOptions {
+            label: "archroot".into(),
+            uuid: root_uuid,
+            hash_seed,
+            now,
+            reserved_percent: 1,
+        },
+    )
     .map_err(dbg_err("mkfs"))?;
     let w = Rc::new(RefCell::new(writer));
     {
         let mut wr = w.borrow_mut();
-        for (d, mode) in [("dev", 0o755), ("proc", 0o755), ("sys", 0o755), ("run", 0o755), ("tmp", 0o1777), ("etc", 0o755), ("boot", 0o755), ("var", 0o755), (CACHE_DIR, 0o755), (STATE_DIR, 0o755)] {
-            wr.mkdir(d, &Meta { mode, mtime: now, ..Default::default() }).map_err(dbg_err("mkdir"))?;
+        for (d, mode) in [
+            ("dev", 0o755),
+            ("proc", 0o755),
+            ("sys", 0o755),
+            ("run", 0o755),
+            ("tmp", 0o1777),
+            ("etc", 0o755),
+            ("boot", 0o755),
+            ("var", 0o755),
+            (CACHE_DIR, 0o755),
+            (STATE_DIR, 0o755),
+        ] {
+            wr.mkdir(
+                d,
+                &Meta {
+                    mode,
+                    mtime: now,
+                    ..Default::default()
+                },
+            )
+            .map_err(dbg_err("mkdir"))?;
         }
     }
 
@@ -517,7 +685,7 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
             s.pkg.name,
             s.pkg.version,
             s.pkg.csize >> 10,
-            if total == 0 { 100 } else { done * 100 / total },
+            (done * 100).checked_div(total).unwrap_or(100),
             done >> 20,
             total >> 20
         );
@@ -550,24 +718,60 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
     etc_files.push(("etc/fstab".into(), 0o644, format!(
         "UUID={root_uuid_text} / ext4 rw,relatime 0 1\nUUID={esp_uuid_text} /boot vfat rw,relatime,fmask=0077,dmask=0077,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro 0 2\n"
     ).into_bytes()));
-    etc_files.push(("etc/hostname".into(), 0o644, format!("{}\n", cfg.hostname).into_bytes()));
+    etc_files.push((
+        "etc/hostname".into(),
+        0o644,
+        format!("{}\n", cfg.hostname).into_bytes(),
+    ));
     // The login prompt (agetty expands \\r and \\l) and the message of the day show the banner.
     let art = crate::banner::render("ARCHSTALLER");
-    etc_files.push(("etc/issue".into(), 0o644, format!("\n{art}\nArch Linux \\r (\\l)\n\n").into_bytes()));
-    etc_files.push(("etc/motd".into(), 0o644, format!("\n{art}\nInstalled by archstaller.\n\n").into_bytes()));
-    etc_files.push(("etc/locale.conf".into(), 0o644, format!("LANG={}\n", cfg.locale).into_bytes()));
-    etc_files.push(("etc/locale.gen".into(), 0o644, format!("{} {}\n", cfg.locale, charset_of(&cfg.locale)).into_bytes()));
-    etc_files.push(("etc/vconsole.conf".into(), 0o644, format!("KEYMAP={}\n", cfg.keymap).into_bytes()));
+    etc_files.push((
+        "etc/issue".into(),
+        0o644,
+        format!("\n{art}\nArch Linux \\r (\\l)\n\n").into_bytes(),
+    ));
+    etc_files.push((
+        "etc/motd".into(),
+        0o644,
+        format!("\n{art}\nInstalled by archstaller.\n\n").into_bytes(),
+    ));
+    etc_files.push((
+        "etc/locale.conf".into(),
+        0o644,
+        format!("LANG={}\n", cfg.locale).into_bytes(),
+    ));
+    etc_files.push((
+        "etc/locale.gen".into(),
+        0o644,
+        format!("{} {}\n", cfg.locale, charset_of(&cfg.locale)).into_bytes(),
+    ));
+    etc_files.push((
+        "etc/vconsole.conf".into(),
+        0o644,
+        format!("KEYMAP={}\n", cfg.keymap).into_bytes(),
+    ));
     let mut mirrorlist = String::from("# Generated by archstaller\n");
     for m in &cfg.mirrors {
         mirrorlist.push_str(&format!("Server = {m}\n"));
     }
-    etc_files.push(("etc/pacman.d/mirrorlist".into(), 0o644, mirrorlist.into_bytes()));
-    etc_files.push(("etc/sudoers.d/10-wheel".into(), 0o440, b"%wheel ALL=(ALL:ALL) ALL\n".to_vec()));
+    etc_files.push((
+        "etc/pacman.d/mirrorlist".into(),
+        0o644,
+        mirrorlist.into_bytes(),
+    ));
+    etc_files.push((
+        "etc/sudoers.d/10-wheel".into(),
+        0o440,
+        b"%wheel ALL=(ALL:ALL) ALL\n".to_vec(),
+    ));
     // systemd-networkd configures nothing without a .network file, and Arch ships none: DHCP on every wired
     // interface, as the installer itself did (systemd's own 89-ethernet.network.example).
     if cfg.services.iter().any(|s| s == "systemd-networkd.service") {
-        etc_files.push(("etc/systemd/network/20-wired.network".into(), 0o644, b"[Match]\nKind=!*\nType=ether\n\n[Network]\nDHCP=yes\n".to_vec()));
+        etc_files.push((
+            "etc/systemd/network/20-wired.network".into(),
+            0o644,
+            b"[Match]\nKind=!*\nType=ether\n\n[Network]\nDHCP=yes\n".to_vec(),
+        ));
     }
     for (path, mode, data) in &etc_files {
         put(&w, path, *mode, data)?;
@@ -579,9 +783,15 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
         put(&w, &overlay("etc/ly/archstaller.dur"), 0o644, &dur)?;
     }
     let tz_target = format!("../usr/share/zoneinfo/{}", cfg.timezone);
-    let link_meta = Meta { mode: 0o777, mtime: now, ..Default::default() };
+    let link_meta = Meta {
+        mode: 0o777,
+        mtime: now,
+        ..Default::default()
+    };
     for path in ["etc/localtime".to_string(), overlay("etc/localtime")] {
-        w.borrow_mut().symlink(&path, &tz_target, &link_meta).map_err(dbg_err("localtime"))?;
+        w.borrow_mut()
+            .symlink(&path, &tz_target, &link_meta)
+            .map_err(dbg_err("localtime"))?;
     }
 
     // Per-user files from third-party servers. An unreachable server only costs a warning.
@@ -596,12 +806,19 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
             Err(e) => println!("warning: skipping {}: {e}", f.url),
         }
     }
-    put(&w, &format!("{STATE_DIR}/userfiles.list"), 0o644, userfiles.as_bytes())?;
+    put(
+        &w,
+        &format!("{STATE_DIR}/userfiles.list"),
+        0o644,
+        userfiles.as_bytes(),
+    )?;
     let mut userarchives = String::new();
     for (i, a) in cfg.user_archives.iter().enumerate() {
         match fetch_optional(&client, &mut stack, &a.url, USER_ARCHIVE_MAX) {
             // A server that answers 200 with an error page must not be unpacked as an archive.
-            Ok(data) if !data.starts_with(b"PK\x03\x04") => println!("warning: skipping {}: not a zip archive", a.url),
+            Ok(data) if !data.starts_with(b"PK\x03\x04") => {
+                println!("warning: skipping {}: not a zip archive", a.url)
+            }
             Ok(data) => {
                 put(&w, &format!("{STATE_DIR}/userarchives/{i}"), 0o644, &data)?;
                 userarchives.push_str(&format!("{i}\n"));
@@ -610,7 +827,12 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
             Err(e) => println!("warning: skipping {}: {e}", a.url),
         }
     }
-    put(&w, &format!("{STATE_DIR}/userarchives.list"), 0o644, userarchives.as_bytes())?;
+    put(
+        &w,
+        &format!("{STATE_DIR}/userarchives.list"),
+        0o644,
+        userarchives.as_bytes(),
+    )?;
 
     // First-boot scripts: built-in and local ones travel inside the config; a downloaded one must
     // match its digest (a mismatch fails the install, an unreachable server only skips the script).
@@ -618,19 +840,27 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
     for (i, s) in cfg.scripts.iter().enumerate() {
         let data = match (&s.content, &s.url, &s.sha256) {
             (Some(c), ..) => c.clone(),
-            (None, Some(url), Some(want)) => match fetch_optional(&client, &mut stack, url, config::SCRIPT_MAX) {
-                Ok(d) => {
-                    let got: String = Sha256::digest(&d).iter().map(|b| format!("{b:02x}")).collect();
-                    if &got != want {
-                        return Err(format!("script {} from {url} does not match its sha256 (got {got})", s.id));
+            (None, Some(url), Some(want)) => {
+                match fetch_optional(&client, &mut stack, url, config::SCRIPT_MAX) {
+                    Ok(d) => {
+                        let got: String = Sha256::digest(&d)
+                            .iter()
+                            .map(|b| format!("{b:02x}"))
+                            .collect();
+                        if &got != want {
+                            return Err(format!(
+                                "script {} from {url} does not match its sha256 (got {got})",
+                                s.id
+                            ));
+                        }
+                        d
                     }
-                    d
+                    Err(e) => {
+                        println!("warning: skipping script {}: {e}", s.id);
+                        continue;
+                    }
                 }
-                Err(e) => {
-                    println!("warning: skipping script {}: {e}", s.id);
-                    continue;
-                }
-            },
+            }
             _ => {
                 println!("warning: skipping script {}: no content", s.id);
                 continue;
@@ -638,9 +868,18 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
         };
         put(&w, &format!("{STATE_DIR}/scripts/{i}.sh"), 0o700, &data)?;
         scripts.push_str(&format!("{i}:{}:{}\n", s.id, s.args.join(" ")));
-        println!("script {} ({} bytes) will run at the end of the first boot", s.id, data.len());
+        println!(
+            "script {} ({} bytes) will run at the end of the first boot",
+            s.id,
+            data.len()
+        );
     }
-    put(&w, &format!("{STATE_DIR}/scripts.list"), 0o644, scripts.as_bytes())?;
+    put(
+        &w,
+        &format!("{STATE_DIR}/scripts.list"),
+        0o644,
+        scripts.as_bytes(),
+    )?;
 
     // Custom systemd units: installed into /etc/systemd/system/ (root) or ~/.config/systemd/user/ (user).
     let mut custom_services = String::new();
@@ -652,31 +891,89 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
                 continue;
             }
         };
-        put(&w, &format!("{STATE_DIR}/custom_services/{i}"), 0o644, &data)?;
+        put(
+            &w,
+            &format!("{STATE_DIR}/custom_services/{i}"),
+            0o644,
+            &data,
+        )?;
         let user = cs.user.as_deref().unwrap_or("root");
         let name = &cs.name;
         let en = u8::from(cs.enable);
         custom_services.push_str(&format!("{i}:{user}:{en}:{name}\n"));
-        println!("custom service {} ({} bytes, user {}) will be installed", name, data.len(), user);
+        println!(
+            "custom service {} ({} bytes, user {}) will be installed",
+            name,
+            data.len(),
+            user
+        );
     }
     if !cfg.custom_services.is_empty() {
-        put(&w, &format!("{STATE_DIR}/custom_services.list"), 0o644, custom_services.as_bytes())?;
+        put(
+            &w,
+            &format!("{STATE_DIR}/custom_services.list"),
+            0o644,
+            custom_services.as_bytes(),
+        )?;
     }
 
-    let files: Vec<String> = resolution.packages.iter().map(|s| s.pkg.filename.clone()).collect();
+    let files: Vec<String> = resolution
+        .packages
+        .iter()
+        .map(|s| s.pkg.filename.clone())
+        .collect();
     // Packages named only because an AUR recipe needs them are dependencies, not explicit installs.
-    let aur_only = |n: &str| !cfg.packages.iter().any(|p| p == n) && cfg.aur.iter().any(|a| a.deps.iter().any(|d| d == n));
-    let deps: Vec<String> = resolution.packages.iter().filter(|s| !s.explicit || aur_only(&s.pkg.name)).map(|s| s.pkg.name.clone()).collect();
+    let aur_only = |n: &str| {
+        !cfg.packages.iter().any(|p| p == n)
+            && cfg.aur.iter().any(|a| a.deps.iter().any(|d| d == n))
+    };
+    let deps: Vec<String> = resolution
+        .packages
+        .iter()
+        .filter(|s| !s.explicit || aur_only(&s.pkg.name))
+        .map(|s| s.pkg.name.clone())
+        .collect();
     let mut users = String::new();
     for u in &cfg.users {
-        users.push_str(&format!("{}:{}:{}:{}\n", u.name, u.password_hash, u.groups.join(","), u.shell));
+        users.push_str(&format!(
+            "{}:{}:{}:{}\n",
+            u.name,
+            u.password_hash,
+            u.groups.join(","),
+            u.shell
+        ));
     }
     let lines = |v: &[String]| v.iter().map(|s| format!("{s}\n")).collect::<String>();
-    put(&w, &format!("{STATE_DIR}/packages.list"), 0o644, lines(&files).as_bytes())?;
-    put(&w, &format!("{STATE_DIR}/deps.list"), 0o644, lines(&deps).as_bytes())?;
-    put(&w, &format!("{STATE_DIR}/users.list"), 0o600, users.as_bytes())?;
-    put(&w, &format!("{STATE_DIR}/services.list"), 0o644, lines(&cfg.services).as_bytes())?;
-    put(&w, &format!("{STATE_DIR}/cmdline"), 0o644, cmdline.as_bytes())?;
+    put(
+        &w,
+        &format!("{STATE_DIR}/packages.list"),
+        0o644,
+        lines(&files).as_bytes(),
+    )?;
+    put(
+        &w,
+        &format!("{STATE_DIR}/deps.list"),
+        0o644,
+        lines(&deps).as_bytes(),
+    )?;
+    put(
+        &w,
+        &format!("{STATE_DIR}/users.list"),
+        0o600,
+        users.as_bytes(),
+    )?;
+    put(
+        &w,
+        &format!("{STATE_DIR}/services.list"),
+        0o644,
+        lines(&cfg.services).as_bytes(),
+    )?;
+    put(
+        &w,
+        &format!("{STATE_DIR}/cmdline"),
+        0o644,
+        cmdline.as_bytes(),
+    )?;
     if let Some(h) = &cfg.root_password_hash {
         put(&w, &format!("{STATE_DIR}/root.hash"), 0o600, h.as_bytes())?;
     }
@@ -685,24 +982,71 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
     let mut aur = String::new();
     let mut aur_builddeps: Vec<String> = Vec::new();
     for a in &cfg.aur {
-        aur.push_str(&format!("{}:{}:{}:{}:{}:{}:{}\n", a.name, a.pkgbase, a.commit, a.sha256, u8::from(a.vcs), u8::from(a.as_dep), a.services.join(",")));
+        aur.push_str(&format!(
+            "{}:{}:{}:{}:{}:{}:{}\n",
+            a.name,
+            a.pkgbase,
+            a.commit,
+            a.sha256,
+            u8::from(a.vcs),
+            u8::from(a.as_dep),
+            a.services.join(",")
+        ));
         for d in &a.build_deps {
             if !aur_builddeps.contains(d) && !cfg.packages.contains(d) {
                 aur_builddeps.push(d.clone());
             }
         }
-        println!("AUR package {} ({}) will be built on the first boot after the install", a.name, if a.vcs { "VCS source, not pinned by the commit" } else { "pinned" });
+        println!(
+            "AUR package {} ({}) will be built on the first boot after the install",
+            a.name,
+            if a.vcs {
+                "VCS source, not pinned by the commit"
+            } else {
+                "pinned"
+            }
+        );
     }
     if !cfg.aur.is_empty() {
         put(&w, &format!("{STATE_DIR}/aur.list"), 0o644, aur.as_bytes())?;
-        put(&w, &format!("{STATE_DIR}/aur_builddeps.list"), 0o644, lines(&aur_builddeps).as_bytes())?;
-        put(&w, "usr/lib/systemd/system/archstaller-aur.service", 0o644, include_bytes!("../../firstboot/archstaller-aur.service"))?;
-        put(&w, "usr/lib/archstaller/aur.sh", 0o755, include_bytes!("../../firstboot/archstaller-aur.sh"))?;
+        put(
+            &w,
+            &format!("{STATE_DIR}/aur_builddeps.list"),
+            0o644,
+            lines(&aur_builddeps).as_bytes(),
+        )?;
+        put(
+            &w,
+            "usr/lib/systemd/system/archstaller-aur.service",
+            0o644,
+            include_bytes!("../../firstboot/archstaller-aur.service"),
+        )?;
+        put(
+            &w,
+            "usr/lib/archstaller/aur.sh",
+            0o755,
+            include_bytes!("../../firstboot/archstaller-aur.sh"),
+        )?;
     }
     put(&w, &format!("{STATE_DIR}/firstboot"), 0o644, b"1\n")?;
-    put(&w, "usr/lib/systemd/system/archstaller-firstboot.target", 0o644, include_bytes!("../../firstboot/archstaller-firstboot.target"))?;
-    put(&w, "usr/lib/systemd/system/archstaller-firstboot.service", 0o644, include_bytes!("../../firstboot/archstaller-firstboot.service"))?;
-    put(&w, "usr/lib/archstaller/firstboot.sh", 0o755, include_bytes!("../../firstboot/firstboot.sh"))?;
+    put(
+        &w,
+        "usr/lib/systemd/system/archstaller-firstboot.target",
+        0o644,
+        include_bytes!("../../firstboot/archstaller-firstboot.target"),
+    )?;
+    put(
+        &w,
+        "usr/lib/systemd/system/archstaller-firstboot.service",
+        0o644,
+        include_bytes!("../../firstboot/archstaller-firstboot.service"),
+    )?;
+    put(
+        &w,
+        "usr/lib/archstaller/firstboot.sh",
+        0o755,
+        include_bytes!("../../firstboot/firstboot.sh"),
+    )?;
 
     // 16. Initramfs for the first boot and the kernel image.
     let kernel = idx.select(&w)?;
@@ -717,17 +1061,45 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
     // depmod hook has run, so nothing can be modprobed before then.
     // The "ata_*"/"pata_*" drivers are for controllers the firmware set to IDE ("compatible") mode, which
     // the AHCI driver does not handle; a module the kernel package lacks is skipped.
-    let wanted = ["ext4", "nvme", "ahci", "ata_piix", "ata_generic", "pata_acpi", "pata_amd", "pata_atiixp", "pata_via", "pata_sis", "pata_jmicron", "sd_mod", "virtio_blk", "virtio_pci", "crc32c_intel", "crc32c_generic", "vfat", "fat", "nls_cp437", "nls_ascii"];
+    let wanted = [
+        "ext4",
+        "nvme",
+        "ahci",
+        "ata_piix",
+        "ata_generic",
+        "pata_acpi",
+        "pata_amd",
+        "pata_atiixp",
+        "pata_via",
+        "pata_sis",
+        "pata_jmicron",
+        "sd_mod",
+        "virtio_blk",
+        "virtio_pci",
+        "crc32c_intel",
+        "crc32c_generic",
+        "vfat",
+        "fat",
+        "nls_cp437",
+        "nls_ascii",
+    ];
     let resolved = {
-        let mut src = ExtModules { w: &w, idx: &kernel.modules };
-        initrd::modules::resolve(&mut src, &[], &wanted, &builtin).map_err(dbg_err("initramfs modules"))?
+        let mut src = ExtModules {
+            w: &w,
+            idx: &kernel.modules,
+        };
+        initrd::modules::resolve(&mut src, &[], &wanted, &builtin)
+            .map_err(dbg_err("initramfs modules"))?
     };
     println!("initramfs modules: {:?}", resolved.order);
     let initramfs = initrd::modules::build_initramfs(boot.tiny_init, &resolved);
 
-    let rw = Rc::try_unwrap(w).map_err(|_| "internal error: filesystem still shared")?.into_inner();
+    let rw = Rc::try_unwrap(w)
+        .map_err(|_| "internal error: filesystem still shared")?
+        .into_inner();
     let mut rw = rw;
-    rw.finish().map_err(dbg_err("finishing the root filesystem"))?;
+    rw.finish()
+        .map_err(dbg_err("finishing the root filesystem"))?;
     drop(rw);
     println!("root filesystem written");
 
@@ -737,13 +1109,30 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
     let first_boot_cmdline = format!("{cmdline} systemd.unit=archstaller-firstboot.target");
     {
         let mut region = Region::new(disk.as_mut(), esp_off, esp_len);
-        let mut fat = Fat32Writer::format(&mut region, FatOptions { label: "ESP".into(), volume_id: esp_volume_id, hidden_sectors: layout.partitions[Layout::ESP].first_lba as u32, now }).map_err(dbg_err("formatting the ESP"))?;
+        let mut fat = Fat32Writer::format(
+            &mut region,
+            FatOptions {
+                label: "ESP".into(),
+                volume_id: esp_volume_id,
+                hidden_sectors: layout.partitions[Layout::ESP].first_lba as u32,
+                now,
+            },
+        )
+        .map_err(dbg_err("formatting the ESP"))?;
         let loader_cfg = format!("kernel=\\vmlinuz-linux\ninitrd=\\initramfs-archstaller.img\ncmdline={first_boot_cmdline}\n");
-        fat.write_file("EFI/BOOT/BOOTX64.EFI", boot.bootx64_efi).map_err(dbg_err("ESP"))?;
-        fat.write_file("archstaller.cfg", loader_cfg.as_bytes()).map_err(dbg_err("ESP"))?;
-        fat.write_file("vmlinuz-linux", &vmlinuz).map_err(dbg_err("ESP"))?;
-        fat.write_file("initramfs-archstaller.img", &initramfs).map_err(dbg_err("ESP"))?;
-        let abs = |p: &str| fat.file_extent(p).map(|(o, l)| (esp_off + o, l)).ok_or_else(|| format!("internal error: {p} has no extent"));
+        fat.write_file("EFI/BOOT/BOOTX64.EFI", boot.bootx64_efi)
+            .map_err(dbg_err("ESP"))?;
+        fat.write_file("archstaller.cfg", loader_cfg.as_bytes())
+            .map_err(dbg_err("ESP"))?;
+        fat.write_file("vmlinuz-linux", &vmlinuz)
+            .map_err(dbg_err("ESP"))?;
+        fat.write_file("initramfs-archstaller.img", &initramfs)
+            .map_err(dbg_err("ESP"))?;
+        let abs = |p: &str| {
+            fat.file_extent(p)
+                .map(|(o, l)| (esp_off + o, l))
+                .ok_or_else(|| format!("internal error: {p} has no extent"))
+        };
         bios_extents = [abs("vmlinuz-linux")?, abs("initramfs-archstaller.img")?];
         fat.finish().map_err(dbg_err("ESP"))?;
     }
@@ -759,9 +1148,16 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
         if stage2.len() as u64 > bios_len {
             return Err("BIOS boot partition too small for stage 2".into());
         }
-        bios::patch_stage2(&mut stage2, bios::MODE_LINUX, &bios_extents, &first_boot_cmdline)?;
+        bios::patch_stage2(
+            &mut stage2,
+            bios::MODE_LINUX,
+            &bios_extents,
+            &first_boot_cmdline,
+        )?;
         let mut region = Region::whole(disk.as_mut());
-        region.write_at(bios_off, &stage2).map_err(dbg_err("BIOS boot code"))?;
+        region
+            .write_at(bios_off, &stage2)
+            .map_err(dbg_err("BIOS boot code"))?;
         let mut mbr = alloc::vec![0u8; bios::SECTOR];
         region.read_at(0, &mut mbr).map_err(dbg_err("MBR"))?;
         let mut stage1 = boot.bios_boot[..bios::SECTOR].to_vec();

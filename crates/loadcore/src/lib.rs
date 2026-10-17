@@ -14,7 +14,9 @@ pub use map::Map;
 
 use bootinfo::*;
 use core::arch::{asm, global_asm};
-use miniz_oxide::inflate::core::{decompress, inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF, DecompressorOxide};
+use miniz_oxide::inflate::core::{
+    decompress, inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF, DecompressorOxide,
+};
 use miniz_oxide::inflate::TINFLStatus;
 
 const PAGE: u64 = 4096;
@@ -63,14 +65,29 @@ impl<'a> Payload<'a> {
         let count = le32(bytes, 4) as usize;
         let kernel_entry = le64(bytes, 8);
         let kernel_mem = le32(bytes, 16) as u64;
-        (bytes.len() >= PAYLOAD_HEADER + 16 + count * PAYLOAD_ENTRY).then_some(Payload { bytes, count, kernel_entry, kernel_mem })
+        (bytes.len() >= PAYLOAD_HEADER + 16 + count * PAYLOAD_ENTRY).then_some(Payload {
+            bytes,
+            count,
+            kernel_entry,
+            kernel_mem,
+        })
     }
     /// (name, stored data, raw length, deflated)
     fn entry(&self, i: usize) -> (&'a [u8], &'a [u8], usize, bool) {
         let at = PAYLOAD_HEADER + 16 + i * PAYLOAD_ENTRY;
         let name = &self.bytes[at..at + 16];
-        let (off, stored, raw, flags) = (le32(self.bytes, at + 16) as usize, le32(self.bytes, at + 20) as usize, le32(self.bytes, at + 24) as usize, le32(self.bytes, at + 28));
-        (name, &self.bytes[off..off + stored], raw, flags & FLAG_DEFLATE != 0)
+        let (off, stored, raw, flags) = (
+            le32(self.bytes, at + 16) as usize,
+            le32(self.bytes, at + 20) as usize,
+            le32(self.bytes, at + 24) as usize,
+            le32(self.bytes, at + 28),
+        );
+        (
+            name,
+            &self.bytes[off..off + stored],
+            raw,
+            flags & FLAG_DEFLATE != 0,
+        )
     }
 }
 
@@ -123,7 +140,13 @@ fn unpack(stored: &[u8], raw: usize, deflated: bool, dest: u64) {
         return;
     }
     let mut d = DecompressorOxide::new();
-    let (status, _, n) = decompress(&mut d, stored, out, 0, TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+    let (status, _, n) = decompress(
+        &mut d,
+        stored,
+        out,
+        0,
+        TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF,
+    );
     if status != TINFLStatus::Done || n != raw {
         panic!("payload entry is corrupt");
     }
@@ -182,11 +205,18 @@ pub unsafe fn boot(map: &mut Map, b: Boot) -> ! {
         panic!("kernel image size is out of range");
     }
     map.carve(b.arena.0, b.arena.1, MEM_LOADER);
-    let mut arena = Arena { next: b.arena.0, end: b.arena.0 + b.arena.1 };
+    let mut arena = Arena {
+        next: b.arena.0,
+        end: b.arena.0 + b.arena.1,
+    };
 
     // The kernel.
     let kernel_phys = arena.take(up(payload.kernel_mem, HUGE), HUGE);
-    let mut modules = [Module { name: [0; 16], addr: 0, len: 0 }; 16];
+    let mut modules = [Module {
+        name: [0; 16],
+        addr: 0,
+        len: 0,
+    }; 16];
     let mut nmod = 0;
     let mut have_kernel = false;
     for i in 0..payload.count {
@@ -204,7 +234,11 @@ pub unsafe fn boot(map: &mut Map, b: Boot) -> ! {
             }
             let dest = arena.take(raw as u64, PAGE);
             unpack(stored, raw, deflated, dest);
-            modules[nmod] = Module { name: name.try_into().unwrap(), addr: HHDM_BASE + dest, len: raw as u64 };
+            modules[nmod] = Module {
+                name: name.try_into().unwrap(),
+                addr: HHDM_BASE + dest,
+                len: raw as u64,
+            };
             nmod += 1;
         }
     }
@@ -217,10 +251,23 @@ pub unsafe fn boot(map: &mut Map, b: Boot) -> ! {
     let tramp = arena.take(PAGE, PAGE);
 
     // Boot info: the structure, the modules, the memory map.
-    let info_len = up(core::mem::size_of::<BootInfo>() as u64 + (nmod * core::mem::size_of::<Module>()) as u64 + (map.len() * core::mem::size_of::<MemEntry>()) as u64 + 64, PAGE);
+    let info_len = up(
+        core::mem::size_of::<BootInfo>() as u64
+            + (nmod * core::mem::size_of::<Module>()) as u64
+            + (map.len() * core::mem::size_of::<MemEntry>()) as u64
+            + 64,
+        PAGE,
+    );
     let info_phys = arena.take(info_len, PAGE);
 
-    let cr3 = paging::build(&mut arena, map, kernel_phys, payload.kernel_mem, tramp, &b.fb);
+    let cr3 = paging::build(
+        &mut arena,
+        map,
+        kernel_phys,
+        payload.kernel_mem,
+        tramp,
+        &b.fb,
+    );
 
     // Modules and memory map, after the page tables took their pages out of the map's accounting.
     let mods_phys = info_phys + core::mem::size_of::<BootInfo>() as u64;

@@ -74,7 +74,10 @@ pub extern "C" fn kmain(dtb_ptr: u64) -> ! {
 
     let el = hal::aarch64::cpu::current_el();
     println!("CPU: Exception Level = EL{}", el);
-    println!("CPU: MIDR_EL1 = 0x{:016x} (PartNum: 0x{:03x})", midr, part_num);
+    println!(
+        "CPU: MIDR_EL1 = 0x{:016x} (PartNum: 0x{:03x})",
+        midr, part_num
+    );
 
     let freq = hal::aarch64::timer::cntfrq();
     let ticks = hal::aarch64::timer::cntpct();
@@ -86,7 +89,10 @@ pub extern "C" fn kmain(dtb_ptr: u64) -> ! {
         println!("Firmware: No DTB detected at 0x{:016x}", dtb_ptr);
     }
 
-    println!("Console: PL011 UART initialized at MMIO 0x{:016x}", uart_base);
+    println!(
+        "Console: PL011 UART initialized at MMIO 0x{:016x}",
+        uart_base
+    );
     println!();
     println!("Archstaller AArch64 bare-metal kernel booted successfully!");
     println!("Halting CPU (wfe loop)...");

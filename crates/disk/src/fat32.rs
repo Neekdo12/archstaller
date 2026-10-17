@@ -76,7 +76,8 @@ fn fat_time(unix: u64) -> (u16, u16) {
     let (y, m, d) = civil_from_days(days);
     let y = (y.clamp(1980, 2107) - 1980) as u16;
     let date = y << 9 | (m as u16) << 5 | d as u16;
-    let time = ((secs / 3600) as u16) << 11 | (((secs / 60) % 60) as u16) << 5 | ((secs % 60) / 2) as u16;
+    let time =
+        ((secs / 3600) as u16) << 11 | (((secs / 60) % 60) as u16) << 5 | ((secs % 60) / 2) as u16;
     (date, time)
 }
 
@@ -109,7 +110,13 @@ fn short_name(name: &str, taken: &[[u8; 11]]) -> ([u8; 11], bool) {
     if exact {
         return (make(base, ext), false);
     }
-    let clean = |s: &str| -> String { s.chars().filter(|c| *c != ' ' && *c != '.').map(|c| c.to_ascii_uppercase()).map(|c| if legal_short(c) { c } else { '_' }).collect() };
+    let clean = |s: &str| -> String {
+        s.chars()
+            .filter(|c| *c != ' ' && *c != '.')
+            .map(|c| c.to_ascii_uppercase())
+            .map(|c| if legal_short(c) { c } else { '_' })
+            .collect()
+    };
     let b = clean(base);
     let e = clean(ext);
     let e: String = e.chars().take(3).collect();
@@ -126,7 +133,9 @@ fn short_name(name: &str, taken: &[[u8; 11]]) -> ([u8; 11], bool) {
 }
 
 fn lfn_checksum(short: &[u8; 11]) -> u8 {
-    short.iter().fold(0u8, |sum, &c| ((sum & 1) << 7).wrapping_add(sum >> 1).wrapping_add(c))
+    short.iter().fold(0u8, |sum, &c| {
+        ((sum & 1) << 7).wrapping_add(sum >> 1).wrapping_add(c)
+    })
 }
 
 impl<'r, 'd> Fat32Writer<'r, 'd> {
@@ -169,8 +178,23 @@ impl<'r, 'd> Fat32Writer<'r, 'd> {
         fat[0] = 0x0FFF_FFF8;
         fat[1] = EOC;
         fat[2] = EOC; // root directory
-        let root = Dir { parent: 0, cluster: 2, entries: Vec::new() };
-        let mut w = Fat32Writer { r, ss, spc, fat_sectors, total_sectors, clusters, fat, next_cluster: 3, dirs: vec![root], opts };
+        let root = Dir {
+            parent: 0,
+            cluster: 2,
+            entries: Vec::new(),
+        };
+        let mut w = Fat32Writer {
+            r,
+            ss,
+            spc,
+            fat_sectors,
+            total_sectors,
+            clusters,
+            fat,
+            next_cluster: 3,
+            dirs: vec![root],
+            opts,
+        };
         w.write_boot_sectors()?;
         Ok(w)
     }
@@ -197,7 +221,14 @@ impl<'r, 'd> Fat32Writer<'r, 'd> {
         b[66] = 0x29;
         b[67..71].copy_from_slice(&self.opts.volume_id.to_le_bytes());
         let mut label = [b' '; 11];
-        for (i, c) in self.opts.label.to_ascii_uppercase().bytes().take(11).enumerate() {
+        for (i, c) in self
+            .opts
+            .label
+            .to_ascii_uppercase()
+            .bytes()
+            .take(11)
+            .enumerate()
+        {
             label[i] = c;
         }
         b[71..82].copy_from_slice(&label);
@@ -227,7 +258,8 @@ impl<'r, 'd> Fat32Writer<'r, 'd> {
     }
 
     fn cluster_offset(&self, cluster: u32) -> u64 {
-        (RESERVED_SECTORS as u64 + 2 * self.fat_sectors as u64) * self.ss as u64 + (cluster as u64 - 2) * self.cluster_bytes()
+        (RESERVED_SECTORS as u64 + 2 * self.fat_sectors as u64) * self.ss as u64
+            + (cluster as u64 - 2) * self.cluster_bytes()
     }
 
     /// Reserves `count` contiguous clusters and links them into a chain.
@@ -244,7 +276,10 @@ impl<'r, 'd> Fat32Writer<'r, 'd> {
     }
 
     fn find_dir(&self, dir: usize, name: &str) -> Option<&Ent> {
-        self.dirs[dir].entries.iter().find(|e| e.name.eq_ignore_ascii_case(name))
+        self.dirs[dir]
+            .entries
+            .iter()
+            .find(|e| e.name.eq_ignore_ascii_case(name))
     }
 
     /// Returns the directory index for `path` (created as needed).
@@ -256,8 +291,17 @@ impl<'r, 'd> Fat32Writer<'r, 'd> {
                 Some(_) => return Err(Error::Exists),
                 None => {
                     let idx = self.dirs.len();
-                    self.dirs.push(Dir { parent: cur, cluster: 0, entries: Vec::new() });
-                    self.dirs[cur].entries.push(Ent { name: c.into(), first_cluster: 0, size: 0, dir: Some(idx) });
+                    self.dirs.push(Dir {
+                        parent: cur,
+                        cluster: 0,
+                        entries: Vec::new(),
+                    });
+                    self.dirs[cur].entries.push(Ent {
+                        name: c.into(),
+                        first_cluster: 0,
+                        size: 0,
+                        dir: Some(idx),
+                    });
                     idx
                 }
             };
@@ -266,7 +310,10 @@ impl<'r, 'd> Fat32Writer<'r, 'd> {
     }
 
     pub fn write_file(&mut self, path: &str, data: &[u8]) -> Result<()> {
-        let (dir_path, name) = path.trim_matches('/').rsplit_once('/').unwrap_or(("", path.trim_matches('/')));
+        let (dir_path, name) = path
+            .trim_matches('/')
+            .rsplit_once('/')
+            .unwrap_or(("", path.trim_matches('/')));
         if name.is_empty() || name.len() > 255 {
             return Err(Error::Invalid("bad file name"));
         }
@@ -293,20 +340,29 @@ impl<'r, 'd> Fat32Writer<'r, 'd> {
                 self.r.write_at(off + full as u64, &tail)?;
             }
         }
-        self.dirs[dir].entries.push(Ent { name: name.into(), first_cluster: first, size: data.len() as u32, dir: None });
+        self.dirs[dir].entries.push(Ent {
+            name: name.into(),
+            first_cluster: first,
+            size: data.len() as u32,
+            dir: None,
+        });
         Ok(())
     }
 
     /// Where a written file's contents lie: byte offset from the start of the region and length.
     /// Files are written as one contiguous run of clusters.
     pub fn file_extent(&self, path: &str) -> Option<(u64, u64)> {
-        let (dir_path, name) = path.trim_matches('/').rsplit_once('/').unwrap_or(("", path.trim_matches('/')));
+        let (dir_path, name) = path
+            .trim_matches('/')
+            .rsplit_once('/')
+            .unwrap_or(("", path.trim_matches('/')));
         let mut cur = 0;
         for c in dir_path.split('/').filter(|c| !c.is_empty()) {
             cur = self.find_dir(cur, c)?.dir?;
         }
         let e = self.find_dir(cur, name)?;
-        (e.dir.is_none() && e.first_cluster != 0).then(|| (self.cluster_offset(e.first_cluster), e.size as u64))
+        (e.dir.is_none() && e.first_cluster != 0)
+            .then(|| (self.cluster_offset(e.first_cluster), e.size as u64))
     }
 
     fn serialize_dir(&self, idx: usize) -> Vec<u8> {
@@ -329,12 +385,23 @@ impl<'r, 'd> Fat32Writer<'r, 'd> {
         };
         if idx == 0 {
             let mut label = [b' '; 11];
-            for (i, c) in self.opts.label.to_ascii_uppercase().bytes().take(11).enumerate() {
+            for (i, c) in self
+                .opts
+                .label
+                .to_ascii_uppercase()
+                .bytes()
+                .take(11)
+                .enumerate()
+            {
                 label[i] = c;
             }
             put_short(&mut out, &label, 0x08, 0, 0);
         } else {
-            let parent_cluster = if d.parent == 0 { 0 } else { self.dirs[d.parent].cluster };
+            let parent_cluster = if d.parent == 0 {
+                0
+            } else {
+                self.dirs[d.parent].cluster
+            };
             put_short(&mut out, b".          ", 0x10, d.cluster, 0);
             put_short(&mut out, b"..         ", 0x10, parent_cluster, 0);
         }
@@ -371,7 +438,13 @@ impl<'r, 'd> Fat32Writer<'r, 'd> {
                 Some(di) => self.dirs[di].cluster,
                 None => e.first_cluster,
             };
-            put_short(&mut out, &short, if e.dir.is_some() { 0x10 } else { 0x20 }, cluster, e.size);
+            put_short(
+                &mut out,
+                &short,
+                if e.dir.is_some() { 0x10 } else { 0x20 },
+                cluster,
+                e.size,
+            );
         }
         out
     }

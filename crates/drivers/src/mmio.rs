@@ -17,7 +17,9 @@ impl Mmio {
     }
 
     pub fn offset(&self, off: usize) -> Mmio {
-        Mmio { base: unsafe { self.base.add(off) } }
+        Mmio {
+            base: unsafe { self.base.add(off) },
+        }
     }
 
     pub fn read8(&self, off: usize) -> u8 {

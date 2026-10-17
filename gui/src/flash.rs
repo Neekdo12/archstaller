@@ -17,7 +17,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// Mount points a desktop uses for removable media; a stick mounted anywhere else is treated as part of
 /// the running system and not offered.
 const MEDIA_MOUNTS: &[&str] = &["/run/media/", "/media/", "/mnt/"];
-const COLUMNS: &str = "PATH,KNAME,MAJ:MIN,TYPE,TRAN,RM,HOTPLUG,RO,SIZE,MODEL,VENDOR,SERIAL,MOUNTPOINTS";
+const COLUMNS: &str =
+    "PATH,KNAME,MAJ:MIN,TYPE,TRAN,RM,HOTPLUG,RO,SIZE,MODEL,VENDOR,SERIAL,MOUNTPOINTS";
 const CHUNK: usize = 1 << 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,9 +86,21 @@ pub struct RawDevice {
 
 impl RawDevice {
     pub fn media_kind(&self) -> MediaKind {
-        if self.dev_type == "rom" || self.kname.starts_with("sr") || self.kname.starts_with("scd") || self.path.starts_with("/dev/sr") || self.kname == "virtual-cd" || self.model.contains("CD/DVD") {
+        if self.dev_type == "rom"
+            || self.kname.starts_with("sr")
+            || self.kname.starts_with("scd")
+            || self.path.starts_with("/dev/sr")
+            || self.kname == "virtual-cd"
+            || self.model.contains("CD/DVD")
+        {
             MediaKind::Optical
-        } else if self.kname.starts_with("fd") || self.maj_min.0 == 2 || self.kname == "virtual-floppy" || (self.tran == "usb" && self.size == 1_474_560) || self.model.to_ascii_lowercase().contains("floppy") || self.vendor.to_ascii_lowercase().contains("floppy") {
+        } else if self.kname.starts_with("fd")
+            || self.maj_min.0 == 2
+            || self.kname == "virtual-floppy"
+            || (self.tran == "usb" && self.size == 1_474_560)
+            || self.model.to_ascii_lowercase().contains("floppy")
+            || self.vendor.to_ascii_lowercase().contains("floppy")
+        {
             MediaKind::Floppy
         } else if self.kname == "virtual-rpi" {
             MediaKind::RaspberryPi
@@ -115,14 +128,28 @@ impl RawDevice {
     /// The same physical device: what a hot-plug reorder or a swapped stick would change. Mounts are left
     /// out on purpose; they change when the stick is unmounted before writing.
     pub fn same_device(&self, o: &RawDevice) -> bool {
-        self.kname == o.kname && self.maj_min == o.maj_min && self.sysfs == o.sysfs && self.size == o.size && self.serial == o.serial && self.model == o.model && self.vendor == o.vendor
+        self.kname == o.kname
+            && self.maj_min == o.maj_min
+            && self.sysfs == o.sysfs
+            && self.size == o.size
+            && self.serial == o.serial
+            && self.model == o.model
+            && self.vendor == o.vendor
     }
 
     /// (kernel name, device path, mount point) of every mounted file system on the device.
     pub fn mounted(&self) -> Vec<(String, String, String)> {
-        let mut out: Vec<(String, String, String)> = self.mounts.iter().map(|m| (self.kname.clone(), self.path.clone(), m.clone())).collect();
+        let mut out: Vec<(String, String, String)> = self
+            .mounts
+            .iter()
+            .map(|m| (self.kname.clone(), self.path.clone(), m.clone()))
+            .collect();
         for p in &self.partitions {
-            out.extend(p.mounts.iter().map(|m| (p.kname.clone(), p.path.clone(), m.clone())));
+            out.extend(
+                p.mounts
+                    .iter()
+                    .map(|m| (p.kname.clone(), p.path.clone(), m.clone())),
+            );
         }
         out
     }
@@ -140,19 +167,27 @@ impl Candidate {
         self.problems.is_empty()
     }
 
-    /// Worth listing with its reasons: a USB, optical, floppy or removable device the user may have expected to see.
-    #[allow(dead_code)]
-    pub fn looks_external(&self) -> bool {
-        self.dev.tran == "usb" || self.dev.removable || self.dev.media_kind() != MediaKind::Usb
-    }
-
     /// Worth listing with its reasons: a device relevant to this media kind that the user may have expected to see.
     pub fn relevant_for(&self, kind: MediaKind) -> bool {
         match kind {
             MediaKind::Usb => self.dev.tran == "usb" || self.dev.removable,
-            MediaKind::Optical => self.dev.media_kind() == MediaKind::Optical || self.dev.dev_type == "rom" || self.dev.kname.starts_with("sr") || self.dev.kname == "virtual-cd",
-            MediaKind::Floppy => self.dev.media_kind() == MediaKind::Floppy || self.dev.kname.starts_with("fd") || self.dev.kname == "virtual-floppy",
-            MediaKind::RaspberryPi => self.dev.tran == "usb" || self.dev.removable || self.dev.kname.starts_with("mmcblk") || self.dev.kname == "virtual-rpi",
+            MediaKind::Optical => {
+                self.dev.media_kind() == MediaKind::Optical
+                    || self.dev.dev_type == "rom"
+                    || self.dev.kname.starts_with("sr")
+                    || self.dev.kname == "virtual-cd"
+            }
+            MediaKind::Floppy => {
+                self.dev.media_kind() == MediaKind::Floppy
+                    || self.dev.kname.starts_with("fd")
+                    || self.dev.kname == "virtual-floppy"
+            }
+            MediaKind::RaspberryPi => {
+                self.dev.tran == "usb"
+                    || self.dev.removable
+                    || self.dev.kname.starts_with("mmcblk")
+                    || self.dev.kname == "virtual-rpi"
+            }
         }
     }
 }
@@ -171,7 +206,6 @@ pub struct Source {
     pub len: u64,
     /// major:minor of the file system the ISO lives on.
     pub dev: (u32, u32),
-    #[allow(dead_code)]
     pub kind: SourceKind,
 }
 
@@ -182,7 +216,11 @@ impl Source {
                 return Err("too small for an ISO image".into());
             }
             let mut magic = [0u8; 6];
-            if f.seek(SeekFrom::Start(0x8000)).and_then(|_| f.read_exact(&mut magic)).is_err() || &magic[1..] != b"CD001" {
+            if f.seek(SeekFrom::Start(0x8000))
+                .and_then(|_| f.read_exact(&mut magic))
+                .is_err()
+                || &magic[1..] != b"CD001"
+            {
                 return Err("not an ISO 9660 image".into());
             }
             Ok(())
@@ -192,10 +230,16 @@ impl Source {
     pub fn floppy(img: &Path) -> Result<Source, String> {
         Self::check_file(img, SourceKind::Floppy, |f, len| {
             if len != 1_474_560 && len != 737_280 && len != 2_949_120 {
-                return Err(format!("unexpected floppy image size ({len} bytes, expected 1.44 MB)"));
+                return Err(format!(
+                    "unexpected floppy image size ({len} bytes, expected 1.44 MB)"
+                ));
             }
             let mut boot = [0u8; 2];
-            if f.seek(SeekFrom::Start(510)).and_then(|_| f.read_exact(&mut boot)).is_err() || boot != [0x55, 0xaa] {
+            if f.seek(SeekFrom::Start(510))
+                .and_then(|_| f.read_exact(&mut boot))
+                .is_err()
+                || boot != [0x55, 0xaa]
+            {
                 return Err("not a bootable floppy image (missing 0x55AA signature)".into());
             }
             Ok(())
@@ -215,7 +259,10 @@ impl Source {
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if name.contains("rpi") {
             Self::rpi(path)
-        } else if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("img")) {
+        } else if path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("img"))
+        {
             Self::floppy(path)
         } else {
             Self::iso(path)
@@ -234,7 +281,12 @@ impl Source {
         }
         let mut f = File::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         validate(&mut f, meta.len()).map_err(|e| format!("{}: {e}", path.display()))?;
-        Ok(Source { path, len: meta.len(), dev: split_dev(meta.dev()), kind })
+        Ok(Source {
+            path,
+            len: meta.len(),
+            dev: split_dev(meta.dev()),
+            kind,
+        })
     }
 }
 
@@ -258,11 +310,17 @@ fn parse_maj_min(s: &str) -> Option<(u32, u32)> {
     Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
 }
 
+pub type SysfsLookup<'a> = &'a dyn Fn(&str, (u32, u32)) -> (String, Vec<String>);
+
 /// Reads `lsblk -J -b -o COLUMNS` output. `sys(kname, maj_min)` returns the resolved sysfs path and the
 /// sysfs holders of a block device (injected so tests need no `/sys`).
-pub fn parse_lsblk(v: &serde_json::Value, sys: &dyn Fn(&str, (u32, u32)) -> (String, Vec<String>)) -> Vec<RawDevice> {
+pub fn parse_lsblk(v: &serde_json::Value, sys: SysfsLookup) -> Vec<RawDevice> {
     fn s(d: &serde_json::Value, k: &str) -> String {
-        d.get(k).and_then(|x| x.as_str()).unwrap_or("").trim().to_string()
+        d.get(k)
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string()
     }
     // Old lsblk versions print flags and sizes as strings.
     fn flag(d: &serde_json::Value, k: &str) -> bool {
@@ -281,7 +339,16 @@ pub fn parse_lsblk(v: &serde_json::Value, sys: &dyn Fn(&str, (u32, u32)) -> (Str
         }
     }
     fn mounts(d: &serde_json::Value) -> Vec<String> {
-        let mut m: Vec<String> = d.get("mountpoints").and_then(|x| x.as_array()).map(|a| a.iter().filter_map(|x| x.as_str()).map(str::to_string).collect()).unwrap_or_default();
+        let mut m: Vec<String> = d
+            .get("mountpoints")
+            .and_then(|x| x.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
         if let Some(one) = d.get("mountpoint").and_then(|x| x.as_str()) {
             m.push(one.to_string());
         }
@@ -289,10 +356,18 @@ pub fn parse_lsblk(v: &serde_json::Value, sys: &dyn Fn(&str, (u32, u32)) -> (Str
         m
     }
     fn children(d: &serde_json::Value) -> &[serde_json::Value] {
-        d.get("children").and_then(|x| x.as_array()).map(|a| a.as_slice()).unwrap_or(&[])
+        d.get("children")
+            .and_then(|x| x.as_array())
+            .map(|a| a.as_slice())
+            .unwrap_or(&[])
     }
     let mut list = Vec::new();
-    for d in v.get("blockdevices").and_then(|x| x.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
+    for d in v
+        .get("blockdevices")
+        .and_then(|x| x.as_array())
+        .map(|a| a.as_slice())
+        .unwrap_or(&[])
+    {
         let dtype = s(d, "type");
         if dtype != "disk" && dtype != "rom" {
             continue;
@@ -309,7 +384,12 @@ pub fn parse_lsblk(v: &serde_json::Value, sys: &dyn Fn(&str, (u32, u32)) -> (Str
                 for h in children(c) {
                     holders.push(format!("{} ({})", s(h, "kname"), s(h, "type")));
                 }
-                partitions.push(Partition { path: s(c, "path"), kname: ck, maj_min: cm, mounts: mounts(c) });
+                partitions.push(Partition {
+                    path: s(c, "path"),
+                    kname: ck,
+                    maj_min: cm,
+                    mounts: mounts(c),
+                });
             } else {
                 holders.push(format!("{} ({})", ck, s(c, "type")));
             }
@@ -345,18 +425,35 @@ pub fn problems(d: &RawDevice, src: &Source) -> Vec<String> {
 
 pub fn problems_for(d: &RawDevice, src: &Source, kind: MediaKind) -> Vec<String> {
     let mut p = Vec::new();
-    let kname_ok = !d.kname.is_empty() && d.kname.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
-    if !kname_ok || d.maj_min == (0, 0) || d.sysfs.is_empty() || (!d.path.starts_with("/dev/") && !d.path.starts_with("/tmp/")) {
+    let kname_ok = !d.kname.is_empty()
+        && d.kname
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-');
+    if !kname_ok
+        || d.maj_min == (0, 0)
+        || d.sysfs.is_empty()
+        || (!d.path.starts_with("/dev/") && !d.path.starts_with("/tmp/"))
+    {
         p.push("its identity is unknown".to_string());
     }
     match kind {
         MediaKind::Usb => {
             if d.media_kind() != MediaKind::Usb {
-                p.push(format!("not a USB flash drive ({})", d.media_kind().title()));
+                p.push(format!(
+                    "not a USB flash drive ({})",
+                    d.media_kind().title()
+                ));
             }
             match (d.tran == "usb", d.sysfs.contains("/usb")) {
                 (true, true) => {}
-                (false, false) => p.push(format!("not a USB device ({})", if d.tran.is_empty() { "unknown bus" } else { d.tran.as_str() })),
+                (false, false) => p.push(format!(
+                    "not a USB device ({})",
+                    if d.tran.is_empty() {
+                        "unknown bus"
+                    } else {
+                        d.tran.as_str()
+                    }
+                )),
                 _ => p.push("the system's USB information about it is inconsistent".to_string()),
             }
             if !d.removable {
@@ -368,7 +465,11 @@ pub fn problems_for(d: &RawDevice, src: &Source, kind: MediaKind) -> Vec<String>
             if d.size == 0 {
                 p.push("its size is unknown".to_string());
             } else if src.len != 0 && d.size < src.len {
-                p.push(format!("too small: {}, the ISO needs {}", human(d.size), human(src.len)));
+                p.push(format!(
+                    "too small: {}, the ISO needs {}",
+                    human(d.size),
+                    human(src.len)
+                ));
             }
         }
         MediaKind::Optical => {
@@ -390,11 +491,18 @@ pub fn problems_for(d: &RawDevice, src: &Source, kind: MediaKind) -> Vec<String>
                 p.push("write-protected (check the physical floppy tab)".to_string());
             }
             if d.size != 0 && src.len != 0 && d.size < src.len {
-                p.push(format!("too small: {}, the floppy image needs {}", human(d.size), human(src.len)));
+                p.push(format!(
+                    "too small: {}, the floppy image needs {}",
+                    human(d.size),
+                    human(src.len)
+                ));
             }
         }
         MediaKind::RaspberryPi => {
-            let is_rpi_target = d.tran == "usb" || d.removable || d.kname.starts_with("mmcblk") || d.kname == "virtual-rpi";
+            let is_rpi_target = d.tran == "usb"
+                || d.removable
+                || d.kname.starts_with("mmcblk")
+                || d.kname == "virtual-rpi";
             if !is_rpi_target {
                 p.push("not an SD card or USB flash drive".to_string());
             }
@@ -407,7 +515,11 @@ pub fn problems_for(d: &RawDevice, src: &Source, kind: MediaKind) -> Vec<String>
             if d.size == 0 {
                 p.push("its size is unknown".to_string());
             } else if src.len != 0 && d.size < src.len {
-                p.push(format!("too small: {}, the Raspberry Pi image needs {}", human(d.size), human(src.len)));
+                p.push(format!(
+                    "too small: {}, the Raspberry Pi image needs {}",
+                    human(d.size),
+                    human(src.len)
+                ));
             }
         }
     }
@@ -418,7 +530,9 @@ pub fn problems_for(d: &RawDevice, src: &Source, kind: MediaKind) -> Vec<String>
         if m == "[SWAP]" {
             p.push(format!("{path} is active swap"));
         } else if !MEDIA_MOUNTS.iter().any(|pre| m.starts_with(pre)) {
-            p.push(format!("{path} is mounted at {m}, which looks like part of the running system"));
+            p.push(format!(
+                "{path} is mounted at {m}, which looks like part of the running system"
+            ));
         } else if src.path.starts_with(&m) {
             let noun = match src.kind {
                 SourceKind::Floppy => "floppy image",
@@ -428,7 +542,9 @@ pub fn problems_for(d: &RawDevice, src: &Source, kind: MediaKind) -> Vec<String>
             p.push(format!("the {noun} itself is on {path}"));
         }
     }
-    if src.dev != (0, 0) && (d.maj_min == src.dev || d.partitions.iter().any(|x| x.maj_min == src.dev)) {
+    if src.dev != (0, 0)
+        && (d.maj_min == src.dev || d.partitions.iter().any(|x| x.maj_min == src.dev))
+    {
         let noun = match src.kind {
             SourceKind::Floppy => "floppy image",
             SourceKind::RawImg => "image",
@@ -441,7 +557,8 @@ pub fn problems_for(d: &RawDevice, src: &Source, kind: MediaKind) -> Vec<String>
 }
 
 fn probe_classic_floppy() -> Option<RawDevice> {
-    if std::path::Path::new("/sys/block/fd0").exists() || std::path::Path::new("/dev/fd0").exists() {
+    if std::path::Path::new("/sys/block/fd0").exists() || std::path::Path::new("/dev/fd0").exists()
+    {
         Some(RawDevice {
             path: "/dev/fd0".to_string(),
             kname: "fd0".to_string(),
@@ -476,7 +593,11 @@ pub fn probe_virtual_cd() -> Option<RawDevice> {
             kname: "virtual-cd".to_string(),
             maj_min: (7, 99),
             sysfs: "/sys/devices/virtual/block/virtual-cd".to_string(),
-            size: if size < 700_000_000 { 700_000_000 } else { size },
+            size: if size < 700_000_000 {
+                700_000_000
+            } else {
+                size
+            },
             model: "Virtual CD/DVD-RW Drive".to_string(),
             vendor: "Archstaller".to_string(),
             serial: "VIRTUAL-CD-01".to_string(),
@@ -527,13 +648,19 @@ pub fn probe_virtual_rpi() -> Option<RawDevice> {
         if !p.exists() {
             let _ = std::fs::write(p, vec![0u8; 32 * 1024 * 1024]);
         }
-        let size = std::fs::metadata(p).map(|m| m.len()).unwrap_or(32 * 1024 * 1024);
+        let size = std::fs::metadata(p)
+            .map(|m| m.len())
+            .unwrap_or(32 * 1024 * 1024);
         Some(RawDevice {
             path: "/tmp/virtual-rpi.img".to_string(),
             kname: "virtual-rpi".to_string(),
             maj_min: (7, 97),
             sysfs: "/sys/devices/virtual/block/virtual-rpi".to_string(),
-            size: if size < 32 * 1024 * 1024 { 32 * 1024 * 1024 } else { size },
+            size: if size < 32 * 1024 * 1024 {
+                32 * 1024 * 1024
+            } else {
+                size
+            },
             model: "Virtual Raspberry Pi SD Card".to_string(),
             vendor: "Archstaller".to_string(),
             serial: "VIRTUAL-RPI-01".to_string(),
@@ -551,8 +678,15 @@ pub fn probe_virtual_rpi() -> Option<RawDevice> {
 }
 
 fn sysfs_info(kname: &str, mm: (u32, u32)) -> (String, Vec<String>) {
-    let sysfs = std::fs::canonicalize(format!("/sys/dev/block/{}:{}", mm.0, mm.1)).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
-    let holders = std::fs::read_dir(format!("/sys/class/block/{kname}/holders")).into_iter().flatten().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    let sysfs = std::fs::canonicalize(format!("/sys/dev/block/{}:{}", mm.0, mm.1))
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let holders = std::fs::read_dir(format!("/sys/class/block/{kname}/holders"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
     (sysfs, holders)
 }
 
@@ -564,16 +698,14 @@ fn lsblk(dev: Option<&str>) -> Result<Vec<RawDevice>, String> {
     }
     let out = cmd.output().map_err(|e| format!("lsblk: {e}"))?;
     if !out.status.success() {
-        return Err(format!("lsblk failed (util-linux 2.37 or newer is needed): {}", String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(format!(
+            "lsblk failed (util-linux 2.37 or newer is needed): {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
     }
-    let v: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| format!("lsblk: {e}"))?;
+    let v: serde_json::Value =
+        serde_json::from_slice(&out.stdout).map_err(|e| format!("lsblk: {e}"))?;
     Ok(parse_lsblk(&v, &sysfs_info))
-}
-
-/// Every whole disk with the reasons it may not be flashed.
-#[allow(dead_code)]
-pub fn scan(src: &Source) -> Result<Vec<Candidate>, String> {
-    scan_for(src, MediaKind::Usb)
 }
 
 pub fn scan_for(src: &Source, kind: MediaKind) -> Result<Vec<Candidate>, String> {
@@ -602,7 +734,13 @@ pub fn scan_for(src: &Source, kind: MediaKind) -> Result<Vec<Candidate>, String>
             }
         }
     }
-    Ok(list.into_iter().map(|dev| Candidate { problems: problems_for(&dev, src, kind), dev }).collect())
+    Ok(list
+        .into_iter()
+        .map(|dev| Candidate {
+            problems: problems_for(&dev, src, kind),
+            dev,
+        })
+        .collect())
 }
 
 /// What raw flashing needs from the system. `UDisks` is the real one; tests use a file.
@@ -628,20 +766,35 @@ pub struct RawBlockFlash {
 impl RawBlockFlash {
     /// The selected device, re-read now: still the same physical device and still eligible.
     fn current(&self, src: &Source) -> Result<RawDevice, String> {
-        let now = self.backend.rescan(&self.dev.kname).map_err(|e| format!("{} is gone ({e}); nothing was written", self.dev.path))?;
+        let now = self
+            .backend
+            .rescan(&self.dev.kname)
+            .map_err(|e| format!("{} is gone ({e}); nothing was written", self.dev.path))?;
         if !now.same_device(&self.dev) {
-            return Err(format!("{} is no longer the device you selected; select it again. Nothing was written", self.dev.path));
+            return Err(format!(
+                "{} is no longer the device you selected; select it again. Nothing was written",
+                self.dev.path
+            ));
         }
         let p = problems(&now, src);
         if !p.is_empty() {
-            return Err(format!("{} can no longer be flashed: {}. Nothing was written", self.dev.path, p.join("; ")));
+            return Err(format!(
+                "{} can no longer be flashed: {}. Nothing was written",
+                self.dev.path,
+                p.join("; ")
+            ));
         }
         Ok(now)
     }
 }
 
 impl MediaTarget for RawBlockFlash {
-    fn write(&self, iso: &Path, progress: &mut dyn FnMut(Phase, u64, u64), cancel: &AtomicBool) -> Result<Report, String> {
+    fn write(
+        &self,
+        iso: &Path,
+        progress: &mut dyn FnMut(Phase, u64, u64),
+        cancel: &AtomicBool,
+    ) -> Result<Report, String> {
         let src = Source::of(iso)?;
         progress(Phase::Unmounting, 0, 1);
         let now = self.current(&src)?;
@@ -649,24 +802,36 @@ impl MediaTarget for RawBlockFlash {
             if cancel.load(Ordering::Relaxed) {
                 return Err("cancelled; nothing was written".into());
             }
-            self.backend.unmount(&kname).map_err(|e| format!("could not unmount {path}: {e}. Nothing was written"))?;
+            self.backend
+                .unmount(&kname)
+                .map_err(|e| format!("could not unmount {path}: {e}. Nothing was written"))?;
         }
         let now = self.current(&src)?;
         if let Some((_, path, m)) = now.mounted().first() {
-            return Err(format!("{path} is still mounted at {m}; nothing was written"));
+            return Err(format!(
+                "{path} is still mounted at {m}; nothing was written"
+            ));
         }
         progress(Phase::Unmounting, 1, 1);
         if cancel.load(Ordering::Relaxed) {
             return Err("cancelled; nothing was written".into());
         }
-        let mut f = self.backend.open(&now).map_err(|e| format!("could not open {}: {e}. Nothing was written", now.path))?;
+        let mut f = self
+            .backend
+            .open(&now)
+            .map_err(|e| format!("could not open {}: {e}. Nothing was written", now.path))?;
         // Again with the device held: nothing may have changed between the check and the open.
         let now = self.current(&src)?;
         if !now.mounted().is_empty() {
-            return Err(format!("{} was mounted again; nothing was written", now.path));
+            return Err(format!(
+                "{} was mounted again; nothing was written",
+                now.path
+            ));
         }
         let backend = &self.backend;
-        let sha256 = write_verify(&mut f, &src.path, src.len, progress, cancel, &|f| backend.drop_cache(f))?;
+        let sha256 = write_verify(&mut f, &src.path, src.len, progress, cancel, &|f| {
+            backend.drop_cache(f)
+        })?;
         drop(f);
         progress(Phase::Ejecting, 0, 1);
         let note = match self.backend.power_off(&now) {
@@ -674,7 +839,13 @@ impl MediaTarget for RawBlockFlash {
             Err(e) => format!("It could not be powered off ({e}); use the desktop's safe removal before unplugging."),
         };
         progress(Phase::Ejecting, 1, 1);
-        Ok(Report { dest: PathBuf::from(&now.path), size: src.len, sha256, note: Some(note), flashed: true })
+        Ok(Report {
+            dest: PathBuf::from(&now.path),
+            size: src.len,
+            sha256,
+            note: Some(note),
+            flashed: true,
+        })
     }
 }
 
@@ -684,7 +855,12 @@ pub struct OpticalBurn {
 }
 
 impl MediaTarget for OpticalBurn {
-    fn write(&self, iso: &Path, progress: &mut dyn FnMut(Phase, u64, u64), cancel: &AtomicBool) -> Result<Report, String> {
+    fn write(
+        &self,
+        iso: &Path,
+        progress: &mut dyn FnMut(Phase, u64, u64),
+        cancel: &AtomicBool,
+    ) -> Result<Report, String> {
         let src = Source::iso(iso)?;
         progress(Phase::Unmounting, 0, 1);
         for (_, path, _) in self.dev.mounted() {
@@ -708,7 +884,8 @@ impl MediaTarget for OpticalBurn {
         };
         let mut child = std::process::Command::new("xorriso")
             .args([
-                "-as", "cdrecord",
+                "-as",
+                "cdrecord",
                 "-v",
                 &dev_arg,
                 "-sao",
@@ -737,14 +914,20 @@ impl MediaTarget for OpticalBurn {
             }
         }
 
-        let status = child.wait().map_err(|e| format!("waiting for xorriso failed: {e}"))?;
+        let status = child
+            .wait()
+            .map_err(|e| format!("waiting for xorriso failed: {e}"))?;
         if !status.success() {
             let last_logs = if log_lines.len() > 5 {
                 log_lines[log_lines.len() - 5..].join("\n")
             } else {
                 log_lines.join("\n")
             };
-            return Err(format!("xorriso burn failed (exit code {:?}):\n{}", status.code(), last_logs));
+            return Err(format!(
+                "xorriso burn failed (exit code {:?}):\n{}",
+                status.code(),
+                last_logs
+            ));
         }
 
         progress(Phase::Writing, 100, 100);
@@ -752,7 +935,9 @@ impl MediaTarget for OpticalBurn {
         let mut hash = Sha256::new();
         let mut buf = vec![0u8; CHUNK];
         while let Ok(n) = f.read(&mut buf) {
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
             hash.update(&buf[..n]);
         }
         let sha256 = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
@@ -789,10 +974,18 @@ pub struct FloppyFlash {
 }
 
 impl MediaTarget for FloppyFlash {
-    fn write(&self, img: &Path, progress: &mut dyn FnMut(Phase, u64, u64), cancel: &AtomicBool) -> Result<Report, String> {
+    fn write(
+        &self,
+        img: &Path,
+        progress: &mut dyn FnMut(Phase, u64, u64),
+        cancel: &AtomicBool,
+    ) -> Result<Report, String> {
         let src = Source::floppy(img)?;
         progress(Phase::Unmounting, 0, 1);
-        let now = self.backend.rescan(&self.dev.kname).unwrap_or_else(|_| self.dev.clone());
+        let now = self
+            .backend
+            .rescan(&self.dev.kname)
+            .unwrap_or_else(|_| self.dev.clone());
         for (kname, _path, _) in now.mounted() {
             if cancel.load(Ordering::Relaxed) {
                 return Err("cancelled; nothing was written".into());
@@ -804,9 +997,14 @@ impl MediaTarget for FloppyFlash {
             return Err("cancelled; nothing was written".into());
         }
 
-        let mut f = self.backend.open(&now).map_err(|e| format!("could not open {}: {e}. Nothing was written", now.path))?;
+        let mut f = self
+            .backend
+            .open(&now)
+            .map_err(|e| format!("could not open {}: {e}. Nothing was written", now.path))?;
         let backend = &self.backend;
-        let sha256 = write_verify(&mut f, &src.path, src.len, progress, cancel, &|f| backend.drop_cache(f))?;
+        let sha256 = write_verify(&mut f, &src.path, src.len, progress, cancel, &|f| {
+            backend.drop_cache(f)
+        })?;
         drop(f);
         progress(Phase::Ejecting, 0, 1);
         let _ = self.backend.power_off(&now);
@@ -823,10 +1021,21 @@ impl MediaTarget for FloppyFlash {
 
 /// Streams `iso` (`total` bytes) to offset 0 of `dev`, flushes it, drops the cache and reads the same
 /// number of bytes back. Returns the SHA-256 both sides agree on. The rest of the device is not touched.
-pub fn write_verify(dev: &mut File, iso: &Path, total: u64, progress: &mut dyn FnMut(Phase, u64, u64), cancel: &AtomicBool, drop_cache: &dyn Fn(&File)) -> Result<String, String> {
-    let mut src = File::open(iso).map_err(|e| format!("{}: {e}. Nothing was written", iso.display()))?;
-    dev.seek(SeekFrom::Start(0)).map_err(|e| format!("{e}; nothing was written"))?;
-    let partial = |done: u64| format!("the device is partially overwritten ({done} of {total} bytes) and not verified; flash it again before using it");
+pub fn write_verify(
+    dev: &mut File,
+    iso: &Path,
+    total: u64,
+    progress: &mut dyn FnMut(Phase, u64, u64),
+    cancel: &AtomicBool,
+    drop_cache: &dyn Fn(&File),
+) -> Result<String, String> {
+    let mut src =
+        File::open(iso).map_err(|e| format!("{}: {e}. Nothing was written", iso.display()))?;
+    dev.seek(SeekFrom::Start(0))
+        .map_err(|e| format!("{e}; nothing was written"))?;
+    let partial = |done: u64| {
+        format!("the device is partially overwritten ({done} of {total} bytes) and not verified; flash it again before using it")
+    };
     let mut hash = Sha256::new();
     let mut buf = vec![0u8; CHUNK];
     let mut done = 0u64;
@@ -835,36 +1044,54 @@ pub fn write_verify(dev: &mut File, iso: &Path, total: u64, progress: &mut dyn F
             let _ = dev.sync_all();
             return Err(format!("cancelled: {}", partial(done)));
         }
-        let n = src.read(&mut buf).map_err(|e| format!("reading the ISO failed: {e}; {}", partial(done)))?;
+        let n = src
+            .read(&mut buf)
+            .map_err(|e| format!("reading the ISO failed: {e}; {}", partial(done)))?;
         if n == 0 {
             break;
         }
         if done + n as u64 > total {
-            return Err(format!("the ISO grew while it was written; {}", partial(done)));
+            return Err(format!(
+                "the ISO grew while it was written; {}",
+                partial(done)
+            ));
         }
         hash.update(&buf[..n]);
         // write_all retries short writes and fails on a write of zero bytes.
-        dev.write_all(&buf[..n]).map_err(|e| format!("write failed at byte {done}: {e}; {}", partial(done)))?;
+        dev.write_all(&buf[..n])
+            .map_err(|e| format!("write failed at byte {done}: {e}; {}", partial(done)))?;
         done += n as u64;
         progress(Phase::Writing, done, total);
     }
     if done != total {
-        return Err(format!("the ISO shrank while it was written; {}", partial(done)));
+        return Err(format!(
+            "the ISO shrank while it was written; {}",
+            partial(done)
+        ));
     }
     progress(Phase::Flushing, 0, 1);
-    dev.flush().and_then(|_| dev.sync_all()).map_err(|e| format!("flushing failed: {e}; {}", partial(done)))?;
+    dev.flush()
+        .and_then(|_| dev.sync_all())
+        .map_err(|e| format!("flushing failed: {e}; {}", partial(done)))?;
     drop_cache(dev);
     progress(Phase::Flushing, 1, 1);
     let want: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
-    dev.seek(SeekFrom::Start(0)).map_err(|e| format!("{e}; the device is written but not verified"))?;
+    dev.seek(SeekFrom::Start(0))
+        .map_err(|e| format!("{e}; the device is written but not verified"))?;
     let mut back = Sha256::new();
     let mut read = 0u64;
     while read < total {
         if cancel.load(Ordering::Relaxed) {
-            return Err("cancelled during verification: the device is written but not verified".into());
+            return Err(
+                "cancelled during verification: the device is written but not verified".into(),
+            );
         }
         let n = CHUNK.min((total - read) as usize);
-        dev.read_exact(&mut buf[..n]).map_err(|e| format!("reading back failed at byte {read}: {e}; the device is written but not verified"))?;
+        dev.read_exact(&mut buf[..n]).map_err(|e| {
+            format!(
+                "reading back failed at byte {read}: {e}; the device is written but not verified"
+            )
+        })?;
         back.update(&buf[..n]);
         read += n as u64;
         progress(Phase::Verifying, read, total);
@@ -903,30 +1130,77 @@ fn options(pairs: Vec<(&str, glib::Variant)>) -> HashMap<String, glib::Variant> 
 }
 
 fn version_at_least(v: &str, min: (u32, u32, u32)) -> bool {
-    let mut it = v.trim().split(|c: char| !c.is_ascii_digit()).filter(|s| !s.is_empty()).map(|s| s.parse::<u32>().unwrap_or(0));
-    let got = (it.next().unwrap_or(0), it.next().unwrap_or(0), it.next().unwrap_or(0));
+    let mut it = v
+        .trim()
+        .split(|c: char| !c.is_ascii_digit())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.parse::<u32>().unwrap_or(0));
+    let got = (
+        it.next().unwrap_or(0),
+        it.next().unwrap_or(0),
+        it.next().unwrap_or(0),
+    );
     got >= min
 }
 
 impl UDisks {
     fn bus() -> Result<gio::DBusConnection, String> {
-        gio::bus_get_sync(gio::BusType::System, None::<&gio::Cancellable>).map_err(|e| format!("system D-Bus: {}", e.message()))
+        gio::bus_get_sync(gio::BusType::System, None::<&gio::Cancellable>)
+            .map_err(|e| format!("system D-Bus: {}", e.message()))
     }
 
-    fn call(c: &gio::DBusConnection, path: &str, iface: &str, method: &str, args: glib::Variant, reply: &str) -> Result<glib::Variant, String> {
+    fn call(
+        c: &gio::DBusConnection,
+        path: &str,
+        iface: &str,
+        method: &str,
+        args: glib::Variant,
+        reply: &str,
+    ) -> Result<glib::Variant, String> {
         let ty = glib::VariantTy::new(reply).map_err(|e| e.to_string())?;
-        c.call_sync(Some(BUS), path, iface, method, Some(&args), Some(ty), gio::DBusCallFlags::ALLOW_INTERACTIVE_AUTHORIZATION, TIMEOUT_MS, None::<&gio::Cancellable>).map_err(|e| e.message().to_string())
+        c.call_sync(
+            Some(BUS),
+            path,
+            iface,
+            method,
+            Some(&args),
+            Some(ty),
+            gio::DBusCallFlags::ALLOW_INTERACTIVE_AUTHORIZATION,
+            TIMEOUT_MS,
+            None::<&gio::Cancellable>,
+        )
+        .map_err(|e| e.message().to_string())
     }
 
-    fn property(c: &gio::DBusConnection, path: &str, iface: &str, name: &str) -> Result<glib::Variant, String> {
-        let r = Self::call(c, path, "org.freedesktop.DBus.Properties", "Get", (iface, name).to_variant(), "(v)")?;
-        r.child_value(0).as_variant().ok_or_else(|| format!("{name}: not a variant"))
+    fn property(
+        c: &gio::DBusConnection,
+        path: &str,
+        iface: &str,
+        name: &str,
+    ) -> Result<glib::Variant, String> {
+        let r = Self::call(
+            c,
+            path,
+            "org.freedesktop.DBus.Properties",
+            "Get",
+            (iface, name).to_variant(),
+            "(v)",
+        )?;
+        r.child_value(0)
+            .as_variant()
+            .ok_or_else(|| format!("{name}: not a variant"))
     }
 
     /// Whether raw flashing can work here: UDisks2 runs and is new enough to hand out device handles.
     pub fn ready() -> Result<(), String> {
         let c = Self::bus()?;
-        let v = Self::property(&c, "/org/freedesktop/UDisks2/Manager", "org.freedesktop.UDisks2.Manager", "Version").map_err(|e| format!("the UDisks2 service is not available ({e})"))?;
+        let v = Self::property(
+            &c,
+            "/org/freedesktop/UDisks2/Manager",
+            "org.freedesktop.UDisks2.Manager",
+            "Version",
+        )
+        .map_err(|e| format!("the UDisks2 service is not available ({e})"))?;
         let v = v.str().unwrap_or("").to_string();
         if !version_at_least(&v, MIN_VERSION) {
             return Err(format!("UDisks2 {v} is too old; 2.7.3 or newer is needed"));
@@ -959,7 +1233,10 @@ impl Backend for UDisks {
                 return Ok(vrpi);
             }
         }
-        lsblk(Some(&format!("/dev/{kname}")))?.into_iter().find(|d| d.kname == kname).ok_or_else(|| "not found".to_string())
+        lsblk(Some(&format!("/dev/{kname}")))?
+            .into_iter()
+            .find(|d| d.kname == kname)
+            .ok_or_else(|| "not found".to_string())
     }
 
     fn unmount(&self, kname: &str) -> Result<(), String> {
@@ -967,29 +1244,70 @@ impl Backend for UDisks {
             return Ok(());
         }
         let c = Self::bus()?;
-        Self::call(&c, &object_path(kname), "org.freedesktop.UDisks2.Filesystem", "Unmount", (options(vec![]),).to_variant(), "()").map(|_| ())
+        Self::call(
+            &c,
+            &object_path(kname),
+            "org.freedesktop.UDisks2.Filesystem",
+            "Unmount",
+            (options(vec![]),).to_variant(),
+            "()",
+        )
+        .map(|_| ())
     }
 
     fn open(&self, dev: &RawDevice) -> Result<File, String> {
         use std::os::unix::fs::{FileTypeExt, MetadataExt};
-        if dev.kname.starts_with("fd") || dev.kname.starts_with("virtual") || dev.path.starts_with("/tmp/") {
+        if dev.kname.starts_with("fd")
+            || dev.kname.starts_with("virtual")
+            || dev.path.starts_with("/tmp/")
+        {
             if let Ok(f) = File::options().read(true).write(true).open(&dev.path) {
                 return Ok(f);
             }
         }
         let c = match Self::bus() {
             Ok(c) => c,
-            Err(_) if dev.kname.starts_with("fd") || dev.kname.starts_with("virtual") || dev.path.starts_with("/tmp/") => {
-                return File::options().read(true).write(true).open(&dev.path).map_err(|err| format!("{}: {err}", dev.path));
+            Err(_)
+                if dev.kname.starts_with("fd")
+                    || dev.kname.starts_with("virtual")
+                    || dev.path.starts_with("/tmp/") =>
+            {
+                return File::options()
+                    .read(true)
+                    .write(true)
+                    .open(&dev.path)
+                    .map_err(|err| format!("{}: {err}", dev.path));
             }
             Err(e) => return Err(e),
         };
-        let args = ("rw", options(vec![("flags", (libc::O_EXCL | libc::O_CLOEXEC).to_variant())])).to_variant();
+        let args = (
+            "rw",
+            options(vec![(
+                "flags",
+                (libc::O_EXCL | libc::O_CLOEXEC).to_variant(),
+            )]),
+        )
+            .to_variant();
         let ty = glib::VariantTy::new("(h)").map_err(|e| e.to_string())?;
-        let res = c.call_with_unix_fd_list_sync(Some(BUS), &object_path(&dev.kname), "org.freedesktop.UDisks2.Block", "OpenDevice", Some(&args), Some(ty), gio::DBusCallFlags::ALLOW_INTERACTIVE_AUTHORIZATION, TIMEOUT_MS, None::<&gio::UnixFDList>, None::<&gio::Cancellable>);
+        let res = c.call_with_unix_fd_list_sync(
+            Some(BUS),
+            &object_path(&dev.kname),
+            "org.freedesktop.UDisks2.Block",
+            "OpenDevice",
+            Some(&args),
+            Some(ty),
+            gio::DBusCallFlags::ALLOW_INTERACTIVE_AUTHORIZATION,
+            TIMEOUT_MS,
+            None::<&gio::UnixFDList>,
+            None::<&gio::Cancellable>,
+        );
         let (reply, fds) = match res {
             Ok(v) => v,
-            Err(_e) if dev.kname.starts_with("fd") || dev.kname.starts_with("virtual") || dev.path.starts_with("/tmp/") => {
+            Err(_e)
+                if dev.kname.starts_with("fd")
+                    || dev.kname.starts_with("virtual")
+                    || dev.path.starts_with("/tmp/") =>
+            {
                 if let Ok(f) = File::options().read(true).write(true).open(&dev.path) {
                     return Ok(f);
                 }
@@ -1009,8 +1327,15 @@ impl Backend for UDisks {
                 }
             }
         };
-        let idx = reply.child_value(0).get::<glib::variant::Handle>().ok_or("UDisks2 answered without a handle")?.0;
-        let fd = fds.ok_or("UDisks2 sent no file descriptor")?.get(idx).map_err(|e| e.message().to_string())?;
+        let idx = reply
+            .child_value(0)
+            .get::<glib::variant::Handle>()
+            .ok_or("UDisks2 answered without a handle")?
+            .0;
+        let fd = fds
+            .ok_or("UDisks2 sent no file descriptor")?
+            .get(idx)
+            .map_err(|e| e.message().to_string())?;
         let f = File::from(fd);
         let meta = f.metadata().map_err(|e| e.to_string())?;
         if !meta.file_type().is_block_device() || split_dev(meta.rdev()) != dev.maj_min {
@@ -1028,15 +1353,45 @@ impl Backend for UDisks {
     }
 
     fn power_off(&self, dev: &RawDevice) -> Result<(), String> {
-        if dev.media_kind() == MediaKind::Optical || dev.path.starts_with("/tmp/") || dev.kname.starts_with("virtual") {
+        if dev.media_kind() == MediaKind::Optical
+            || dev.path.starts_with("/tmp/")
+            || dev.kname.starts_with("virtual")
+        {
             let _ = std::process::Command::new("eject").arg(&dev.path).status();
             return Ok(());
         }
         let c = Self::bus()?;
-        let drive = Self::property(&c, &object_path(&dev.kname), "org.freedesktop.UDisks2.Block", "Drive")?;
-        let drive = drive.str().filter(|d| *d != "/").ok_or("no drive object")?.to_string();
+        let drive = Self::property(
+            &c,
+            &object_path(&dev.kname),
+            "org.freedesktop.UDisks2.Block",
+            "Drive",
+        )?;
+        let drive = drive
+            .str()
+            .filter(|d| *d != "/")
+            .ok_or("no drive object")?
+            .to_string();
         let none = || (options(vec![]),).to_variant();
-        Self::call(&c, &drive, "org.freedesktop.UDisks2.Drive", "PowerOff", none(), "()").or_else(|_| Self::call(&c, &drive, "org.freedesktop.UDisks2.Drive", "Eject", none(), "()")).map(|_| ())
+        Self::call(
+            &c,
+            &drive,
+            "org.freedesktop.UDisks2.Drive",
+            "PowerOff",
+            none(),
+            "()",
+        )
+        .or_else(|_| {
+            Self::call(
+                &c,
+                &drive,
+                "org.freedesktop.UDisks2.Drive",
+                "Eject",
+                none(),
+                "()",
+            )
+        })
+        .map(|_| ())
     }
 }
 
@@ -1057,8 +1412,15 @@ mod tests {
     ]}"#;
 
     fn sys(kname: &str, mm: (u32, u32)) -> (String, Vec<String>) {
-        let bus = if kname.starts_with("nvme") { "pci0000:00/0000:00:1d.0/nvme/nvme0" } else { "pci0000:00/0000:00:14.0/usb2/2-1/2-1:1.0/host6/target6:0:0/6:0:0:0" };
-        (format!("/sys/devices/{bus}/block/{kname}/{}:{}", mm.0, mm.1), vec![])
+        let bus = if kname.starts_with("nvme") {
+            "pci0000:00/0000:00:1d.0/nvme/nvme0"
+        } else {
+            "pci0000:00/0000:00:14.0/usb2/2-1/2-1:1.0/host6/target6:0:0/6:0:0:0"
+        };
+        (
+            format!("/sys/devices/{bus}/block/{kname}/{}:{}", mm.0, mm.1),
+            vec![],
+        )
     }
 
     fn devices() -> Vec<RawDevice> {
@@ -1066,16 +1428,35 @@ mod tests {
     }
 
     fn src(len: u64) -> Source {
-        Source { path: PathBuf::from("/home/u/archstaller.iso"), len, dev: (259, 2), kind: SourceKind::Iso }
+        Source {
+            path: PathBuf::from("/home/u/archstaller.iso"),
+            len,
+            dev: (259, 2),
+            kind: SourceKind::Iso,
+        }
     }
 
     #[test]
     fn reads_lsblk() {
         let d = devices();
-        assert_eq!(d.iter().map(|d| d.kname.as_str()).collect::<Vec<_>>(), ["sda", "nvme0n1", "sdb", "sr0"], "disks and roms");
+        assert_eq!(
+            d.iter().map(|d| d.kname.as_str()).collect::<Vec<_>>(),
+            ["sda", "nvme0n1", "sdb", "sr0"],
+            "disks and roms"
+        );
         assert_eq!(d[0].name(), "SanDisk Ultra");
-        assert_eq!(d[0].mounted(), [("sda1".to_string(), "/dev/sda1".to_string(), "/run/media/u/STICK".to_string())]);
-        assert!(d[2].removable && !d[2].read_only && d[2].size == 8004304896, "string flags and sizes of old lsblk");
+        assert_eq!(
+            d[0].mounted(),
+            [(
+                "sda1".to_string(),
+                "/dev/sda1".to_string(),
+                "/run/media/u/STICK".to_string()
+            )]
+        );
+        assert!(
+            d[2].removable && !d[2].read_only && d[2].size == 8004304896,
+            "string flags and sizes of old lsblk"
+        );
         assert_eq!(d[2].holders, ["dm-0 (crypt)"]);
         assert_eq!(d[3].media_kind(), MediaKind::Optical);
     }
@@ -1085,8 +1466,13 @@ mod tests {
         let d = devices();
         let sr0 = &d[3];
         assert_eq!(sr0.media_kind(), MediaKind::Optical);
-        assert!(problems_for(sr0, &src(1 << 20), MediaKind::Optical).is_empty(), "optical drive is eligible for optical burning");
-        assert!(problems_for(sr0, &src(1 << 20), MediaKind::Usb).join("; ").contains("not a USB flash drive"));
+        assert!(
+            problems_for(sr0, &src(1 << 20), MediaKind::Optical).is_empty(),
+            "optical drive is eligible for optical burning"
+        );
+        assert!(problems_for(sr0, &src(1 << 20), MediaKind::Usb)
+            .join("; ")
+            .contains("not a USB flash drive"));
 
         let mut fd0 = d[0].clone();
         fd0.kname = "fd0".into();
@@ -1095,24 +1481,47 @@ mod tests {
         fd0.size = 1_474_560;
         fd0.partitions.clear();
         assert_eq!(fd0.media_kind(), MediaKind::Floppy);
-        let floppy_src = Source { path: PathBuf::from("/home/u/archstaller-floppy.img"), len: 1_474_560, dev: (259, 2), kind: SourceKind::Floppy };
-        assert!(problems_for(&fd0, &floppy_src, MediaKind::Floppy).is_empty(), "floppy drive is eligible for floppy writing");
+        let floppy_src = Source {
+            path: PathBuf::from("/home/u/archstaller-floppy.img"),
+            len: 1_474_560,
+            dev: (259, 2),
+            kind: SourceKind::Floppy,
+        };
+        assert!(
+            problems_for(&fd0, &floppy_src, MediaKind::Floppy).is_empty(),
+            "floppy drive is eligible for floppy writing"
+        );
     }
 
     #[test]
     fn parses_xorriso_progress() {
-        assert_eq!(parse_xorriso_progress("Track 01:   12 of   20 MB written (fifo  99%)"), Some(60));
+        assert_eq!(
+            parse_xorriso_progress("Track 01:   12 of   20 MB written (fifo  99%)"),
+            Some(60)
+        );
         assert_eq!(parse_xorriso_progress("Writing to disc..."), None);
     }
 
     #[test]
     fn only_a_free_usb_stick_is_eligible() {
         let d = devices();
-        assert!(problems(&d[0], &src(1 << 20)).is_empty(), "a mounted USB stick may be flashed (it is unmounted first)");
+        assert!(
+            problems(&d[0], &src(1 << 20)).is_empty(),
+            "a mounted USB stick may be flashed (it is unmounted first)"
+        );
         let internal = problems(&d[1], &src(1 << 20)).join("; ");
-        assert!(internal.contains("not a USB device") && internal.contains("mounted at /boot") && internal.contains("the ISO itself"), "{internal}");
-        assert!(problems(&d[2], &src(1 << 20)).join(";").contains("in use by dm-0"));
-        assert!(problems(&d[0], &src(1 << 40)).join(";").contains("too small"));
+        assert!(
+            internal.contains("not a USB device")
+                && internal.contains("mounted at /boot")
+                && internal.contains("the ISO itself"),
+            "{internal}"
+        );
+        assert!(problems(&d[2], &src(1 << 20))
+            .join(";")
+            .contains("in use by dm-0"));
+        assert!(problems(&d[0], &src(1 << 40))
+            .join(";")
+            .contains("too small"));
     }
 
     #[test]
@@ -1137,7 +1546,12 @@ mod tests {
         let mut d = base.clone();
         d.removable = false;
         assert!(has(&d, &src(1), "removable"));
-        let on_stick = Source { path: PathBuf::from("/run/media/u/STICK/a.iso"), len: 1, dev: (8, 1), kind: SourceKind::Iso };
+        let on_stick = Source {
+            path: PathBuf::from("/run/media/u/STICK/a.iso"),
+            len: 1,
+            dev: (8, 1),
+            kind: SourceKind::Iso,
+        };
         assert!(has(&base, &on_stick, "the ISO itself"));
     }
 
@@ -1156,15 +1570,27 @@ mod tests {
 
     #[test]
     fn helpers() {
-        assert!(version_at_least("2.10.1", MIN_VERSION) && version_at_least("2.7.3", MIN_VERSION) && !version_at_least("2.7.2", MIN_VERSION) && !version_at_least("", MIN_VERSION));
-        assert_eq!(object_path("sdb"), "/org/freedesktop/UDisks2/block_devices/sdb");
-        assert_eq!(object_path("a-b"), "/org/freedesktop/UDisks2/block_devices/a_2db");
+        assert!(
+            version_at_least("2.10.1", MIN_VERSION)
+                && version_at_least("2.7.3", MIN_VERSION)
+                && !version_at_least("2.7.2", MIN_VERSION)
+                && !version_at_least("", MIN_VERSION)
+        );
+        assert_eq!(
+            object_path("sdb"),
+            "/org/freedesktop/UDisks2/block_devices/sdb"
+        );
+        assert_eq!(
+            object_path("a-b"),
+            "/org/freedesktop/UDisks2/block_devices/a_2db"
+        );
         assert_eq!(split_dev(0x0811), (8, 17));
         assert_eq!(human(3 << 29), "1.5 GiB");
     }
 
     fn tmp(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("archstaller-flash-{}-{name}", std::process::id()));
+        let d =
+            std::env::temp_dir().join(format!("archstaller-flash-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
@@ -1186,7 +1612,11 @@ mod tests {
     }
 
     fn rw(p: &Path) -> File {
-        std::fs::OpenOptions::new().read(true).write(true).open(p).unwrap()
+        std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(p)
+            .unwrap()
     }
 
     #[test]
@@ -1195,12 +1625,25 @@ mod tests {
         let src = iso(&d, 2 * CHUNK + 5);
         let dev = device_file(&d, 4 * CHUNK);
         let mut phases = vec![];
-        let sha = write_verify(&mut rw(&dev), &src, (2 * CHUNK + 5) as u64, &mut |p, _, _| phases.push(p), &AtomicBool::new(false), &|_| {}).unwrap();
+        let sha = write_verify(
+            &mut rw(&dev),
+            &src,
+            (2 * CHUNK + 5) as u64,
+            &mut |p, _, _| phases.push(p),
+            &AtomicBool::new(false),
+            &|_| {},
+        )
+        .unwrap();
         let (a, b) = (std::fs::read(&src).unwrap(), std::fs::read(&dev).unwrap());
         assert_eq!(&b[..a.len()], &a[..]);
-        assert!(b[a.len()..].iter().all(|&x| x == 0xee), "the rest of the device is untouched");
+        assert!(
+            b[a.len()..].iter().all(|&x| x == 0xee),
+            "the rest of the device is untouched"
+        );
         assert_eq!(sha.len(), 64);
-        assert!([Phase::Writing, Phase::Flushing, Phase::Verifying].iter().all(|p| phases.contains(p)));
+        assert!([Phase::Writing, Phase::Flushing, Phase::Verifying]
+            .iter()
+            .all(|p| phases.contains(p)));
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -1209,15 +1652,34 @@ mod tests {
         let d = tmp("bad");
         let src = iso(&d, CHUNK + 9);
         let dev = device_file(&d, 2 * CHUNK);
-        let e = write_verify(&mut rw(&dev), &src, (CHUNK + 9) as u64, &mut |_, _, _| {}, &AtomicBool::new(true), &|_| {}).unwrap_err();
-        assert!(e.starts_with("cancelled") && e.contains("partially overwritten"), "{e}");
+        let e = write_verify(
+            &mut rw(&dev),
+            &src,
+            (CHUNK + 9) as u64,
+            &mut |_, _, _| {},
+            &AtomicBool::new(true),
+            &|_| {},
+        )
+        .unwrap_err();
+        assert!(
+            e.starts_with("cancelled") && e.contains("partially overwritten"),
+            "{e}"
+        );
         // The medium changes under the cache: the read-back must notice.
         let corrupt = |_: &File| {
             let mut f = rw(&dev);
             f.seek(SeekFrom::Start(100)).unwrap();
             f.write_all(b"xx").unwrap();
         };
-        let e = write_verify(&mut rw(&dev), &src, (CHUNK + 9) as u64, &mut |_, _, _| {}, &AtomicBool::new(false), &corrupt).unwrap_err();
+        let e = write_verify(
+            &mut rw(&dev),
+            &src,
+            (CHUNK + 9) as u64,
+            &mut |_, _, _| {},
+            &AtomicBool::new(false),
+            &corrupt,
+        )
+        .unwrap_err();
         assert!(e.contains("verification failed"), "{e}");
         let _ = std::fs::remove_dir_all(&d);
     }
@@ -1275,12 +1737,35 @@ mod tests {
         let src = iso(&d, CHUNK + 3);
         let file = device_file(&d, 2 * CHUNK);
         let log = std::sync::Arc::new(Mutex::new(vec![]));
-        let t = RawBlockFlash { dev: stick(2 * CHUNK as u64), backend: Box::new(Fake { file: file.clone(), dev: stick(2 * CHUNK as u64), swap_after: usize::MAX, log: log.clone() }) };
-        let r = t.write(&src, &mut |_, _, _| {}, &AtomicBool::new(false)).unwrap();
+        let t = RawBlockFlash {
+            dev: stick(2 * CHUNK as u64),
+            backend: Box::new(Fake {
+                file: file.clone(),
+                dev: stick(2 * CHUNK as u64),
+                swap_after: usize::MAX,
+                log: log.clone(),
+            }),
+        };
+        let r = t
+            .write(&src, &mut |_, _, _| {}, &AtomicBool::new(false))
+            .unwrap();
         assert!(r.flashed && r.dest == Path::new("/dev/sda") && r.size == (CHUNK + 3) as u64);
-        assert_eq!(&std::fs::read(&file).unwrap()[..CHUNK + 3], &std::fs::read(&src).unwrap()[..]);
+        assert_eq!(
+            &std::fs::read(&file).unwrap()[..CHUNK + 3],
+            &std::fs::read(&src).unwrap()[..]
+        );
         let log = log.lock().unwrap().clone();
-        assert_eq!(log, ["rescan", "unmount sda1", "rescan", "open", "rescan", "power off"]);
+        assert_eq!(
+            log,
+            [
+                "rescan",
+                "unmount sda1",
+                "rescan",
+                "open",
+                "rescan",
+                "power off"
+            ]
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -1291,9 +1776,22 @@ mod tests {
         let file = device_file(&d, 2 * CHUNK);
         for swap_after in [0, 1, 2] {
             let log = std::sync::Arc::new(Mutex::new(vec![]));
-            let t = RawBlockFlash { dev: stick(2 * CHUNK as u64), backend: Box::new(Fake { file: file.clone(), dev: stick(2 * CHUNK as u64), swap_after, log }) };
-            let e = t.write(&src, &mut |_, _, _| {}, &AtomicBool::new(false)).unwrap_err();
-            assert!(e.contains("no longer the device") && e.contains("Nothing was written"), "{e}");
+            let t = RawBlockFlash {
+                dev: stick(2 * CHUNK as u64),
+                backend: Box::new(Fake {
+                    file: file.clone(),
+                    dev: stick(2 * CHUNK as u64),
+                    swap_after,
+                    log,
+                }),
+            };
+            let e = t
+                .write(&src, &mut |_, _, _| {}, &AtomicBool::new(false))
+                .unwrap_err();
+            assert!(
+                e.contains("no longer the device") && e.contains("Nothing was written"),
+                "{e}"
+            );
             assert!(std::fs::read(&file).unwrap().iter().all(|&x| x == 0xee));
         }
         let _ = std::fs::remove_dir_all(&d);
@@ -1332,12 +1830,22 @@ mod tests {
 
         let vfd = probe_virtual_floppy().unwrap();
         assert_eq!(vfd.media_kind(), MediaKind::Floppy);
-        let floppy_src = Source { path: PathBuf::from("/home/u/archstaller-floppy.img"), len: 1_474_560, dev: (259, 2), kind: SourceKind::Floppy };
+        let floppy_src = Source {
+            path: PathBuf::from("/home/u/archstaller-floppy.img"),
+            len: 1_474_560,
+            dev: (259, 2),
+            kind: SourceKind::Floppy,
+        };
         assert!(problems_for(&vfd, &floppy_src, MediaKind::Floppy).is_empty());
 
         let vrpi = probe_virtual_rpi().unwrap();
         assert_eq!(vrpi.media_kind(), MediaKind::RaspberryPi);
-        let rpi_src = Source { path: PathBuf::from("/home/u/archstaller-rpi.img"), len: 32 * 1024 * 1024, dev: (259, 2), kind: SourceKind::RawImg };
+        let rpi_src = Source {
+            path: PathBuf::from("/home/u/archstaller-rpi.img"),
+            len: 32 * 1024 * 1024,
+            dev: (259, 2),
+            kind: SourceKind::RawImg,
+        };
         assert!(problems_for(&vrpi, &rpi_src, MediaKind::RaspberryPi).is_empty());
 
         let _ = std::fs::remove_file("/tmp/virtual-cd.iso");

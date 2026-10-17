@@ -8,7 +8,8 @@ fn dir() -> PathBuf {
 }
 
 fn keyring() -> Keyring {
-    let blob = std::fs::read(dir().join("../../target/keyring.bin")).expect("run `cargo xtask keyring` first");
+    let blob = std::fs::read(dir().join("../../target/keyring.bin"))
+        .expect("run `cargo xtask keyring` first");
     Keyring::from_bytes(&blob).expect("keyring blob parses")
 }
 

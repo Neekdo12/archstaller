@@ -27,14 +27,22 @@ pub fn build(opts: &Options) -> Result<PathBuf> {
     }
 
     bootinfo::bios::patch_stage1(&mut s1, s2_off, s2_len);
-    bootinfo::bios::patch_stage2(&mut s2, bootinfo::bios::MODE_PAYLOAD, &[(payload_off, payload_len)], "")?;
+    bootinfo::bios::patch_stage2(
+        &mut s2,
+        bootinfo::bios::MODE_PAYLOAD,
+        &[(payload_off, payload_len)],
+        "",
+    )?;
 
     let mut img = vec![0u8; FLOPPY_SIZE];
     img[..512].copy_from_slice(&s1);
     img[s2_off as usize..s2_off as usize + s2.len()].copy_from_slice(&s2);
     img[payload_off as usize..payload_off as usize + payload.len()].copy_from_slice(&payload);
 
-    let out = opts.out.clone().unwrap_or_else(|| target_dir().join("archstaller-floppy.img"));
+    let out = opts
+        .out
+        .clone()
+        .unwrap_or_else(|| target_dir().join("archstaller-floppy.img"));
     if let Some(dir) = out.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -42,13 +50,34 @@ pub fn build(opts: &Options) -> Result<PathBuf> {
 
     println!("Built 1.44 MB bootable floppy image: {}", out.display());
     println!("  Stage 1 (boot sector): 512 bytes (LBA 0)");
-    println!("  Stage 2 (loader):      {} bytes (LBA 1..{})", s2_len, s2_off / 512 + (s2_len as u64 / 512) - 1);
-    println!("  Payload:               {} bytes (LBA {}..{})", payload_len, payload_off / 512, (payload_off + payload_len) / 512 - 1);
-    println!("  Total Used:            {} / {} bytes ({:.1}%)", total_len, FLOPPY_SIZE, (total_len as f64 / FLOPPY_SIZE as f64) * 100.0);
-    println!("  Free Space:            {} bytes ({:.1}%)", FLOPPY_SIZE as u64 - total_len, ((FLOPPY_SIZE as u64 - total_len) as f64 / FLOPPY_SIZE as f64) * 100.0);
+    println!(
+        "  Stage 2 (loader):      {} bytes (LBA 1..{})",
+        s2_len,
+        s2_off / 512 + (s2_len as u64 / 512) - 1
+    );
+    println!(
+        "  Payload:               {} bytes (LBA {}..{})",
+        payload_len,
+        payload_off / 512,
+        (payload_off + payload_len) / 512 - 1
+    );
+    println!(
+        "  Total Used:            {} / {} bytes ({:.1}%)",
+        total_len,
+        FLOPPY_SIZE,
+        (total_len as f64 / FLOPPY_SIZE as f64) * 100.0
+    );
+    println!(
+        "  Free Space:            {} bytes ({:.1}%)",
+        FLOPPY_SIZE as u64 - total_len,
+        ((FLOPPY_SIZE as u64 - total_len) as f64 / FLOPPY_SIZE as f64) * 100.0
+    );
 
     use sha2::Digest;
-    let sha256: String = sha2::Sha256::digest(&img).iter().map(|b| format!("{b:02x}")).collect();
+    let sha256: String = sha2::Sha256::digest(&img)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     iso::emit(
         opts,
         hostcfg::progress::Event::Done {
@@ -68,11 +97,19 @@ pub fn run(opts: &Options) -> Result<()> {
     let img = build(opts)?;
     println!("Booting floppy disk image in QEMU...");
     let mut cmd = Command::new("qemu-system-x86_64");
-    cmd.args(["-machine", if opts.disk == "ide" { "pc" } else { "q35" }, "-m", "512M", "-no-reboot"]);
+    cmd.args([
+        "-machine",
+        if opts.disk == "ide" { "pc" } else { "q35" },
+        "-m",
+        "512M",
+        "-no-reboot",
+    ]);
     if std::path::Path::new("/dev/kvm").exists() {
         cmd.args(["-enable-kvm", "-cpu", "host"]);
     }
-    cmd.args(["-fda"]).arg(&img).args(["-boot", "a", "-serial", "stdio"]);
+    cmd.args(["-fda"])
+        .arg(&img)
+        .args(["-boot", "a", "-serial", "stdio"]);
     if opts.headless {
         cmd.args(["-display", "none"]);
     }
@@ -85,11 +122,21 @@ pub fn test(opts: &Options) -> Result<()> {
     let img = build(opts)?;
     println!("Starting automated QEMU floppy boot test...");
     let mut cmd = Command::new("qemu-system-x86_64");
-    cmd.args(["-machine", if opts.disk == "ide" { "pc" } else { "q35" }, "-m", "512M", "-no-reboot", "-display", "none"]);
+    cmd.args([
+        "-machine",
+        if opts.disk == "ide" { "pc" } else { "q35" },
+        "-m",
+        "512M",
+        "-no-reboot",
+        "-display",
+        "none",
+    ]);
     if std::path::Path::new("/dev/kvm").exists() {
         cmd.args(["-enable-kvm", "-cpu", "host"]);
     }
-    cmd.args(["-fda"]).arg(&img).args(["-boot", "a", "-serial", "stdio"]);
+    cmd.args(["-fda"])
+        .arg(&img)
+        .args(["-boot", "a", "-serial", "stdio"]);
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
     let mut child = cmd.spawn().map_err(|e| format!("cannot run QEMU: {e}"))?;

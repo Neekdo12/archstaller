@@ -53,7 +53,10 @@ pub enum Source {
 pub fn source(s: &Script) -> Source {
     match (&s.file, &s.url) {
         (Some(f), _) => Source::File(f.clone()),
-        (None, Some(u)) => Source::Remote { url: u.clone(), sha256: s.sha256.clone().unwrap_or_default() },
+        (None, Some(u)) => Source::Remote {
+            url: u.clone(),
+            sha256: s.sha256.clone().unwrap_or_default(),
+        },
         (None, None) => Source::Builtin,
     }
 }
@@ -62,7 +65,11 @@ pub fn source(s: &Script) -> Source {
 pub fn validate(cfg: &Config) -> std::result::Result<(), String> {
     for (i, s) in cfg.scripts.iter().enumerate() {
         if source(s) == Source::Builtin && s.content.is_none() && builtin(&s.id).is_none() {
-            return Err(format!("scripts[{}]: {:?} is not a built-in script (give it a file or a url + sha256)", i + 1, s.id));
+            return Err(format!(
+                "scripts[{}]: {:?} is not a built-in script (give it a file or a url + sha256)",
+                i + 1,
+                s.id
+            ));
         }
     }
     Ok(())
@@ -76,15 +83,24 @@ pub fn resolve(cfg: &Config, base: &Path) -> Result<Config> {
         match source(s) {
             Source::Builtin => {
                 if s.content.is_none() {
-                    let b = builtin(&s.id).ok_or_else(|| format!("scripts[{}]: {:?} is not a built-in script", i + 1, s.id))?;
+                    let b = builtin(&s.id).ok_or_else(|| {
+                        format!("scripts[{}]: {:?} is not a built-in script", i + 1, s.id)
+                    })?;
                     s.content = Some(b.source.as_bytes().to_vec());
                 }
             }
             Source::File(f) => {
                 let path = base.join(&f);
-                let data = std::fs::read(&path).map_err(|e| format!("scripts[{}]: cannot read {}: {e}", i + 1, path.display()))?;
+                let data = std::fs::read(&path).map_err(|e| {
+                    format!("scripts[{}]: cannot read {}: {e}", i + 1, path.display())
+                })?;
                 if data.len() > SCRIPT_MAX {
-                    return Err(format!("scripts[{}]: {} is larger than 64 KiB", i + 1, path.display()).into());
+                    return Err(format!(
+                        "scripts[{}]: {} is larger than 64 KiB",
+                        i + 1,
+                        path.display()
+                    )
+                    .into());
                 }
                 s.content = Some(data);
                 s.file = None;
@@ -118,7 +134,10 @@ mod tests {
     use super::*;
 
     fn script(id: &str) -> Script {
-        Script { id: id.into(), ..Default::default() }
+        Script {
+            id: id.into(),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -142,21 +161,54 @@ mod tests {
         let mut cfg = crate::toml::tests_support::minimal_config();
         let check = |cfg: &Config| cfg.validate().unwrap_err();
         let sha = "a".repeat(64);
-        cfg.scripts = vec![Script { id: "x".into(), url: Some("https://e.org/x.sh".into()), ..Default::default() }];
+        cfg.scripts = vec![Script {
+            id: "x".into(),
+            url: Some("https://e.org/x.sh".into()),
+            ..Default::default()
+        }];
         assert!(check(&cfg).contains("needs its sha256"));
-        cfg.scripts = vec![Script { id: "x".into(), url: Some("http://e.org/x.sh".into()), sha256: Some(sha.clone()), ..Default::default() }];
+        cfg.scripts = vec![Script {
+            id: "x".into(),
+            url: Some("http://e.org/x.sh".into()),
+            sha256: Some(sha.clone()),
+            ..Default::default()
+        }];
         assert!(check(&cfg).contains("https://"));
-        cfg.scripts = vec![Script { id: "x".into(), url: Some("https://e.org/x.sh".into()), sha256: Some("ABC".into()), ..Default::default() }];
+        cfg.scripts = vec![Script {
+            id: "x".into(),
+            url: Some("https://e.org/x.sh".into()),
+            sha256: Some("ABC".into()),
+            ..Default::default()
+        }];
         assert!(check(&cfg).contains("64 lower-case hex"));
-        cfg.scripts = vec![Script { id: "x".into(), file: Some("a.sh".into()), url: Some("https://e.org/x.sh".into()), sha256: Some(sha.clone()), ..Default::default() }];
+        cfg.scripts = vec![Script {
+            id: "x".into(),
+            file: Some("a.sh".into()),
+            url: Some("https://e.org/x.sh".into()),
+            sha256: Some(sha.clone()),
+            ..Default::default()
+        }];
         assert!(check(&cfg).contains("not both"));
-        cfg.scripts = vec![Script { id: "x y".into(), ..Default::default() }];
+        cfg.scripts = vec![Script {
+            id: "x y".into(),
+            ..Default::default()
+        }];
         assert!(check(&cfg).contains("invalid id"));
-        cfg.scripts = vec![Script { id: "x".into(), args: vec!["a b".into()], ..Default::default() }];
+        cfg.scripts = vec![Script {
+            id: "x".into(),
+            args: vec!["a b".into()],
+            ..Default::default()
+        }];
         assert!(check(&cfg).contains("args"));
         cfg.scripts = vec![script("x"), script("x")];
         assert!(check(&cfg).contains("twice"));
-        cfg.scripts = vec![Script { id: "x".into(), url: Some("https://e.org/x.sh".into()), sha256: Some(sha), args: vec!["--now".into()], ..Default::default() }];
+        cfg.scripts = vec![Script {
+            id: "x".into(),
+            url: Some("https://e.org/x.sh".into()),
+            sha256: Some(sha),
+            args: vec!["--now".into()],
+            ..Default::default()
+        }];
         assert!(cfg.validate().is_ok());
     }
 
@@ -165,6 +217,10 @@ mod tests {
         let mut cfg = crate::toml::tests_support::minimal_config();
         cfg.scripts = vec![script("enable-fstrim")];
         let r = resolve(&cfg, Path::new(".")).unwrap();
-        assert!(r.scripts[0].content.as_ref().unwrap().starts_with(b"#!/bin/bash"));
+        assert!(r.scripts[0]
+            .content
+            .as_ref()
+            .unwrap()
+            .starts_with(b"#!/bin/bash"));
     }
 }

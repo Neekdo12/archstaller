@@ -20,7 +20,10 @@ fn tsc() -> u64 {
 }
 
 fn add(counter: &core::sync::atomic::AtomicU64, since: u64) {
-    counter.fetch_add(tsc().wrapping_sub(since), core::sync::atomic::Ordering::Relaxed);
+    counter.fetch_add(
+        tsc().wrapping_sub(since),
+        core::sync::atomic::Ordering::Relaxed,
+    );
 }
 
 #[derive(Debug)]
@@ -36,12 +39,17 @@ impl TimeProvider for WallClock {
 /// for certificate validity checks.
 pub fn client_config(unix_time: fn() -> u64) -> Arc<ClientConfig> {
     let mut roots = RootCertStore::empty();
-    roots.roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    let cfg = ClientConfig::builder_with_details(Arc::new(rustls_rustcrypto::provider()), Arc::new(WallClock(unix_time)))
-        .with_safe_default_protocol_versions()
-        .expect("provider supports default TLS versions")
-        .with_root_certificates(roots)
-        .with_no_client_auth();
+    roots
+        .roots
+        .extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let cfg = ClientConfig::builder_with_details(
+        Arc::new(rustls_rustcrypto::provider()),
+        Arc::new(WallClock(unix_time)),
+    )
+    .with_safe_default_protocol_versions()
+    .expect("provider supports default TLS versions")
+    .with_root_certificates(roots)
+    .with_no_client_auth();
     Arc::new(cfg)
 }
 
@@ -70,8 +78,10 @@ const MAX_RECORD: usize = 16 * 1024;
 impl<S: Stream> TlsStream<S> {
     /// Connects and completes the handshake.
     pub fn connect(inner: S, config: Arc<ClientConfig>, server_name: &str) -> Result<Self> {
-        let name = ServerName::try_from(String::from(server_name)).map_err(|_| Error::Http("bad server name"))?;
-        let conn = UnbufferedClientConnection::new(config, name).map_err(|_| Error::Http("tls setup"))?;
+        let name = ServerName::try_from(String::from(server_name))
+            .map_err(|_| Error::Http("bad server name"))?;
+        let conn =
+            UnbufferedClientConnection::new(config, name).map_err(|_| Error::Http("tls setup"))?;
         let mut t = TlsStream {
             inner,
             conn,
@@ -155,7 +165,8 @@ impl<S: Stream> TlsStream<S> {
         };
         add(&CRYPTO_TSC, t0);
         let total_discard = discard + extra_discard;
-        self.incoming.drain(..total_discard.min(self.incoming.len()));
+        self.incoming
+            .drain(..total_discard.min(self.incoming.len()));
         if to_send > 0 {
             self.inner.write_all(&self.outgoing[..to_send])?;
         }
@@ -197,13 +208,19 @@ impl<S: Stream> Stream for TlsStream<S> {
             let n = loop {
                 let UnbufferedStatus { state, .. } = self.conn.process_tls_records(&mut []);
                 match state.map_err(|_| Error::Http("tls error"))? {
-                    ConnectionState::WriteTraffic(mut w) => match w.encrypt(chunk, &mut self.outgoing) {
-                        Ok(n) => break n,
-                        Err(EncryptError::InsufficientSize(s)) => self.outgoing.resize(s.required_size, 0),
-                        Err(_) => return Err(Error::Http("tls encrypt")),
-                    },
+                    ConnectionState::WriteTraffic(mut w) => {
+                        match w.encrypt(chunk, &mut self.outgoing) {
+                            Ok(n) => break n,
+                            Err(EncryptError::InsufficientSize(s)) => {
+                                self.outgoing.resize(s.required_size, 0)
+                            }
+                            Err(_) => return Err(Error::Http("tls encrypt")),
+                        }
+                    }
                     ConnectionState::EncodeTlsData(mut e) => {
-                        let n = e.encode(&mut self.outgoing).map_err(|_| Error::Http("tls encode"))?;
+                        let n = e
+                            .encode(&mut self.outgoing)
+                            .map_err(|_| Error::Http("tls encode"))?;
                         self.inner.write_all(&self.outgoing[..n])?;
                     }
                     ConnectionState::TransmitTlsData(t) => t.done(),

@@ -10,7 +10,11 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     ui::heading(content, "Target disk", "The installer erases the disk it selects. Name it by serial number, or let it take the largest one.");
     let c = ui::card(content, Some("Which disk"));
 
-    let warn = ui::note(&c, Kind::Warn, "Every machine that boots this ISO loses its largest disk.");
+    let warn = ui::note(
+        &c,
+        Kind::Warn,
+        "Every machine that boots this ISO loses its largest disk.",
+    );
     warn.set_visible(cfg.disk.auto_largest);
     let selectors = ui::vbox(8);
 
@@ -49,10 +53,14 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     c.append(&selectors);
     selectors.set_sensitive(!cfg.disk.auto_largest);
     let a = app.clone();
-    ui::row(&selectors, "Serial", &ui::entry(&cfg.disk.confirm_serial, move |t| {
-        let t = t.to_string();
-        a.edit(move |m| m.cfg.disk.confirm_serial = t);
-    }));
+    ui::row(
+        &selectors,
+        "Serial",
+        &ui::entry(&cfg.disk.confirm_serial, move |t| {
+            let t = t.to_string();
+            a.edit(move |m| m.cfg.disk.confirm_serial = t);
+        }),
+    );
     let model_row = ui::hbox(8);
     let model_entry = ui::entry(cfg.disk.model.as_deref().unwrap_or(""), {
         let a = app.clone();
@@ -81,10 +89,15 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
 
     let c = ui::card(content, Some("Layout"));
     let a = app.clone();
-    let sp = ui::spin(cfg.disk.esp_mib, 64, 8192, move |v| a.edit(move |m| m.cfg.disk.esp_mib = v));
+    let sp = ui::spin(cfg.disk.esp_mib, 64, 8192, move |v| {
+        a.edit(move |m| m.cfg.disk.esp_mib = v)
+    });
     let r = ui::hbox(6);
     r.append(&sp);
     r.append(&ui::dim("MiB"));
     ui::row(&c, "ESP size", &r);
-    ui::hint(&c, "The FAT32 boot partition, mounted at /boot. The rest of the disk is the root file system.");
+    ui::hint(
+        &c,
+        "The FAT32 boot partition, mounted at /boot. The rest of the disk is the root file system.",
+    );
 }

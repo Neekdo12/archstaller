@@ -3,7 +3,12 @@ use crate::{config, iso, root, target_dir, Options, Result};
 use std::path::PathBuf;
 
 fn preset_files() -> Result<Vec<PathBuf>> {
-    Ok(hostcfg::configs::presets(&root().join(hostcfg::configs::DIR)).into_iter().map(|p| p.path).collect())
+    Ok(
+        hostcfg::configs::presets(&root().join(hostcfg::configs::DIR))
+            .into_iter()
+            .map(|p| p.path)
+            .collect(),
+    )
 }
 
 fn stem(p: &std::path::Path) -> String {
@@ -18,9 +23,20 @@ pub fn check() -> Result<()> {
         let cfg = config::load_config(&f)?;
         match hostcfg::resolve::resolve(&cfg, &dbs) {
             Ok(r) => {
-                println!("{:<10} {:>4} packages, {:>5} MiB to download, {} providers configured", stem(&f), r.packages.len(), r.download_bytes() >> 20, cfg.providers.len());
+                println!(
+                    "{:<10} {:>4} packages, {:>5} MiB to download, {} providers configured",
+                    stem(&f),
+                    r.packages.len(),
+                    r.download_bytes() >> 20,
+                    cfg.providers.len()
+                );
                 for a in &r.ambiguities {
-                    println!("             ambiguous {} -> {} (of {})", a.dep, a.chosen, a.candidates.join(", "));
+                    println!(
+                        "             ambiguous {} -> {} (of {})",
+                        a.dep,
+                        a.chosen,
+                        a.candidates.join(", ")
+                    );
                 }
             }
             Err(e) => {
@@ -61,7 +77,11 @@ pub fn build_all(opts: &Options) -> Result<()> {
             disk_gib: opts.disk_gib,
         };
         let iso = iso::build(&o)?;
-        println!("{name}: {} ({} bytes)", iso.display(), std::fs::metadata(&iso)?.len());
+        println!(
+            "{name}: {} ({} bytes)",
+            iso.display(),
+            std::fs::metadata(&iso)?.len()
+        );
     }
     Ok(())
 }

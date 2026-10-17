@@ -42,6 +42,7 @@ extern "C" {
 #[no_mangle]
 extern "C" fn bios_main() -> ! {
     log("boot: long mode\n");
+    #[allow(clippy::deref_addrof)]
     unsafe {
         let map = &mut *(&raw mut MAP);
         // E820 entries: base u64, length u64, type u32, extended attributes u32 (bit 0 clear: ignore the entry).
@@ -87,10 +88,14 @@ extern "C" fn bios_main() -> ! {
             _pad: 0,
         };
         if mode == bios::MODE_PAYLOAD {
-            let payload = core::slice::from_raw_parts(staged[0].0 as *const u8, staged[0].1 as usize);
-            let size = loadcore::arena_size(payload, map.top()).unwrap_or_else(|| panic!("payload is damaged"));
+            let payload =
+                core::slice::from_raw_parts(staged[0].0 as *const u8, staged[0].1 as usize);
+            let size = loadcore::arena_size(payload, map.top())
+                .unwrap_or_else(|| panic!("payload is damaged"));
             let size = (size + 4095) & !4095;
-            let arena = map.find_free(size, 4096, 0x10_0000, 4 << 30).unwrap_or_else(|| panic!("not enough memory"));
+            let arena = map
+                .find_free(size, 4096, 0x10_0000, 4 << 30)
+                .unwrap_or_else(|| panic!("not enough memory"));
             log("boot: arena at ");
             log_hex(arena);
             log("\n");
@@ -110,11 +115,21 @@ extern "C" fn bios_main() -> ! {
             } else {
                 BootMedium::default()
             };
-            loadcore::boot(map, Boot { firmware: FIRMWARE_BIOS, fb, payload, arena: (arena, size), boot_medium });
+            loadcore::boot(
+                map,
+                Boot {
+                    firmware: FIRMWARE_BIOS,
+                    fb,
+                    payload,
+                    arena: (arena, size),
+                    boot_medium,
+                },
+            );
         }
         if mode == bios::MODE_LINUX {
             let cmd = core::slice::from_raw_parts(h.add(8 + 48), bios::CMDLINE_MAX);
-            let cmd = core::str::from_utf8(&cmd[..cmd.iter().position(|&b| b == 0).unwrap_or(0)]).unwrap_or("");
+            let cmd = core::str::from_utf8(&cmd[..cmd.iter().position(|&b| b == 0).unwrap_or(0)])
+                .unwrap_or("");
             let bz = core::slice::from_raw_parts(staged[0].0 as *const u8, staged[0].1 as usize);
             let end = staged[1].0 + ((staged[1].1 + 0xfffff) & !0xfffff);
             linux::boot(map, bz, staged[1], cmd, &fb, end);

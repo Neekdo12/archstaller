@@ -44,15 +44,17 @@ pub fn probe(dev: &PciDevice, out: &mut Devices) {
     let Some(t) = Transport::new(dev) else { return };
     match kind {
         #[cfg(feature = "virtio-blk")]
-        Kind::Blk => match blk::VirtioBlk::new(t) {
-            Ok(d) => out.block.push(Box::new(d)),
-            Err(_) => {}
-        },
+        Kind::Blk => {
+            if let Ok(d) = blk::VirtioBlk::new(t) {
+                out.block.push(Box::new(d));
+            }
+        }
         #[cfg(feature = "virtio-net")]
-        Kind::Net => match net::VirtioNet::new(t) {
-            Ok(d) => out.net.push(Box::new(d)),
-            Err(_) => {}
-        },
+        Kind::Net => {
+            if let Ok(d) = net::VirtioNet::new(t) {
+                out.net.push(Box::new(d));
+            }
+        }
     }
 }
 
@@ -95,7 +97,12 @@ impl Transport {
             }
         }
         dev.enable();
-        Some(Transport { common: common?, notify: notify?, notify_mult, device_cfg: device_cfg? })
+        Some(Transport {
+            common: common?,
+            notify: notify?,
+            notify_mult,
+            device_cfg: device_cfg?,
+        })
     }
 
     /// Resets the device and negotiates features. `wanted` are low-word feature bits that are
@@ -142,7 +149,10 @@ impl Transport {
         c.write64(0x30, q.mem.phys_at(q.used_off));
         c.write16(0x1c, 1);
         let notify_off = c.read16(0x1e) as usize;
-        Ok(VirtQueue { notify: self.notify.offset(notify_off * self.notify_mult as usize), ..q })
+        Ok(VirtQueue {
+            notify: self.notify.offset(notify_off * self.notify_mult as usize),
+            ..q
+        })
     }
 
     fn driver_ok(&self) {

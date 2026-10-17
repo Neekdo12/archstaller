@@ -28,16 +28,28 @@ pub fn controllers() -> Vec<Controller> {
             continue;
         }
         let Some(regs) = dev.map_bar(0) else {
-            hal::info!("usb: xHCI {:04x}:{:04x}: BAR0 not mappable", dev.vendor, dev.device);
+            hal::info!(
+                "usb: xHCI {:04x}:{:04x}: BAR0 not mappable",
+                dev.vendor,
+                dev.device
+            );
             continue;
         };
         dev.enable();
         match Controller::new(regs) {
             Ok(c) => {
-                hal::log!("usb: xHCI {:04x}:{:04x} initialised", dev.vendor, dev.device);
+                hal::log!(
+                    "usb: xHCI {:04x}:{:04x} initialised",
+                    dev.vendor,
+                    dev.device
+                );
                 out.push(c);
             }
-            Err(e) => hal::info!("usb: xHCI {:04x}:{:04x} init failed: {e:?}", dev.vendor, dev.device),
+            Err(e) => hal::info!(
+                "usb: xHCI {:04x}:{:04x} init failed: {e:?}",
+                dev.vendor,
+                dev.device
+            ),
         }
     }
     out
@@ -66,7 +78,10 @@ impl Scan {
                             dev.vendor,
                             dev.product,
                             dev.configuration,
-                            dev.interfaces.iter().map(|i| (i.num, i.alt, i.class, i.subclass, i.protocol)).collect::<Vec<_>>()
+                            dev.interfaces
+                                .iter()
+                                .map(|i| (i.num, i.alt, i.class, i.subclass, i.protocol))
+                                .collect::<Vec<_>>()
                         );
                         found.push((ci, dev));
                     }
@@ -98,14 +113,22 @@ impl Scan {
             .filter(|(_, (ci, d))| usable(*ci) && target(d).is_some())
             .map(|(i, _)| i)
             .collect();
-        let Some(&pick) = matches.iter().find(|&&i| prefer(&self.found[i].1)).or(matches.first()) else {
+        let Some(&pick) = matches
+            .iter()
+            .find(|&&i| prefer(&self.found[i].1))
+            .or(matches.first())
+        else {
             return Err(Error::Unsupported);
         };
         let (ci, mut dev) = self.found.swap_remove(pick);
         let iface = target(&dev).ok_or(Error::Unsupported)?;
         let mut ctrl = self.ctrls[ci].take().ok_or(Error::Unsupported)?;
         let configuration = dev.configuration;
-        hal::log!("usb: using configuration {configuration} of {:04x}:{:04x}", dev.vendor, dev.product);
+        hal::log!(
+            "usb: using configuration {configuration} of {:04x}:{:04x}",
+            dev.vendor,
+            dev.product
+        );
         ctrl.set_configuration(&mut dev, configuration, &iface)?;
         Ok((ctrl, dev))
     }

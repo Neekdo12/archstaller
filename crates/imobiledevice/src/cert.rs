@@ -148,6 +148,7 @@ pub fn spki_from_rsa(key: &rsa::RsaPublicKey) -> Result<Vec<u8>> {
 
 /// Builds and signs a certificate: `subject_cn` with `subject_spki`, issued by
 /// `issuer_cn`/`issuer_key`. `ca` sets the basicConstraints CA flag.
+#[allow(clippy::too_many_arguments)]
 pub fn build_cert(
     issuer_cn: &str,
     issuer_key: &rsa::RsaPrivateKey,
@@ -160,10 +161,17 @@ pub fn build_cert(
 ) -> Result<Vec<u8>> {
     let (y0, mo0, d0, h0, mi0, s0) = not_before;
     let (y1, mo1, d1, h1, mi1, s1) = not_after;
-    let validity = seq(&[&utc_time(y0, mo0, d0, h0, mi0, s0), &utc_time(y1, mo1, d1, h1, mi1, s1)]);
+    let validity = seq(&[
+        &utc_time(y0, mo0, d0, h0, mi0, s0),
+        &utc_time(y1, mo1, d1, h1, mi1, s1),
+    ]);
     // basicConstraints { cA }
     let bc = seq(&[&boolean(ca)]);
-    let ext = seq(&[&oid(OID_BASIC_CONSTRAINTS), &boolean(true), &octet_string(&bc)]);
+    let ext = seq(&[
+        &oid(OID_BASIC_CONSTRAINTS),
+        &boolean(true),
+        &octet_string(&bc),
+    ]);
     let exts = explicit(3, seq(&[&ext]));
     let tbs = seq(&[
         &explicit(0, integer(&[2])), // v3
@@ -179,7 +187,9 @@ pub fn build_cert(
     use sha2::Digest as _;
     let digest = sha2::Sha256::digest(&tbs);
     let padding = rsa::Pkcs1v15Sign::new::<sha2::Sha256>();
-    let sig = issuer_key.sign(padding, &digest).map_err(|_| Error::Crypto)?;
+    let sig = issuer_key
+        .sign(padding, &digest)
+        .map_err(|_| Error::Crypto)?;
 
     Ok(seq(&[&tbs, &signature_algorithm(), &bit_string(&sig)]))
 }
@@ -237,5 +247,12 @@ pub fn civil_from_unix(t: u64) -> (u32, u32, u32, u32, u32, u32) {
     let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
     let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
     let y = (y + if m <= 2 { 1 } else { 0 }) as u32;
-    (y, m, d, (secs / 3600) as u32, (secs % 3600 / 60) as u32, (secs % 60) as u32)
+    (
+        y,
+        m,
+        d,
+        (secs / 3600) as u32,
+        (secs % 3600 / 60) as u32,
+        (secs % 60) as u32,
+    )
 }

@@ -7,6 +7,7 @@ use sourceview5::prelude::*;
 use std::rc::Rc;
 
 /// A list card: an "add" field with suggestions on top of the list editor.
+#[allow(clippy::too_many_arguments)]
 fn list_card(
     app: &Rc<App>,
     content: &gtk::Box,
@@ -47,7 +48,9 @@ fn list_card(
         });
     }
     let a = app.clone();
-    c.append(&ui::lines_editor(&items, height, move |v| a.edit(move |m| set(m, v))));
+    c.append(&ui::lines_editor(&items, height, move |v| {
+        a.edit(move |m| set(m, v))
+    }));
     ui::hint(&c, hint);
 }
 
@@ -58,11 +61,15 @@ fn open_custom_service_editor(
     initial: config::CustomService,
 ) {
     let (w, h) = (
-        app.win.width().min(680).max(360),
-        app.win.height().min(540).max(360),
+        app.win.width().clamp(360, 680),
+        app.win.height().clamp(360, 540),
     );
     let dialog = gtk::Window::builder()
-        .title(if existing_index.is_some() { "Edit Custom Service" } else { "New Custom Service" })
+        .title(if existing_index.is_some() {
+            "Edit Custom Service"
+        } else {
+            "New Custom Service"
+        })
         .transient_for(&app.win)
         .modal(true)
         .default_width(w)
@@ -78,7 +85,10 @@ fn open_custom_service_editor(
     // Name entry
     let name_entry = ui::entry(&initial.name, |_| {});
     ui::row(&root, "Unit name", &name_entry);
-    ui::hint(&root, "e.g. rclone-onedrive.service, backup.timer, my-daemon.service");
+    ui::hint(
+        &root,
+        "e.g. rclone-onedrive.service, backup.timer, my-daemon.service",
+    );
 
     // Target user dropdown
     let users = app.st.borrow().model.cfg.users.clone();
@@ -89,7 +99,11 @@ fn open_custom_service_editor(
     let user_strs: Vec<&str> = user_options.iter().map(|s| s.as_str()).collect();
     let user_dd = gtk::DropDown::from_strings(&user_strs);
     let selected_user_idx = match &initial.user {
-        Some(u) if u != "root" => users.iter().position(|usr| usr.name == *u).map(|p| p + 1).unwrap_or(0),
+        Some(u) if u != "root" => users
+            .iter()
+            .position(|usr| usr.name == *u)
+            .map(|p| p + 1)
+            .unwrap_or(0),
         _ => 0,
     };
     user_dd.set_selected(selected_user_idx as u32);
@@ -102,8 +116,15 @@ fn open_custom_service_editor(
     // Source selection: Inline content vs Local file
     let is_file_initial = initial.file.is_some();
     let mode_box = ui::hbox(16);
-    let inline_radio = gtk::CheckButton::builder().label("Inline unit content").active(!is_file_initial).build();
-    let file_radio = gtk::CheckButton::builder().label("Local file path").group(&inline_radio).active(is_file_initial).build();
+    let inline_radio = gtk::CheckButton::builder()
+        .label("Inline unit content")
+        .active(!is_file_initial)
+        .build();
+    let file_radio = gtk::CheckButton::builder()
+        .label("Local file path")
+        .group(&inline_radio)
+        .active(is_file_initial)
+        .build();
     mode_box.append(&inline_radio);
     mode_box.append(&file_radio);
     root.append(&mode_box);
@@ -120,7 +141,8 @@ fn open_custom_service_editor(
             let win = win.clone();
             let fe = fe.clone();
             gtk::glib::spawn_future_local(async move {
-                if let Some(path) = dialogs::open_file(&win, "Select Systemd Unit File", None).await {
+                if let Some(path) = dialogs::open_file(&win, "Select Systemd Unit File", None).await
+                {
                     fe.set_text(&path.to_string_lossy());
                 }
             });
@@ -129,7 +151,10 @@ fn open_custom_service_editor(
     file_row.append(&file_entry);
     file_row.append(&browse_btn);
     file_box.append(&file_row);
-    ui::hint(&file_box, "Path to a local unit file (relative to the config file).");
+    ui::hint(
+        &file_box,
+        "Path to a local unit file (relative to the config file).",
+    );
     root.append(&file_box);
 
     // Inline sourceview container
@@ -141,7 +166,12 @@ fn open_custom_service_editor(
     }
     buf.set_highlight_syntax(true);
     let mgr = sourceview5::StyleSchemeManager::default();
-    let scheme = [if dark { "Adwaita-dark" } else { "Adwaita" }, if dark { "classic-dark" } else { "classic" }].iter().find_map(|n| mgr.scheme(n));
+    let scheme = [
+        if dark { "Adwaita-dark" } else { "Adwaita" },
+        if dark { "classic-dark" } else { "classic" },
+    ]
+    .iter()
+    .find_map(|n| mgr.scheme(n));
     buf.set_style_scheme(scheme.as_ref());
 
     let default_template = "[Unit]\nDescription=My Custom Service\nAfter=network.target\n\n[Service]\nType=simple\nExecStart=/usr/bin/echo \"Hello world\"\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n";
@@ -222,7 +252,9 @@ fn open_custom_service_editor(
                 return;
             }
             if !config::valid_unit_name(&name) {
-                err_label.set_text("Invalid unit name (must end in .service, .timer, etc., without slashes).");
+                err_label.set_text(
+                    "Invalid unit name (must end in .service, .timer, etc., without slashes).",
+                );
                 err_label.set_visible(true);
                 return;
             }
@@ -230,10 +262,8 @@ fn open_custom_service_editor(
             let user_idx = user_dd.selected() as usize;
             let user = if user_idx == 0 {
                 None
-            } else if let Some(u) = users.get(user_idx - 1) {
-                Some(u.name.clone())
             } else {
-                None
+                users.get(user_idx - 1).map(|u| u.name.clone())
             };
 
             let enable = enable_check.is_active();
@@ -301,7 +331,11 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         )
     };
 
-    ui::heading(content, "Services & kernel", "What starts on the first boot and how the kernel is started.");
+    ui::heading(
+        content,
+        "Services & kernel",
+        "What starts on the first boot and how the kernel is started.",
+    );
 
     // Import report banner (if an import just ran)
     if let Some(rep) = report {
@@ -348,7 +382,14 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
 
             // User scope chip
             let user_str = cs.user.as_deref().unwrap_or("root");
-            let user_chip = ui::chip(&format!("user: {user_str}"), if user_str == "root" { "chip-accent" } else { "" });
+            let user_chip = ui::chip(
+                &format!("user: {user_str}"),
+                if user_str == "root" {
+                    "chip-accent"
+                } else {
+                    ""
+                },
+            );
             r.append(&user_chip);
 
             // Status chip
@@ -423,7 +464,12 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
                 }
             }
             for cs in discovered.custom_system_services {
-                if !m.cfg.custom_services.iter().any(|existing| existing.name == cs.name && existing.user == cs.user) {
+                if !m
+                    .cfg
+                    .custom_services
+                    .iter()
+                    .any(|existing| existing.name == cs.name && existing.user == cs.user)
+                {
                     m.cfg.custom_services.push(cs);
                     added_custom += 1;
                 }
@@ -432,7 +478,12 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
                 if cs.user.is_none() {
                     cs.user = m.cfg.users.first().map(|u| u.name.clone());
                 }
-                if !m.cfg.custom_services.iter().any(|existing| existing.name == cs.name && existing.user == cs.user) {
+                if !m
+                    .cfg
+                    .custom_services
+                    .iter()
+                    .any(|existing| existing.name == cs.name && existing.user == cs.user)
+                {
                     m.cfg.custom_services.push(cs);
                     added_custom += 1;
                 }
@@ -444,7 +495,9 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         ));
         a.rebuild(Page::Services);
     });
-    import_btn.set_tooltip_text(Some("Import enabled package services and custom unit files from this computer"));
+    import_btn.set_tooltip_text(Some(
+        "Import enabled package services and custom unit files from this computer",
+    ));
     actions_row.append(&import_btn);
     c.append(&actions_row);
 

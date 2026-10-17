@@ -23,15 +23,13 @@ pub enum Kind {
 /// The kind named by a file's first line, if it has a marker (`# archstaller: kind=...`).
 pub fn kind_of(text: &str) -> Option<Kind> {
     let first = text.lines().next()?.trim();
-    let rest = if let Some(r) = first.strip_prefix('#') {
-        r
-    } else if let Some(r) = first.strip_prefix("--") {
-        r
-    } else {
-        return None;
-    };
+    let rest = first
+        .strip_prefix('#')
+        .or_else(|| first.strip_prefix("--"))?;
     let rest = rest.trim().strip_prefix("archstaller:")?;
-    let value = rest.split_whitespace().find_map(|t| t.strip_prefix("kind="))?;
+    let value = rest
+        .split_whitespace()
+        .find_map(|t| t.strip_prefix("kind="))?;
     match value {
         "preset" => Some(Kind::Preset),
         "example" => Some(Kind::Example),
@@ -53,7 +51,9 @@ pub struct Preset {
 
 /// The presets in a `configs/` directory, sorted by name.
 pub fn presets(dir: &Path) -> Vec<Preset> {
-    let Ok(read) = std::fs::read_dir(dir) else { return vec![] };
+    let Ok(read) = std::fs::read_dir(dir) else {
+        return vec![];
+    };
     let mut v: Vec<Preset> = read
         .flatten()
         .map(|e| e.path())
@@ -72,7 +72,11 @@ pub fn presets(dir: &Path) -> Vec<Preset> {
                 })
                 .map(|l| l.trim().to_string())
                 .unwrap_or_default();
-            Some(Preset { name: p.file_stem()?.to_string_lossy().into_owned(), description, path: p })
+            Some(Preset {
+                name: p.file_stem()?.to_string_lossy().into_owned(),
+                description,
+                path: p,
+            })
         })
         .collect();
     v.sort_by(|a, b| a.name.cmp(&b.name));
@@ -85,10 +89,16 @@ mod tests {
 
     #[test]
     fn markers() {
-        assert_eq!(kind_of("# archstaller: kind=preset\n# x"), Some(Kind::Preset));
+        assert_eq!(
+            kind_of("# archstaller: kind=preset\n# x"),
+            Some(Kind::Preset)
+        );
         assert_eq!(kind_of("#archstaller:kind=module"), Some(Kind::Module));
         assert_eq!(kind_of("# archstaller: kind=e2e extra"), Some(Kind::E2e));
-        assert_eq!(kind_of("-- archstaller: kind=preset\n-- x"), Some(Kind::Preset));
+        assert_eq!(
+            kind_of("-- archstaller: kind=preset\n-- x"),
+            Some(Kind::Preset)
+        );
         assert_eq!(kind_of("# archstaller: kind=nope"), None);
         assert_eq!(kind_of("# just a comment"), None);
         assert_eq!(kind_of("schema = 1"), None);
@@ -99,14 +109,29 @@ mod tests {
     fn only_marked_files_are_presets() {
         let dir = std::env::temp_dir().join(format!("hostcfg-configs-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("a.toml"), "# archstaller: kind=preset\n# First.\nschema = 1").unwrap();
-        std::fs::write(dir.join("common.toml"), "# archstaller: kind=module\nschema = 1").unwrap();
-        std::fs::write(dir.join("config.toml"), "# archstaller: kind=example\nschema = 1").unwrap();
+        std::fs::write(
+            dir.join("a.toml"),
+            "# archstaller: kind=preset\n# First.\nschema = 1",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("common.toml"),
+            "# archstaller: kind=module\nschema = 1",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("config.toml"),
+            "# archstaller: kind=example\nschema = 1",
+        )
+        .unwrap();
         std::fs::write(dir.join("unmarked.toml"), "# not marked\nschema = 1").unwrap();
         std::fs::write(dir.join("notes.txt"), "# archstaller: kind=preset").unwrap();
         let list = presets(&dir);
         assert_eq!(list.len(), 1);
-        assert_eq!((list[0].name.as_str(), list[0].description.as_str()), ("a", "First."));
+        assert_eq!(
+            (list[0].name.as_str(), list[0].description.as_str()),
+            ("a", "First.")
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -14,7 +14,13 @@ struct Command {
 
 fn commands(app: &Rc<App>) -> Vec<Command> {
     let mut v: Vec<Command> = Vec::new();
-    let mut add = |title: &str, hint: &str, f: Rc<dyn Fn()>| v.push(Command { title: title.into(), hint: hint.into(), run: f });
+    let mut add = |title: &str, hint: &str, f: Rc<dyn Fn()>| {
+        v.push(Command {
+            title: title.into(),
+            hint: hint.into(),
+            run: f,
+        })
+    };
     let a = app.clone();
     add("New config", "Ctrl+N", Rc::new(move || a.new_doc()));
     let a = app.clone();
@@ -24,48 +30,93 @@ fn commands(app: &Rc<App>) -> Vec<Command> {
     let a = app.clone();
     add("Save as…", "Ctrl+Shift+S", Rc::new(move || a.save_as()));
     let a = app.clone();
-    add("Build the ISO", "Build ISO page", Rc::new(move || {
-        a.show(Page::Iso);
-        crate::pages::iso::start_from_action(&a);
-    }));
+    add(
+        "Build the ISO",
+        "Build ISO page",
+        Rc::new(move || {
+            a.show(Page::Iso);
+            crate::pages::iso::start_from_action(&a);
+        }),
+    );
     let a = app.clone();
-    add("Copy the config as TOML", "", Rc::new(move || {
-        let t = a.st.borrow().model.toml();
-        a.copy_text(&t, "TOML");
-    }));
+    add(
+        "Copy the config as TOML",
+        "",
+        Rc::new(move || {
+            let t = a.st.borrow().model.toml();
+            a.copy_text(&t, "TOML");
+        }),
+    );
     let a = app.clone();
-    add("Copy the ISO's SHA-256", "", Rc::new(move || {
-        let sha = a.st.borrow().build.iso.as_ref().map(|i| i.2.clone());
-        match sha {
-            Some(s) => a.copy_text(&s, "SHA-256"),
-            None => a.set_status("no ISO built yet"),
-        }
-    }));
+    add(
+        "Copy the ISO's SHA-256",
+        "",
+        Rc::new(move || {
+            let sha = a.st.borrow().build.iso.as_ref().map(|i| i.2.clone());
+            match sha {
+                Some(s) => a.copy_text(&s, "SHA-256"),
+                None => a.set_status("no ISO built yet"),
+            }
+        }),
+    );
     for (page, _, name, _) in PAGES {
         let (a, page) = (app.clone(), *page);
-        add(&format!("Go to {name}"), "page", Rc::new(move || a.show(page)));
+        add(
+            &format!("Go to {name}"),
+            "page",
+            Rc::new(move || a.show(page)),
+        );
     }
-    let presets: Vec<String> = app.st.borrow().presets.iter().map(|p| p.name.clone()).collect();
+    let presets: Vec<String> = app
+        .st
+        .borrow()
+        .presets
+        .iter()
+        .map(|p| p.name.clone())
+        .collect();
     for name in presets {
         let a = app.clone();
         let n = name.clone();
-        add(&format!("New from preset: {name}"), "preset", Rc::new(move || a.preset_doc(n.clone())));
+        add(
+            &format!("New from preset: {name}"),
+            "preset",
+            Rc::new(move || a.preset_doc(n.clone())),
+        );
     }
     v
 }
 
 pub fn open(app: &Rc<App>) {
     let cmds = Rc::new(commands(app));
-    let win = gtk::Window::builder().transient_for(&app.window()).modal(true).decorated(false).default_width(540).default_height(380).resizable(false).build();
+    let win = gtk::Window::builder()
+        .transient_for(&app.window())
+        .modal(true)
+        .decorated(false)
+        .default_width(540)
+        .default_height(380)
+        .resizable(false)
+        .build();
     let b = ui::vbox(6);
     b.set_margin_top(10);
     b.set_margin_bottom(10);
     b.set_margin_start(10);
     b.set_margin_end(10);
-    let search = gtk::SearchEntry::builder().placeholder_text("Type a command…").hexpand(true).build();
+    let search = gtk::SearchEntry::builder()
+        .placeholder_text("Type a command…")
+        .hexpand(true)
+        .build();
     b.append(&search);
-    let list = gtk::ListBox::builder().selection_mode(gtk::SelectionMode::Single).activate_on_single_click(true).build();
-    b.append(&gtk::ScrolledWindow::builder().child(&list).vexpand(true).hscrollbar_policy(gtk::PolicyType::Never).build());
+    let list = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::Single)
+        .activate_on_single_click(true)
+        .build();
+    b.append(
+        &gtk::ScrolledWindow::builder()
+            .child(&list)
+            .vexpand(true)
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .build(),
+    );
     b.append(&ui::dim("↑↓ choose · Enter run · Esc close"));
     win.set_child(Some(&b));
 
@@ -77,11 +128,20 @@ pub fn open(app: &Rc<App>) {
                 list.remove(&c);
             }
             let q = q.to_lowercase();
-            let mut idx: Vec<usize> = (0..cmds.len()).filter(|&i| q.split_whitespace().all(|w| cmds[i].title.to_lowercase().contains(w))).collect();
+            let mut idx: Vec<usize> = (0..cmds.len())
+                .filter(|&i| {
+                    q.split_whitespace()
+                        .all(|w| cmds[i].title.to_lowercase().contains(w))
+                })
+                .collect();
             idx.sort_by_key(|&i| !cmds[i].title.to_lowercase().starts_with(&q));
             for &i in &idx {
                 let r = ui::hbox(10);
-                let l = gtk::Label::builder().label(&cmds[i].title).xalign(0.0).hexpand(true).build();
+                let l = gtk::Label::builder()
+                    .label(&cmds[i].title)
+                    .xalign(0.0)
+                    .hexpand(true)
+                    .build();
                 r.append(&l);
                 r.append(&ui::dim(&cmds[i].hint));
                 list.append(&r);

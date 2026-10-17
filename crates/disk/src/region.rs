@@ -25,6 +25,10 @@ impl<'a> Region<'a> {
         self.len
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
     pub fn sector_size(&self) -> u32 {
         self.dev.sector_size()
     }
@@ -68,7 +72,7 @@ impl<'a> Region<'a> {
         len: usize,
         mut f: impl FnMut(&mut dyn BlockDevice, u64, usize, usize, (usize, usize)) -> Result<()>,
     ) -> Result<()> {
-        if off.checked_add(len as u64).map_or(true, |e| e > self.len) {
+        if off.checked_add(len as u64).is_none_or(|e| e > self.len) {
             return Err(Error::Size("access beyond region"));
         }
         let ss = self.dev.sector_size() as u64;

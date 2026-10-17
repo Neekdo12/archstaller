@@ -24,13 +24,19 @@ fn read_pin() -> Result<Pin> {
     let text = std::fs::read_to_string(pin_path())?;
     let mut it = text.split_whitespace();
     match (it.next(), it.next()) {
-        (Some(v), Some(h)) if h.len() == 64 => Ok(Pin { version: v.into(), sha256: h.into() }),
+        (Some(v), Some(h)) if h.len() == 64 => Ok(Pin {
+            version: v.into(),
+            sha256: h.into(),
+        }),
         _ => Err("xtask/keyring.pin must contain '<version> <sha256>'".into()),
     }
 }
 
 fn sha256_hex(path: &std::path::Path) -> Result<String> {
-    Ok(Sha256::digest(std::fs::read(path)?).iter().map(|b| format!("{b:02x}")).collect())
+    Ok(Sha256::digest(std::fs::read(path)?)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
 }
 
 /// Downloads the package for `version`: the archive keeps every version, the mirror only the newest.
@@ -41,7 +47,14 @@ fn fetch_package(version: &str, dest: &std::path::Path) -> Result<()> {
         format!("{MIRROR}/core/os/x86_64/{name}"),
     ];
     for url in &urls {
-        if Command::new("curl").args(["-fsSL", "-o"]).arg(dest).arg(url).status().map_err(|e| format!("cannot run curl: {e}"))?.success() {
+        if Command::new("curl")
+            .args(["-fsSL", "-o"])
+            .arg(dest)
+            .arg(url)
+            .status()
+            .map_err(|e| format!("cannot run curl: {e}"))?
+            .success()
+        {
             return Ok(());
         }
     }
@@ -54,12 +67,22 @@ pub fn update() -> Result<()> {
     let dir = target_dir().join("keyring");
     std::fs::create_dir_all(&dir)?;
     let db_path = dir.join("core.db");
-    run(Command::new("curl").args(["-fsSL", "-o"]).arg(&db_path).arg(format!("{MIRROR}/core/os/x86_64/core.db")))?;
+    run(Command::new("curl")
+        .args(["-fsSL", "-o"])
+        .arg(&db_path)
+        .arg(format!("{MIRROR}/core/os/x86_64/core.db")))?;
     let data = std::fs::read(&db_path)?;
     let db = Db::parse("core", data.as_slice()).map_err(|e| format!("core.db: {e:?}"))?;
-    let latest = db.packages.iter().find(|p| p.name == "archlinux-keyring").ok_or("archlinux-keyring not in core.db")?;
+    let latest = db
+        .packages
+        .iter()
+        .find(|p| p.name == "archlinux-keyring")
+        .ok_or("archlinux-keyring not in core.db")?;
     let old = read_pin()?;
-    println!("pinned keyring: {}   newest on the mirror: {}", old.version, latest.version);
+    println!(
+        "pinned keyring: {}   newest on the mirror: {}",
+        old.version, latest.version
+    );
     if latest.version == old.version {
         println!("already up to date");
         return Ok(());
@@ -70,13 +93,20 @@ pub fn update() -> Result<()> {
     let got = sha256_hex(&file)?;
     if got != latest.sha256 {
         let _ = std::fs::remove_file(&file);
-        return Err(format!("downloaded keyring has sha256 {got}, database says {}", latest.sha256).into());
+        return Err(format!(
+            "downloaded keyring has sha256 {got}, database says {}",
+            latest.sha256
+        )
+        .into());
     }
 
     // Check the package signature against the keyring we already trust, if there is one.
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
     let verdict = (|| -> std::result::Result<[u8; 20], String> {
-        let blob = std::fs::read(blob_path()).map_err(|_| "no existing keyring blob".to_string())?;
+        let blob =
+            std::fs::read(blob_path()).map_err(|_| "no existing keyring blob".to_string())?;
         let ring = Keyring::from_bytes(&blob).ok_or("unreadable keyring blob")?;
         let sig = pgp_lite::base64_decode(&latest.pgpsig).map_err(|e| format!("{e:?}"))?;
         let mut v = pgp_lite::Verifier::from_packet(&sig).map_err(|e| format!("{e:?}"))?;
@@ -88,7 +118,10 @@ pub fn update() -> Result<()> {
         Err(e) => println!("note: signature not verified by the old keyring ({e}); trusting the HTTPS mirror and its database checksum"),
     }
 
-    std::fs::write(pin_path(), format!("{} {}\n", latest.version, latest.sha256))?;
+    std::fs::write(
+        pin_path(),
+        format!("{} {}\n", latest.version, latest.sha256),
+    )?;
     println!("pin updated: {}", latest.version);
     build()?; // fail here, not at the next ISO build, if the new keyring does not parse
     Ok(())
@@ -99,7 +132,9 @@ pub fn blob_path() -> PathBuf {
 }
 
 fn unhex(s: &str) -> Vec<u8> {
-    (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect()
+    (0..s.len() / 2)
+        .map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap())
+        .collect()
 }
 
 fn fpr_bytes(s: &str) -> Option<[u8; 20]> {
@@ -124,7 +159,10 @@ impl Key {
 
     fn material(&self) -> Option<KeyMaterial> {
         match self.algo {
-            1 if self.pkd.len() >= 2 => Some(KeyMaterial::Rsa { n: unhex(&self.pkd[0]), e: unhex(&self.pkd[1]) }),
+            1 if self.pkd.len() >= 2 => Some(KeyMaterial::Rsa {
+                n: unhex(&self.pkd[0]),
+                e: unhex(&self.pkd[1]),
+            }),
             22 if self.pkd.len() >= 2 => {
                 let oid = &self.pkd[0];
                 let point = unhex(&self.pkd[1]);
@@ -151,7 +189,11 @@ struct Primary {
 impl Primary {
     /// The main keys whose certification of some user id of this key stands.
     fn signers(&self) -> BTreeSet<[u8; 20]> {
-        self.certs.iter().filter(|(_, (cert, rev))| cert > rev).map(|((_, s), _)| *s).collect()
+        self.certs
+            .iter()
+            .filter(|(_, (cert, rev))| cert > rev)
+            .map(|((_, s), _)| *s)
+            .collect()
     }
 }
 
@@ -167,12 +209,21 @@ pub fn build() -> Result<Vec<u8>> {
     let hex = sha256_hex(&pkg)?;
     if hex != pin.sha256 {
         std::fs::remove_file(&pkg)?;
-        return Err(format!("archlinux-keyring sha256 mismatch: {hex} (pin says {})", pin.sha256).into());
+        return Err(format!(
+            "archlinux-keyring sha256 mismatch: {hex} (pin says {})",
+            pin.sha256
+        )
+        .into());
     }
     let files = dir.join("files");
     let _ = std::fs::remove_dir_all(&files);
     std::fs::create_dir_all(&files)?;
-    run(Command::new("tar").args(["--zstd", "-xf"]).arg(&pkg).arg("-C").arg(&files).arg("usr/share/pacman/keyrings"))?;
+    run(Command::new("tar")
+        .args(["--zstd", "-xf"])
+        .arg(&pkg)
+        .arg("-C")
+        .arg(&files)
+        .arg("usr/share/pacman/keyrings"))?;
     let kr = files.join("usr/share/pacman/keyrings");
 
     let main: Vec<[u8; 20]> = std::fs::read_to_string(kr.join("archlinux-trusted"))?
@@ -196,16 +247,34 @@ pub fn build() -> Result<Vec<u8>> {
         std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700))?;
     }
     let gpg = |args: &[&str]| -> Result<Vec<u8>> {
-        let out = Command::new("gpg").args(["--homedir"]).arg(&home).args(["--batch", "--quiet", "--no-tty"]).args(args).output().map_err(|e| format!("cannot run gpg: {e}"))?;
+        let out = Command::new("gpg")
+            .args(["--homedir"])
+            .arg(&home)
+            .args(["--batch", "--quiet", "--no-tty"])
+            .args(args)
+            .output()
+            .map_err(|e| format!("cannot run gpg: {e}"))?;
         if !out.status.success() {
-            return Err(format!("gpg {args:?} failed: {}", String::from_utf8_lossy(&out.stderr)).into());
+            return Err(format!(
+                "gpg {args:?} failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            )
+            .into());
         }
         Ok(out.stdout)
     };
     gpg(&["--import", kr.join("archlinux.gpg").to_str().unwrap()])?;
     let listing = String::from_utf8(gpg(&["--with-colons", "--with-key-data", "--check-sigs"])?)?;
 
-    let is_main_id = |id: &str| main.iter().any(|m| m.iter().skip(12).map(|b| format!("{b:02X}")).collect::<String>() == id);
+    let is_main_id = |id: &str| {
+        main.iter().any(|m| {
+            m.iter()
+                .skip(12)
+                .map(|b| format!("{b:02X}"))
+                .collect::<String>()
+                == id
+        })
+    };
     let mut primaries: Vec<Primary> = Vec::new();
     let mut uid_ok = true;
     let mut cur_is_sub = false;
@@ -221,7 +290,12 @@ pub fn build() -> Result<Vec<u8>> {
         };
         match f[0] {
             "pub" => {
-                primaries.push(Primary { key: parse_key(&f), subs: Vec::new(), certs: BTreeMap::new(), uids: 0 });
+                primaries.push(Primary {
+                    key: parse_key(&f),
+                    subs: Vec::new(),
+                    certs: BTreeMap::new(),
+                    uids: 0,
+                });
                 cur_is_sub = false;
                 uid_ok = true;
             }
@@ -233,18 +307,29 @@ pub fn build() -> Result<Vec<u8>> {
             }
             "fpr" => {
                 if let Some(p) = primaries.last_mut() {
-                    let k = if cur_is_sub { p.subs.last_mut().unwrap() } else { &mut p.key };
+                    let k = if cur_is_sub {
+                        p.subs.last_mut().unwrap()
+                    } else {
+                        &mut p.key
+                    };
                     k.fpr = f.get(9).and_then(|s| fpr_bytes(s));
                 }
             }
             "pkd" => {
                 if let Some(p) = primaries.last_mut() {
-                    let k = if cur_is_sub { p.subs.last_mut().unwrap() } else { &mut p.key };
+                    let k = if cur_is_sub {
+                        p.subs.last_mut().unwrap()
+                    } else {
+                        &mut p.key
+                    };
                     k.pkd.push(f.get(3).unwrap_or(&"").to_string());
                 }
             }
             "uid" => {
-                uid_ok = !matches!(f.get(1).and_then(|v| v.chars().next()), Some('r' | 'e' | 'i' | 'd' | 'n'));
+                uid_ok = !matches!(
+                    f.get(1).and_then(|v| v.chars().next()),
+                    Some('r' | 'e' | 'i' | 'd' | 'n')
+                );
                 if let Some(p) = primaries.last_mut() {
                     p.uids += 1;
                 }
@@ -252,17 +337,34 @@ pub fn build() -> Result<Vec<u8>> {
             // Certifications (classes 10-13) and their revocations (class 30) of the current user id.
             "sig" | "rev" if !cur_is_sub && uid_ok && f.get(1) == Some(&"!") => {
                 let class = f.get(10).copied().unwrap_or("");
-                let is_cert = f[0] == "sig" && ["10", "11", "12", "13"].iter().any(|c| class.starts_with(c));
+                let is_cert = f[0] == "sig"
+                    && ["10", "11", "12", "13"]
+                        .iter()
+                        .any(|c| class.starts_with(c));
                 let is_revocation = f[0] == "rev" && class.starts_with("30");
                 if !is_cert && !is_revocation {
                     continue;
                 }
                 let when: u64 = f.get(5).and_then(|t| t.parse().ok()).unwrap_or(0);
-                let Some(p) = primaries.last_mut() else { continue };
+                let Some(p) = primaries.last_mut() else {
+                    continue;
+                };
                 let issuer = f.get(12).and_then(|s| fpr_bytes(s));
                 let signer = match issuer {
                     Some(i) if main.contains(&i) => Some(i),
-                    _ => f.get(4).and_then(|id| main.iter().find(|m| is_main_id(id) && m.iter().skip(12).map(|b| format!("{b:02X}")).collect::<String>() == *id)).copied(),
+                    _ => f
+                        .get(4)
+                        .and_then(|id| {
+                            main.iter().find(|m| {
+                                is_main_id(id)
+                                    && m.iter()
+                                        .skip(12)
+                                        .map(|b| format!("{b:02X}"))
+                                        .collect::<String>()
+                                        == *id
+                            })
+                        })
+                        .copied(),
                 };
                 if let Some(s) = signer {
                     if Some(s) != p.key.fpr {
@@ -284,7 +386,9 @@ pub fn build() -> Result<Vec<u8>> {
     let (mut trusted, mut rejected) = (0, 0);
     for p in &primaries {
         let Some(pfpr) = p.key.fpr else { continue };
-        let ok = p.key.usable() && !revoked.contains(&pfpr) && (main.contains(&pfpr) || p.signers().len() >= MIN_MAIN_SIGS);
+        let ok = p.key.usable()
+            && !revoked.contains(&pfpr)
+            && (main.contains(&pfpr) || p.signers().len() >= MIN_MAIN_SIGS);
         if !ok {
             rejected += 1;
             continue;
@@ -296,7 +400,9 @@ pub fn build() -> Result<Vec<u8>> {
         }
         candidates.extend(p.subs.iter().filter(|s| s.can_sign && s.usable()));
         for k in candidates {
-            let (Some(fpr), Some(material)) = (k.fpr, k.material()) else { continue };
+            let (Some(fpr), Some(material)) = (k.fpr, k.material()) else {
+                continue;
+            };
             if revoked.contains(&fpr) || !seen.insert(fpr) {
                 continue;
             }
@@ -304,10 +410,17 @@ pub fn build() -> Result<Vec<u8>> {
                 (Some(a), Some(b)) => Some(a.min(b)),
                 (a, b) => a.or(b),
             };
-            ring.keys.push(KeyEntry { fingerprint: fpr, material, expires });
+            ring.keys.push(KeyEntry {
+                fingerprint: fpr,
+                material,
+                expires,
+            });
         }
     }
-    println!("keyring {version}: {trusted} trusted primary keys ({rejected} rejected), {} signing keys", ring.keys.len());
+    println!(
+        "keyring {version}: {trusted} trusted primary keys ({rejected} rejected), {} signing keys",
+        ring.keys.len()
+    );
     let blob = ring.to_bytes();
     std::fs::write(blob_path(), &blob)?;
     println!("keyring blob: {} bytes", blob.len());

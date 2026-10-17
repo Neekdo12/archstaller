@@ -36,7 +36,13 @@ impl VirtioNet {
         let n = RX_BUFS.min(rx.size());
         let rx_mem = Dma::new(BUF * n as usize, 4096);
         for i in 0..n {
-            rx.set_desc(i, rx_mem.phys_at(BUF * i as usize), BUF as u32, DESC_F_WRITE, 0);
+            rx.set_desc(
+                i,
+                rx_mem.phys_at(BUF * i as usize),
+                BUF as u32,
+                DESC_F_WRITE,
+                0,
+            );
             rx.submit(i);
         }
         t.driver_ok();
@@ -72,7 +78,8 @@ impl NetDevice for VirtioNet {
         let m = self.tx_mem.as_mut_slice();
         m[..HDR].fill(0);
         m[HDR..HDR + frame.len()].copy_from_slice(frame);
-        self.tx.set_desc(0, self.tx_mem.phys(), (HDR + frame.len()) as u32, 0, 0);
+        self.tx
+            .set_desc(0, self.tx_mem.phys(), (HDR + frame.len()) as u32, 0, 0);
         self.tx.submit(0);
         platform::wait_until(1000, || self.tx.pop_used().is_some())
     }

@@ -65,7 +65,12 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn pick_for_dep(&self, dep: &Dep, selected: &[Selected<'a>], amb: &mut Vec<Ambiguity>) -> Result<&'a Package> {
+    fn pick_for_dep(
+        &self,
+        dep: &Dep,
+        selected: &[Selected<'a>],
+        amb: &mut Vec<Ambiguity>,
+    ) -> Result<&'a Package> {
         // Already selected packages satisfy it.
         if let Some(s) = selected.iter().find(|s| s.pkg.satisfies(dep)) {
             return Ok(s.pkg);
@@ -77,7 +82,9 @@ impl<'a> Resolver<'a> {
             }
         }
         if let Some(name) = self.providers.get(&dep.name) {
-            let p = self.find(name).ok_or_else(|| Error::UnknownPackage(name.clone()))?;
+            let p = self
+                .find(name)
+                .ok_or_else(|| Error::UnknownPackage(name.clone()))?;
             if p.satisfies(dep) {
                 return Ok(p);
             }
@@ -85,7 +92,8 @@ impl<'a> Resolver<'a> {
         }
         let mut cands: Vec<&Package> = Vec::new();
         for db in self.dbs {
-            let mut in_repo: Vec<&Package> = db.packages.iter().filter(|p| p.satisfies(dep)).collect();
+            let mut in_repo: Vec<&Package> =
+                db.packages.iter().filter(|p| p.satisfies(dep)).collect();
             in_repo.sort_by(|a, b| a.name.cmp(&b.name));
             for p in in_repo {
                 if !cands.iter().any(|q| q.name == p.name) {
@@ -99,7 +107,11 @@ impl<'a> Resolver<'a> {
             _ => {
                 let names: Vec<String> = cands.iter().map(|p| p.name.clone()).collect();
                 if !amb.iter().any(|a| a.dep == dep.name) {
-                    amb.push(Ambiguity { dep: dep.name.clone(), chosen: names[0].clone(), candidates: names });
+                    amb.push(Ambiguity {
+                        dep: dep.name.clone(),
+                        chosen: names[0].clone(),
+                        candidates: names,
+                    });
                 }
                 Ok(cands[0])
             }
@@ -114,7 +126,10 @@ impl<'a> Resolver<'a> {
         for r in requested {
             for p in self.expand_request(r)? {
                 if !selected.iter().any(|s| s.pkg.name == p.name) {
-                    selected.push(Selected { pkg: p, explicit: true });
+                    selected.push(Selected {
+                        pkg: p,
+                        explicit: true,
+                    });
                 }
             }
         }
@@ -126,13 +141,19 @@ impl<'a> Resolver<'a> {
             for dep in &pkg.depends {
                 let p = self.pick_for_dep(dep, &selected, &mut ambiguities)?;
                 if !selected.iter().any(|s| s.pkg.name == p.name) {
-                    selected.push(Selected { pkg: p, explicit: false });
+                    selected.push(Selected {
+                        pkg: p,
+                        explicit: false,
+                    });
                 }
             }
             i += 1;
         }
         self.check_conflicts(&selected)?;
-        Ok(Resolution { packages: self.order(selected), ambiguities })
+        Ok(Resolution {
+            packages: self.order(selected),
+            ambiguities,
+        })
     }
 
     fn check_conflicts(&self, sel: &[Selected<'a>]) -> Result<()> {

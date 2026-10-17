@@ -22,14 +22,14 @@ pub mod platform;
 pub mod port;
 #[cfg(feature = "r8169")]
 pub mod r8169;
-#[cfg(feature = "vmxnet3")]
-pub mod vmxnet3;
 #[cfg(feature = "r8169")]
 mod r8169_chip;
 #[cfg(feature = "rtl8139")]
 pub mod rtl8139;
 #[cfg(any(feature = "virtio-blk", feature = "virtio-net"))]
 pub mod virtio;
+#[cfg(feature = "vmxnet3")]
+pub mod vmxnet3;
 
 use alloc::{boxed::Box, vec::Vec};
 use hal::{BlockDevice, NetDevice};
@@ -77,8 +77,10 @@ pub fn net_driver_for(vendor: u16, device: u16) -> Option<&'static str> {
 
 /// Enumerates PCI and initializes every supported device.
 pub fn probe_all() -> Devices {
+    #[allow(unused_mut)]
     let mut devs = Devices::default();
     for dev in pci::enumerate() {
+        let _ = &dev;
         #[cfg(any(feature = "virtio-blk", feature = "virtio-net"))]
         virtio::probe(&dev, &mut devs);
         #[cfg(feature = "ahci")]

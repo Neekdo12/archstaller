@@ -74,7 +74,11 @@ fn fmt() -> Mem {
     // Up-case table: ASCII a-z fold to A-Z, everything else (and everything past 128) is identity.
     let mut table = Vec::new();
     for i in 0u16..128 {
-        let v = if (b'a' as u16..=b'z' as u16).contains(&i) { i - 32 } else { i };
+        let v = if (b'a' as u16..=b'z' as u16).contains(&i) {
+            i - 32
+        } else {
+            i
+        };
         table.extend_from_slice(&v.to_le_bytes());
     }
     let uo = cluster_off(UPCASE_CLUSTER);
@@ -131,7 +135,10 @@ fn appends_a_file_and_the_data_lands() {
         a.append("archstaller.log", data).unwrap();
     }
     let dir_off = cluster_off(ROOT_CLUSTER) + SET;
-    assert_eq!(m.0[dir_off], 0x85, "file entry follows the bitmap and up-case entries");
+    assert_eq!(
+        m.0[dir_off], 0x85,
+        "file entry follows the bitmap and up-case entries"
+    );
     assert!(m.0[dir_off + 1] as usize >= 2);
     assert_eq!(read_name_entries(&m.0, dir_off), "archstaller.log");
 
@@ -146,7 +153,10 @@ fn appends_a_file_and_the_data_lands() {
 
     // The bitmap on disk now marks the new cluster as used, and the dirty flag is clear.
     let idx = (first - 2) as usize;
-    assert_ne!(m.0[cluster_off(BITMAP_CLUSTER) + idx / 8] & (1 << (idx % 8)), 0);
+    assert_ne!(
+        m.0[cluster_off(BITMAP_CLUSTER) + idx / 8] & (1 << (idx % 8)),
+        0
+    );
     assert_eq!(u16::from_le_bytes([m.0[106], m.0[107]]) & 0x0002, 0);
 }
 
@@ -237,7 +247,10 @@ fn a_full_root_cluster_grows_the_root_chain() {
             a.append(&format!("f{k}.log"), b"d").unwrap();
         }
     }
-    assert!(fat_entry(&m.0, ROOT_CLUSTER) < 0xfffffff8, "root chain was extended");
+    assert!(
+        fat_entry(&m.0, ROOT_CLUSTER) < 0xfffffff8,
+        "root chain was extended"
+    );
     let mut a = Appender::open(&mut m).unwrap();
     for k in 0..6 {
         assert_eq!(a.exists(&format!("F{k}.LOG")), Ok(true));

@@ -26,10 +26,20 @@ fn run_case(cluster: u32, files: usize) {
         return;
     }
     let path = std::env::temp_dir().join(format!("exfatw-{}-{}.img", std::process::id(), cluster));
-    let f = OpenOptions::new().read(true).write(true).create(true).truncate(true).open(&path).unwrap();
+    let f = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&path)
+        .unwrap();
     f.set_len(64 << 20).unwrap();
     let c = cluster.to_string();
-    let st = Command::new("mkfs.exfat").args(["-c", c.as_str()]).arg(&path).status().unwrap();
+    let st = Command::new("mkfs.exfat")
+        .args(["-c", c.as_str()])
+        .arg(&path)
+        .status()
+        .unwrap();
     assert!(st.success(), "mkfs.exfat failed");
     {
         let mut s = FileStore(f);
@@ -40,9 +50,16 @@ fn run_case(cluster: u32, files: usize) {
             a.append(&name, &data).unwrap();
         }
     }
-    let st = Command::new("fsck.exfat").arg("-n").arg(&path).status().unwrap();
+    let st = Command::new("fsck.exfat")
+        .arg("-n")
+        .arg(&path)
+        .status()
+        .unwrap();
     std::fs::remove_file(&path).ok();
-    assert!(st.success(), "fsck.exfat rejected the image (cluster size {cluster})");
+    assert!(
+        st.success(),
+        "fsck.exfat rejected the image (cluster size {cluster})"
+    );
 }
 
 #[test]

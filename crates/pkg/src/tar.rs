@@ -53,14 +53,22 @@ fn octal(b: &[u8]) -> Result<u64> {
         // GNU base-256.
         let mut v = (b[0] & 0x7f) as u64;
         for &c in &b[1..] {
-            v = v.checked_mul(256).ok_or(Error::Format("tar number overflow"))? | c as u64;
+            v = v
+                .checked_mul(256)
+                .ok_or(Error::Format("tar number overflow"))?
+                | c as u64;
         }
         return Ok(v);
     }
     let mut v = 0u64;
     for &c in b {
         match c {
-            b'0'..=b'7' => v = v.checked_mul(8).ok_or(Error::Format("tar number overflow"))? + (c - b'0') as u64,
+            b'0'..=b'7' => {
+                v = v
+                    .checked_mul(8)
+                    .ok_or(Error::Format("tar number overflow"))?
+                    + (c - b'0') as u64
+            }
             0 | b' ' => {
                 if v != 0 || c == 0 {
                     // Terminator once digits were seen (or an empty field).
@@ -77,7 +85,12 @@ fn octal(b: &[u8]) -> Result<u64> {
 
 impl<R: Read> TarReader<R> {
     pub fn new(src: R) -> Self {
-        TarReader { src, remaining: 0, padding: 0, done: false }
+        TarReader {
+            src,
+            remaining: 0,
+            padding: 0,
+            done: false,
+        }
     }
 
     fn skip(&mut self, mut n: u64) -> Result<()> {
@@ -139,7 +152,17 @@ impl<R: Read> TarReader<R> {
             }
             // Checksum over the header with the checksum field as spaces.
             let stored = octal(&h[148..156])?;
-            let sum: u64 = h.iter().enumerate().map(|(i, &b)| if (148..156).contains(&i) { 32 } else { b as u64 }).sum();
+            let sum: u64 = h
+                .iter()
+                .enumerate()
+                .map(|(i, &b)| {
+                    if (148..156).contains(&i) {
+                        32
+                    } else {
+                        b as u64
+                    }
+                })
+                .sum();
             if sum != stored {
                 return Err(Error::Format("tar checksum mismatch"));
             }
@@ -212,7 +235,9 @@ impl<R: Read> TarReader<R> {
                     "size" => e.size = text().parse().map_err(|_| Error::Format("bad pax size"))?,
                     "uid" => e.uid = text().parse().map_err(|_| Error::Format("bad pax uid"))?,
                     "gid" => e.gid = text().parse().map_err(|_| Error::Format("bad pax gid"))?,
-                    "mtime" => e.mtime = text().split('.').next().unwrap_or("0").parse().unwrap_or(0),
+                    "mtime" => {
+                        e.mtime = text().split('.').next().unwrap_or("0").parse().unwrap_or(0)
+                    }
                     _ => {
                         if let Some(name) = k.strip_prefix("SCHILY.xattr.") {
                             e.xattrs.push((String::from(name), v));
@@ -262,14 +287,26 @@ impl<R: Read> TarReader<R> {
 /// Parses `"<len> <key>=<value>\n"` records.
 fn parse_pax(mut b: &[u8], out: &mut Vec<(String, Vec<u8>)>) -> Result<()> {
     while !b.is_empty() {
-        let sp = b.iter().position(|&c| c == b' ').ok_or(Error::Format("bad pax record"))?;
-        let len: usize = core::str::from_utf8(&b[..sp]).ok().and_then(|s| s.parse().ok()).ok_or(Error::Format("bad pax length"))?;
+        let sp = b
+            .iter()
+            .position(|&c| c == b' ')
+            .ok_or(Error::Format("bad pax record"))?;
+        let len: usize = core::str::from_utf8(&b[..sp])
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .ok_or(Error::Format("bad pax length"))?;
         if len < sp + 2 || len > b.len() {
             return Err(Error::Format("bad pax length"));
         }
         let rec = &b[sp + 1..len - 1]; // strip trailing newline
-        let eq = rec.iter().position(|&c| c == b'=').ok_or(Error::Format("bad pax record"))?;
-        out.push((String::from_utf8_lossy(&rec[..eq]).into_owned(), rec[eq + 1..].to_vec()));
+        let eq = rec
+            .iter()
+            .position(|&c| c == b'=')
+            .ok_or(Error::Format("bad pax record"))?;
+        out.push((
+            String::from_utf8_lossy(&rec[..eq]).into_owned(),
+            rec[eq + 1..].to_vec(),
+        ));
         b = &b[len..];
     }
     Ok(())

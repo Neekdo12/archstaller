@@ -57,7 +57,15 @@ struct Gate {
 }
 
 impl Gate {
-    const MISSING: Gate = Gate { offset_lo: 0, selector: 0, ist: 0, attrs: 0, offset_mid: 0, offset_hi: 0, _zero: 0 };
+    const MISSING: Gate = Gate {
+        offset_lo: 0,
+        selector: 0,
+        ist: 0,
+        attrs: 0,
+        offset_mid: 0,
+        offset_hi: 0,
+        _zero: 0,
+    };
 
     fn new(handler: u64, ist: u8) -> Gate {
         Gate {
@@ -84,7 +92,9 @@ extern "C" {
 /// with its message compiled out.
 fn is_panic_trap(rip: u64) -> bool {
     let (start, end) = (&raw const __text_start as u64, &raw const __text_end as u64);
-    rip >= start && rip + 2 <= end && unsafe { core::ptr::read_unaligned(rip as *const [u8; 2]) } == [0x0f, 0x0b]
+    rip >= start
+        && rip + 2 <= end
+        && unsafe { core::ptr::read_unaligned(rip as *const [u8; 2]) } == [0x0f, 0x0b]
 }
 
 fn report(name: &str, vector: u8, code: Option<u64>, f: &InterruptStackFrame) -> ! {
@@ -106,7 +116,12 @@ fn report(name: &str, vector: u8, code: Option<u64>, f: &InterruptStackFrame) ->
         unsafe { asm!("mov {}, cr2", out(reg) cr2, options(nomem, nostack)) };
         crate::println!("cr2: {cr2:#x}");
     }
-    crate::println!("rip: {:#x}  cs: {:#x}  rflags: {:#x}", f.rip, f.cs, f.rflags);
+    crate::println!(
+        "rip: {:#x}  cs: {:#x}  rflags: {:#x}",
+        f.rip,
+        f.cs,
+        f.rflags
+    );
     crate::println!("rsp: {:#x}  ss: {:#x}", f.rsp, f.ss);
     crate::halt()
 }
@@ -202,7 +217,10 @@ pub fn init() {
             | (((tss_base >> 24) & 0xff) << 56);
         (*gdt)[4] = tss_base >> 32;
 
-        let gdtr = DescTablePtr { limit: (size_of::<[u64; 5]>() - 1) as u16, base: gdt as u64 };
+        let gdtr = DescTablePtr {
+            limit: (size_of::<[u64; 5]>() - 1) as u16,
+            base: gdt as u64,
+        };
         asm!(
             "lgdt [{gdtr}]",
             "push 0x08",
@@ -247,13 +265,32 @@ pub fn init() {
         set(crate::idle::VECTOR, timer_tick as *const () as u64, 0);
         set(0xff, lapic_spurious as *const () as u64, 0);
         for v in 0x21..0x28 {
-            set(v, if v == 0x27 { spurious_master as *const () as u64 } else { irq_master as *const () as u64 }, 0);
+            set(
+                v,
+                if v == 0x27 {
+                    spurious_master as *const () as u64
+                } else {
+                    irq_master as *const () as u64
+                },
+                0,
+            );
         }
         for v in 0x28..0x30 {
-            set(v, if v == 0x2f { spurious_slave as *const () as u64 } else { irq_slave as *const () as u64 }, 0);
+            set(
+                v,
+                if v == 0x2f {
+                    spurious_slave as *const () as u64
+                } else {
+                    irq_slave as *const () as u64
+                },
+                0,
+            );
         }
 
-        let idtr = DescTablePtr { limit: (size_of::<[Gate; 256]>() - 1) as u16, base: idt as u64 };
+        let idtr = DescTablePtr {
+            limit: (size_of::<[Gate; 256]>() - 1) as u16,
+            base: idt as u64,
+        };
         asm!("lidt [{}]", in(reg) &idtr, options(readonly, nostack));
     }
 }

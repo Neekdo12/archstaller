@@ -41,6 +41,10 @@ impl Dma {
         self.layout.size()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.layout.size() == 0
+    }
+
     pub fn as_slice(&self) -> &[u8] {
         unsafe { core::slice::from_raw_parts(self.ptr, self.layout.size()) }
     }

@@ -121,7 +121,14 @@ impl E1000 {
 
         let ral = regs.read32(RAL0);
         let rah = regs.read32(RAH0);
-        let mac = [ral as u8, (ral >> 8) as u8, (ral >> 16) as u8, (ral >> 24) as u8, rah as u8, (rah >> 8) as u8];
+        let mac = [
+            ral as u8,
+            (ral >> 8) as u8,
+            (ral >> 16) as u8,
+            (ral >> 24) as u8,
+            rah as u8,
+            (rah >> 8) as u8,
+        ];
         if mac == [0; 6] {
             return Err(Error::Unsupported);
         }
@@ -158,7 +165,17 @@ impl E1000 {
         regs.write32(RCTL, RCTL_EN | RCTL_BAM | RCTL_SECRC);
         regs.write32(RDT, (RING - 1) as u32);
 
-        Ok(E1000 { regs, rx_ring, tx_ring, rx_bufs, tx_buf, rx_next: 0, tx_next: 0, mac, e1000e })
+        Ok(E1000 {
+            regs,
+            rx_ring,
+            tx_ring,
+            rx_bufs,
+            tx_buf,
+            rx_next: 0,
+            tx_next: 0,
+            mac,
+            e1000e,
+        })
     }
 }
 

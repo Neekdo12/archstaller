@@ -203,7 +203,12 @@ pub mod bios {
     }
 
     /// Tells stage 2 what to load: `mode`, up to three `(byte offset on the boot medium, length)` extents, and a command line.
-    pub fn patch_stage2(stage2: &mut [u8], mode: u32, extents: &[(u64, u64)], cmdline: &str) -> Result<(), &'static str> {
+    pub fn patch_stage2(
+        stage2: &mut [u8],
+        mode: u32,
+        extents: &[(u64, u64)],
+        cmdline: &str,
+    ) -> Result<(), &'static str> {
         if extents.len() > 3 || cmdline.len() >= CMDLINE_MAX {
             return Err("too many extents or a command line that is too long");
         }

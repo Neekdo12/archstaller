@@ -41,7 +41,14 @@ const KEYWORDS: &[&str] = &["true", "false"];
 fn ident_before(s: &str) -> Option<String> {
     let t = s.trim_end();
     let t = t.strip_suffix('=')?.trim_end();
-    let name: String = t.chars().rev().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect::<Vec<_>>().into_iter().rev().collect();
+    let name: String = t
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
     (!name.is_empty()).then_some(name)
 }
 
@@ -112,12 +119,27 @@ pub fn context(before: &str) -> Context {
         let q = last_quote.unwrap();
         let prefix = line[q + 1..].to_string();
         let key = ident_before(&line[..q]).or_else(|| enclosing_key(&before[..line_start + q]));
-        return Context { in_string: true, key, prefix };
+        return Context {
+            in_string: true,
+            key,
+            prefix,
+        };
     }
-    let prefix: String = line.chars().rev().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect::<Vec<_>>().into_iter().rev().collect();
+    let prefix: String = line
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
     let head = &line[..line.len() - prefix.len()];
     let key = ident_before(head).or_else(|| enclosing_key(&before[..before.len() - prefix.len()]));
-    Context { in_string: false, key, prefix }
+    Context {
+        in_string: false,
+        key,
+        prefix,
+    }
 }
 
 /// Every field name of the `as` schema with its description.
@@ -127,7 +149,11 @@ pub fn schema_fields() -> Vec<(String, String)> {
     let mut visit = |node: &serde_json::Value| {
         if let Some(props) = node.get("properties").and_then(|p| p.as_object()) {
             for (k, v) in props {
-                let d = v.get("description").and_then(|d| d.as_str()).unwrap_or("").to_string();
+                let d = v
+                    .get("description")
+                    .and_then(|d| d.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 if !out.iter().any(|(n, _)| n == k) {
                     out.push((k.clone(), d));
                 }
@@ -144,16 +170,31 @@ pub fn schema_fields() -> Vec<(String, String)> {
 }
 
 fn strings(list: &[String], detail: &str) -> Vec<(String, String)> {
-    list.iter().map(|s| (s.clone(), detail.to_string())).collect()
+    list.iter()
+        .map(|s| (s.clone(), detail.to_string()))
+        .collect()
 }
 
 /// The values to offer for a key, as (value, detail).
 fn values(key: &str, src: &Sources) -> Vec<(String, String)> {
     match key {
-        "profile" => vec![("super-small".into(), "smallest installer (default)".into()), ("large".into(), "keeps panic messages".into())],
-        "installer_drivers" => DRIVERS.iter().map(|d| (d.id.to_string(), d.description.to_string())).collect(),
-        "id" => BUILTINS.iter().map(|b| (b.id.to_string(), b.description.to_string())).collect(),
-        "explicit" => src.packages.iter().map(|p| (p.clone(), "from the last resolution".to_string())).collect(),
+        "profile" => vec![
+            ("super-small".into(), "smallest installer (default)".into()),
+            ("large".into(), "keeps panic messages".into()),
+        ],
+        "installer_drivers" => DRIVERS
+            .iter()
+            .map(|d| (d.id.to_string(), d.description.to_string()))
+            .collect(),
+        "id" => BUILTINS
+            .iter()
+            .map(|b| (b.id.to_string(), b.description.to_string()))
+            .collect(),
+        "explicit" => src
+            .packages
+            .iter()
+            .map(|p| (p.clone(), "from the last resolution".to_string()))
+            .collect(),
         "services" => strings(&src.services, "unit"),
         "kernel_params" => strings(&src.kernel_params, "kernel parameter"),
         "timezone" => strings(&src.timezones, "time zone"),
@@ -175,17 +216,33 @@ pub fn candidates(ctx: &Context, src: &Sources, fields: &[(String, String)]) -> 
         let vals = values(key, src);
         if !vals.is_empty() {
             for (v, d) in vals.into_iter().filter(|(v, _)| matches(v)) {
-                let insert = if ctx.in_string { v.clone() } else { format!("\"{v}\"") };
-                out.push(Item { insert, label: v, detail: d });
+                let insert = if ctx.in_string {
+                    v.clone()
+                } else {
+                    format!("\"{v}\"")
+                };
+                out.push(Item {
+                    insert,
+                    label: v,
+                    detail: d,
+                });
             }
         }
     }
     if out.is_empty() && !ctx.in_string && !ctx.prefix.is_empty() {
         for (name, d) in fields.iter().filter(|(n, _)| matches(n)) {
-            out.push(Item { insert: name.clone(), label: name.clone(), detail: d.clone() });
+            out.push(Item {
+                insert: name.clone(),
+                label: name.clone(),
+                detail: d.clone(),
+            });
         }
         for k in KEYWORDS.iter().filter(|k| matches(k)) {
-            out.push(Item { insert: k.to_string(), label: k.to_string(), detail: "TOML keyword".into() });
+            out.push(Item {
+                insert: k.to_string(),
+                label: k.to_string(),
+                detail: "TOML keyword".into(),
+            });
         }
     }
     out.sort_by_key(|i| rank(&i.label));
@@ -200,15 +257,31 @@ mod tests {
     #[test]
     fn context_inside_strings_and_tables() {
         let c = context("  build = { profile = \"la");
-        assert_eq!(c, Context { in_string: true, key: Some("profile".into()), prefix: "la".into() });
+        assert_eq!(
+            c,
+            Context {
+                in_string: true,
+                key: Some("profile".into()),
+                prefix: "la".into()
+            }
+        );
         let c = context("explicit = [ \"base\", \"lin");
-        assert!(c.in_string && c.key.as_deref() == Some("explicit") && c.prefix == "lin", "{c:?}");
+        assert!(
+            c.in_string && c.key.as_deref() == Some("explicit") && c.prefix == "lin",
+            "{c:?}"
+        );
         // The key is the enclosing table for a bare string in a list on its own line.
         let c = context("services = [\n  \"sys");
-        assert!(c.in_string && c.key.as_deref() == Some("services") && c.prefix == "sys", "{c:?}");
+        assert!(
+            c.in_string && c.key.as_deref() == Some("services") && c.prefix == "sys",
+            "{c:?}"
+        );
         // Not in a string: a field name being typed inside a section.
         let c = context("[system]\nhost");
-        assert!(!c.in_string && c.prefix == "host" && c.key.as_deref() == Some("system"), "{c:?}");
+        assert!(
+            !c.in_string && c.prefix == "host" && c.key.as_deref() == Some("system"),
+            "{c:?}"
+        );
         // A closed array before the cursor does not count.
         let c = context("a = [1]\nz");
         assert!(c.key.is_none() && c.prefix == "z", "{c:?}");
@@ -219,19 +292,41 @@ mod tests {
 
     #[test]
     fn candidates_come_from_the_catalogues() {
-        let src = Sources { services: Rc::new(vec!["sshd.service".into(), "NetworkManager.service".into()]), packages: vec!["base".into(), "linux".into()], ..Default::default() };
+        let src = Sources {
+            services: Rc::new(vec!["sshd.service".into(), "NetworkManager.service".into()]),
+            packages: vec!["base".into(), "linux".into()],
+            ..Default::default()
+        };
         let fields = schema_fields();
-        assert!(fields.iter().any(|(n, d)| n == "hostname" && !d.is_empty()), "descriptions are carried over");
+        assert!(
+            fields.iter().any(|(n, d)| n == "hostname" && !d.is_empty()),
+            "descriptions are carried over"
+        );
         let drivers = candidates(&context("installer_drivers = [ \"virt"), &src, &fields);
-        assert!(drivers.iter().any(|i| i.label == "virtio-blk") && drivers.iter().any(|i| i.label == "virtio-net"));
-        assert!(drivers.iter().all(|i| !i.insert.contains('"')), "inside a string the quotes are already there");
+        assert!(
+            drivers.iter().any(|i| i.label == "virtio-blk")
+                && drivers.iter().any(|i| i.label == "virtio-net")
+        );
+        assert!(
+            drivers.iter().all(|i| !i.insert.contains('"')),
+            "inside a string the quotes are already there"
+        );
         let profile = candidates(&context("profile = "), &src, &fields);
         // No prefix typed: nothing is pushed on the user for a value position outside a string... except the catalogue.
-        assert!(profile.iter().any(|i| i.insert == "\"large\""), "{profile:?}");
+        assert!(
+            profile.iter().any(|i| i.insert == "\"large\""),
+            "{profile:?}"
+        );
         let scripts = candidates(&context("scripts = [ { id = \"enable-s"), &src, &fields);
-        assert_eq!(scripts.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(), ["enable-sshd"]);
+        assert_eq!(
+            scripts.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(),
+            ["enable-sshd"]
+        );
         let pk = candidates(&context("explicit = [ \"li"), &src, &fields);
-        assert_eq!(pk.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(), ["linux"]);
+        assert_eq!(
+            pk.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(),
+            ["linux"]
+        );
         let svc = candidates(&context("services = [ \"ssh"), &src, &fields);
         assert_eq!(svc.len(), 1);
         let f = candidates(&context("[install]\nmirr"), &src, &fields);

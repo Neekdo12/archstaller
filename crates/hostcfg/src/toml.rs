@@ -67,7 +67,9 @@ pub fn load_unvalidated(path: &Path) -> Result<Loaded> {
 /// Evaluates a TOML string against the schema and converts it into (Config, HostConfig).
 pub fn load_str_unvalidated(src: &str, dir: &Path) -> Result<Loaded> {
     let as_config = AsConfig::from_toml(src).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let (config, host) = as_config.into_parts().map_err(|e| format!("{}: {e}", dir.display()))?;
+    let (config, host) = as_config
+        .into_parts()
+        .map_err(|e| format!("{}: {e}", dir.display()))?;
     Ok(Loaded {
         config,
         host,
@@ -85,7 +87,8 @@ pub fn load_config(path: &Path) -> Result<config::Config> {
 pub fn config_bin(loaded: &Loaded, extra_kernel_params: &[String]) -> Result<Vec<u8>> {
     let cfg = crate::scripts::resolve(&loaded.config, &loaded.dir)?;
     let mut cfg = crate::services::resolve(&cfg, &loaded.dir)?;
-    cfg.kernel_params.extend(extra_kernel_params.iter().cloned());
+    cfg.kernel_params
+        .extend(extra_kernel_params.iter().cloned());
     cfg.validate()?;
     Ok(postcard::to_stdvec(&cfg)?)
 }
@@ -203,4 +206,3 @@ file = "services/user-daemon.service"
         );
     }
 }
-

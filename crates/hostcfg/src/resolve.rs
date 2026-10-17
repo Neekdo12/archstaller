@@ -49,10 +49,30 @@ pub fn resolve(cfg: &Config, dbs: &[Db]) -> Result<Resolution> {
             wanted.push(d.clone());
         }
     }
-    let r = Resolver::new(dbs, &providers).resolve(&wanted).map_err(|e| format!("{e:?}"))?;
+    let r = Resolver::new(dbs, &providers)
+        .resolve(&wanted)
+        .map_err(|e| format!("{e:?}"))?;
     Ok(Resolution {
-        packages: r.packages.iter().map(|s| Entry { repo: s.pkg.repo.clone(), name: s.pkg.name.clone(), version: s.pkg.version.clone(), csize: s.pkg.csize, explicit: s.explicit }).collect(),
-        ambiguities: r.ambiguities.iter().map(|a| Ambiguity { dep: a.dep.clone(), chosen: a.chosen.clone(), candidates: a.candidates.clone() }).collect(),
+        packages: r
+            .packages
+            .iter()
+            .map(|s| Entry {
+                repo: s.pkg.repo.clone(),
+                name: s.pkg.name.clone(),
+                version: s.pkg.version.clone(),
+                csize: s.pkg.csize,
+                explicit: s.explicit,
+            })
+            .collect(),
+        ambiguities: r
+            .ambiguities
+            .iter()
+            .map(|a| Ambiguity {
+                dep: a.dep.clone(),
+                chosen: a.chosen.clone(),
+                candidates: a.candidates.clone(),
+            })
+            .collect(),
     })
 }
 
@@ -73,10 +93,16 @@ pub struct Catalog {
 
 /// Parses `(repo, compressed database)` pairs, in priority order, keeping the descriptions.
 pub fn parse_catalog(files: &[(&str, Vec<u8>)]) -> Result<Catalog> {
-    let mut cat = Catalog { dbs: Vec::new(), descriptions: Vec::new() };
+    let mut cat = Catalog {
+        dbs: Vec::new(),
+        descriptions: Vec::new(),
+    };
     for (name, data) in files {
         let mut descs = Vec::new();
-        let db = Db::parse_with(name, data.as_slice(), |_, text| descs.push(pkg::desc::field(text, "DESC").unwrap_or("").to_string())).map_err(|e| format!("{name}.db: {e:?}"))?;
+        let db = Db::parse_with(name, data.as_slice(), |_, text| {
+            descs.push(pkg::desc::field(text, "DESC").unwrap_or("").to_string())
+        })
+        .map_err(|e| format!("{name}.db: {e:?}"))?;
         cat.dbs.push(db);
         cat.descriptions.push(descs);
     }
@@ -92,19 +118,40 @@ fn download(mirror: &str, cache: &std::path::Path) -> Result<Vec<(&'static str, 
     }
     std::fs::create_dir_all(cache)?;
     // Keyed by the mirror as well, so switching mirrors does not keep serving the previous one's files.
-    let key = mirror.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
+    let key = mirror.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+        (h ^ b as u64).wrapping_mul(0x100_0000_01b3)
+    });
     let mut out = Vec::new();
     for repo in ["core", "extra"] {
         let file = cache.join(format!("{repo}-{key:016x}.db"));
-        let fresh = std::fs::metadata(&file).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age.as_secs() < 3600);
+        let fresh = std::fs::metadata(&file)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age.as_secs() < 3600);
         if !fresh {
-            let url = format!("{}/{repo}.db", mirror.replace("$repo", repo).replace("$arch", "x86_64").trim_end_matches('/'));
+            let url = format!(
+                "{}/{repo}.db",
+                mirror
+                    .replace("$repo", repo)
+                    .replace("$arch", "x86_64")
+                    .trim_end_matches('/')
+            );
             let mut resp = ureq::get(&url).call().map_err(|e| format!("{url}: {e}"))?;
-            let data = resp.body_mut().with_config().limit(128 << 20).read_to_vec().map_err(|e| format!("{url}: {e}"))?;
+            let data = resp
+                .body_mut()
+                .with_config()
+                .limit(128 << 20)
+                .read_to_vec()
+                .map_err(|e| format!("{url}: {e}"))?;
             // Written beside it and renamed into place: the GUI's resolution preview and package search read
             // the cache from two threads, and a half-written file looks fresh.
             static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-            let tmp = cache.join(format!(".{repo}-{key:016x}.{}.{}.tmp", std::process::id(), SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+            let tmp = cache.join(format!(
+                ".{repo}-{key:016x}.{}.{}.tmp",
+                std::process::id(),
+                SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
             std::fs::write(&tmp, data)?;
             std::fs::rename(&tmp, &file)?;
         }
@@ -116,7 +163,10 @@ fn download(mirror: &str, cache: &std::path::Path) -> Result<Vec<(&'static str, 
 /// Downloads `core.db` and `extra.db` from a mirror and parses them (see [`download`] for the cache).
 #[cfg(feature = "net")]
 pub fn fetch_dbs(mirror: &str, cache: &std::path::Path) -> Result<Vec<Db>> {
-    download(mirror, cache)?.iter().map(|(repo, data)| parse_db(repo, data)).collect()
+    download(mirror, cache)?
+        .iter()
+        .map(|(repo, data)| parse_db(repo, data))
+        .collect()
 }
 
 /// [`fetch_dbs`] with the package descriptions, for the GUI's search.
@@ -133,19 +183,34 @@ mod tests {
     #[test]
     fn catalog_keeps_descriptions_aligned() {
         let read = |n: &str| std::fs::read(format!("/var/lib/pacman/sync/{n}.db")).ok();
-        let (Some(core), Some(extra)) = (read("core"), read("extra")) else { return };
+        let (Some(core), Some(extra)) = (read("core"), read("extra")) else {
+            return;
+        };
         let cat = parse_catalog(&[("core", core), ("extra", extra)]).unwrap();
         assert_eq!(cat.dbs.len(), 2);
         for (db, d) in cat.dbs.iter().zip(&cat.descriptions) {
             assert_eq!(db.packages.len(), d.len(), "{}", db.name);
         }
-        let i = cat.dbs[0].packages.iter().position(|p| p.name == "pacman").unwrap();
-        assert!(cat.descriptions[0][i].to_lowercase().contains("package manager"), "{}", cat.descriptions[0][i]);
+        let i = cat.dbs[0]
+            .packages
+            .iter()
+            .position(|p| p.name == "pacman")
+            .unwrap();
+        assert!(
+            cat.descriptions[0][i]
+                .to_lowercase()
+                .contains("package manager"),
+            "{}",
+            cat.descriptions[0][i]
+        );
     }
 
     #[test]
     fn a_broken_database_names_itself() {
-        let e = parse_catalog(&[("core", b"not a database".to_vec())]).err().unwrap().to_string();
+        let e = parse_catalog(&[("core", b"not a database".to_vec())])
+            .err()
+            .unwrap()
+            .to_string();
         assert!(e.starts_with("core.db"), "{e}");
     }
 }

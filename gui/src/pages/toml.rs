@@ -21,7 +21,12 @@ fn scheme_buffer(app: &Rc<App>, text: &str) -> (sourceview5::Buffer, bool) {
     buf.set_highlight_syntax(true);
     let dark = ui::is_dark(&app.win);
     let mgr = sourceview5::StyleSchemeManager::default();
-    let scheme = [if dark { "Adwaita-dark" } else { "Adwaita" }, if dark { "classic-dark" } else { "classic" }].iter().find_map(|n| mgr.scheme(n));
+    let scheme = [
+        if dark { "Adwaita-dark" } else { "Adwaita" },
+        if dark { "classic-dark" } else { "classic" },
+    ]
+    .iter()
+    .find_map(|n| mgr.scheme(n));
     buf.set_style_scheme(scheme.as_ref());
     buf.set_text(text);
     buf.set_enable_undo(true);
@@ -62,7 +67,12 @@ fn form_mode(app: &Rc<App>, content: &gtk::Box, text: &str) {
     let c = ui::card(content, None);
     let (buf, has_lang) = scheme_buffer(app, text);
     let view = editor_view(&buf, false);
-    let scroll = gtk::ScrolledWindow::builder().min_content_height(480).vexpand(true).has_frame(true).child(&view).build();
+    let scroll = gtk::ScrolledWindow::builder()
+        .min_content_height(480)
+        .vexpand(true)
+        .has_frame(true)
+        .child(&view)
+        .build();
     c.append(&scroll);
     if !has_lang {
         ui::hint(&c, "TOML highlighting is not available (the GtkSourceView TOML language definition was not found); the text is shown plain.");
@@ -90,14 +100,25 @@ struct Completion {
 }
 
 fn source_mode(app: &Rc<App>, content: &gtk::Box, text: &str, foreign: bool) {
-    ui::heading(content, "TOML source", if foreign { "This file was not written by the GUI, so it is edited as text and checked as it is." } else { "Source mode: edit the text. The forms are unavailable until you return to them." });
+    ui::heading(
+        content,
+        "TOML source",
+        if foreign {
+            "This file was not written by the GUI, so it is edited as text and checked as it is."
+        } else {
+            "Source mode: edit the text. The forms are unavailable until you return to them."
+        },
+    );
     let c = ui::card(content, None);
     let (buf, has_lang) = scheme_buffer(app, text);
     let view = editor_view(&buf, true);
 
     // Toolbar.
     let bar = ui::hbox(8);
-    let search_toggle = gtk::ToggleButton::builder().icon_name("edit-find-symbolic").tooltip_text("Search (Ctrl+F)").build();
+    let search_toggle = gtk::ToggleButton::builder()
+        .icon_name("edit-find-symbolic")
+        .tooltip_text("Search (Ctrl+F)")
+        .build();
     search_toggle.update_property(&[gtk::accessible::Property::Label("Search in the source")]);
     bar.append(&search_toggle);
     let hint = ui::dim("Ctrl+Space: suggestions");
@@ -107,7 +128,11 @@ fn source_mode(app: &Rc<App>, content: &gtk::Box, text: &str, foreign: bool) {
     bar.append(&diag_btn);
     let back = ui::primary("Return to the forms", || {});
     bar.append(&back);
-    let discard = gtk::Button::with_label(if foreign { "Replace with a form-based starter" } else { "Discard source edits" });
+    let discard = gtk::Button::with_label(if foreign {
+        "Replace with a form-based starter"
+    } else {
+        "Discard source edits"
+    });
     bar.append(&discard);
     c.append(&bar);
 
@@ -117,7 +142,10 @@ fn source_mode(app: &Rc<App>, content: &gtk::Box, text: &str, foreign: bool) {
     let search_ctx = sourceview5::SearchContext::new(&buf, Some(&settings));
     search_ctx.set_highlight(true);
     let search = gtk::SearchEntry::new();
-    let revealer = gtk::Revealer::builder().child(&search).reveal_child(false).build();
+    let revealer = gtk::Revealer::builder()
+        .child(&search)
+        .reveal_child(false)
+        .build();
     c.append(&revealer);
     {
         let r = revealer.clone();
@@ -131,12 +159,17 @@ fn source_mode(app: &Rc<App>, content: &gtk::Box, text: &str, foreign: bool) {
     }
     {
         let settings = settings.clone();
-        search.connect_search_changed(move |e| settings.set_search_text(Some(e.text().as_str()).filter(|t| !t.is_empty())));
+        search.connect_search_changed(move |e| {
+            settings.set_search_text(Some(e.text().as_str()).filter(|t| !t.is_empty()))
+        });
     }
     {
         let (buf, view, ctx) = (buf.clone(), view.clone(), search_ctx.clone());
         search.connect_activate(move |_| {
-            let from = buf.selection_bounds().map(|(_, e)| e).unwrap_or_else(|| buf.iter_at_mark(&buf.get_insert()));
+            let from = buf
+                .selection_bounds()
+                .map(|(_, e)| e)
+                .unwrap_or_else(|| buf.iter_at_mark(&buf.get_insert()));
             if let Some((mut s, e, _)) = ctx.forward(&from) {
                 buf.select_range(&s, &e);
                 view.scroll_to_iter(&mut s, 0.1, false, 0.0, 0.0);
@@ -144,7 +177,12 @@ fn source_mode(app: &Rc<App>, content: &gtk::Box, text: &str, foreign: bool) {
         });
     }
 
-    let scroll = gtk::ScrolledWindow::builder().min_content_height(420).vexpand(true).has_frame(true).child(&view).build();
+    let scroll = gtk::ScrolledWindow::builder()
+        .min_content_height(420)
+        .vexpand(true)
+        .has_frame(true)
+        .child(&view)
+        .build();
     c.append(&scroll);
     if !has_lang {
         ui::hint(&c, "TOML highlighting is not available (the GtkSourceView TOML language definition was not found); editing works as plain text.");
@@ -157,11 +195,17 @@ fn source_mode(app: &Rc<App>, content: &gtk::Box, text: &str, foreign: bool) {
         let (a, buf, view, diag) = (app.clone(), buf.clone(), view.clone(), diag.clone());
         Rc::new(move || {
             ui::clear(&diag);
-            let text = buf.text(&buf.start_iter(), &buf.end_iter(), false).to_string();
+            let text = buf
+                .text(&buf.start_iter(), &buf.end_iter(), false)
+                .to_string();
             let r = a.st.borrow().model.check_source(&text);
             match r {
                 Ok(()) => {
-                    ui::note(&diag, Kind::Ok, "The text evaluates and passes the same checks as the command line.");
+                    ui::note(
+                        &diag,
+                        Kind::Ok,
+                        "The text evaluates and passes the same checks as the command line.",
+                    );
                 }
                 Err(e) => {
                     let first = e.lines().next().unwrap_or("").to_string();
@@ -255,13 +299,25 @@ fn source_mode(app: &Rc<App>, content: &gtk::Box, text: &str, foreign: bool) {
     }
 
     // Completion on Ctrl+Space.
-    let comp = Rc::new(Completion { pop: gtk::Popover::new(), list: gtk::ListBox::new(), items: RefCell::new(vec![]), prefix_chars: Cell::new(0) });
+    let comp = Rc::new(Completion {
+        pop: gtk::Popover::new(),
+        list: gtk::ListBox::new(),
+        items: RefCell::new(vec![]),
+        prefix_chars: Cell::new(0),
+    });
     comp.pop.set_parent(&view);
     comp.pop.set_autohide(false);
     comp.pop.set_has_arrow(false);
     comp.pop.set_position(gtk::PositionType::Bottom);
     comp.list.set_selection_mode(gtk::SelectionMode::Single);
-    comp.pop.set_child(Some(&gtk::ScrolledWindow::builder().child(&comp.list).min_content_width(380).max_content_height(240).propagate_natural_height(true).build()));
+    comp.pop.set_child(Some(
+        &gtk::ScrolledWindow::builder()
+            .child(&comp.list)
+            .min_content_width(380)
+            .max_content_height(240)
+            .propagate_natural_height(true)
+            .build(),
+    ));
     let fields = Rc::new(completion::schema_fields());
     let compute: Rc<dyn Fn() -> Vec<Item>> = {
         let (a, buf, comp, fields) = (app.clone(), buf.clone(), comp.clone(), fields.clone());
@@ -315,16 +371,25 @@ fn source_mode(app: &Rc<App>, content: &gtk::Box, text: &str, foreign: bool) {
             *comp.items.borrow_mut() = items;
             let it = buf.iter_at_mark(&buf.get_insert());
             let rect = view.iter_location(&it);
-            let (x, y) = view.buffer_to_window_coords(gtk::TextWindowType::Widget, rect.x(), rect.y() + rect.height());
-            comp.pop.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x, y, 1, 1)));
+            let (x, y) = view.buffer_to_window_coords(
+                gtk::TextWindowType::Widget,
+                rect.x(),
+                rect.y() + rect.height(),
+            );
+            comp.pop
+                .set_pointing_to(Some(&gtk::gdk::Rectangle::new(x, y, 1, 1)));
             comp.pop.popup();
         })
     };
     let accept: Rc<dyn Fn()> = {
         let (comp, buf) = (comp.clone(), buf.clone());
         Rc::new(move || {
-            let Some(row) = comp.list.selected_row() else { return };
-            let Some(item) = comp.items.borrow().get(row.index() as usize).cloned() else { return };
+            let Some(row) = comp.list.selected_row() else {
+                return;
+            };
+            let Some(item) = comp.items.borrow().get(row.index() as usize).cloned() else {
+                return;
+            };
             comp.pop.popdown();
             let mut end = buf.iter_at_mark(&buf.get_insert());
             let mut start = end;
@@ -338,7 +403,14 @@ fn source_mode(app: &Rc<App>, content: &gtk::Box, text: &str, foreign: bool) {
     let key = gtk::EventControllerKey::new();
     key.set_propagation_phase(gtk::PropagationPhase::Capture);
     {
-        let (comp, compute, fill, accept, revealer, toggle) = (comp.clone(), compute.clone(), fill.clone(), accept.clone(), revealer.clone(), search_toggle.clone());
+        let (comp, compute, fill, accept, revealer, toggle) = (
+            comp.clone(),
+            compute.clone(),
+            fill.clone(),
+            accept.clone(),
+            revealer.clone(),
+            search_toggle.clone(),
+        );
         key.connect_key_pressed(move |_, k, _, mods| {
             use gtk::gdk::Key;
             let ctrl = mods.contains(gtk::gdk::ModifierType::CONTROL_MASK);

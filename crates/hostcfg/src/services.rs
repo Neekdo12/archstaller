@@ -11,10 +11,20 @@ pub fn resolve(cfg: &Config, base: &Path) -> Result<Config> {
     for (i, cs) in out.custom_services.iter_mut().enumerate() {
         if let Some(f) = &cs.file {
             let path = base.join(f);
-            let data = fs::read(&path)
-                .map_err(|e| format!("custom_services[{}]: cannot read {}: {e}", i + 1, path.display()))?;
+            let data = fs::read(&path).map_err(|e| {
+                format!(
+                    "custom_services[{}]: cannot read {}: {e}",
+                    i + 1,
+                    path.display()
+                )
+            })?;
             if data.len() > CUSTOM_SERVICE_MAX {
-                return Err(format!("custom_services[{}]: {} is larger than 64 KiB", i + 1, path.display()).into());
+                return Err(format!(
+                    "custom_services[{}]: {} is larger than 64 KiB",
+                    i + 1,
+                    path.display()
+                )
+                .into());
             }
             cs.content = Some(data);
             cs.file = None;
@@ -40,7 +50,13 @@ pub fn discover_local_services() -> DiscoveredServices {
 
     // 1. Discover enabled system services using `systemctl list-unit-files`.
     if let Ok(output) = std::process::Command::new("systemctl")
-        .args(["list-unit-files", "--state=enabled", "--type=service", "--no-legend", "--no-pager"])
+        .args([
+            "list-unit-files",
+            "--state=enabled",
+            "--type=service",
+            "--no-legend",
+            "--no-pager",
+        ])
         .output()
     {
         if output.status.success() {
@@ -82,7 +98,12 @@ pub fn discover_local_services() -> DiscoveredServices {
             let path = entry.path();
             if is_regular_file(&path) {
                 let name = entry.file_name().to_string_lossy().to_string();
-                if name.ends_with(".service") && !discovered.custom_system_services.iter().any(|s| s.name == name) {
+                if name.ends_with(".service")
+                    && !discovered
+                        .custom_system_services
+                        .iter()
+                        .any(|s| s.name == name)
+                {
                     if let Ok(content) = fs::read(&path) {
                         if content.len() <= CUSTOM_SERVICE_MAX {
                             // Check if enabled (e.g. symlink in /etc/systemd/system/*.wants/<name>)
@@ -145,10 +166,11 @@ fn is_system_unit_enabled(name: &str) -> bool {
     if let Ok(entries) = fs::read_dir(etc) {
         for entry in entries.flatten() {
             let p = entry.path();
-            if p.is_dir() && p.extension().is_some_and(|ext| ext == "wants") {
-                if p.join(name).exists() {
-                    return true;
-                }
+            if p.is_dir()
+                && p.extension().is_some_and(|ext| ext == "wants")
+                && p.join(name).exists()
+            {
+                return true;
             }
         }
     }
@@ -159,10 +181,11 @@ fn is_user_unit_enabled(user_unit_dir: &Path, name: &str) -> bool {
     if let Ok(entries) = fs::read_dir(user_unit_dir) {
         for entry in entries.flatten() {
             let p = entry.path();
-            if p.is_dir() && p.extension().is_some_and(|ext| ext == "wants") {
-                if p.join(name).exists() {
-                    return true;
-                }
+            if p.is_dir()
+                && p.extension().is_some_and(|ext| ext == "wants")
+                && p.join(name).exists()
+            {
+                return true;
             }
         }
     }
@@ -186,7 +209,12 @@ mod tests {
             timezone: "Europe/Prague".into(),
             locale: "en_US.UTF-8".into(),
             keymap: "us".into(),
-            disk: config::Disk { model: None, confirm_serial: "S".into(), auto_largest: false, esp_mib: 512 },
+            disk: config::Disk {
+                model: None,
+                confirm_serial: "S".into(),
+                auto_largest: false,
+                esp_mib: 512,
+            },
             mirrors: vec!["https://example.org".into()],
             packages: vec!["base".into()],
             providers: vec![],
@@ -210,7 +238,10 @@ mod tests {
 
         let resolved = resolve(&cfg, &temp_dir).unwrap();
         assert_eq!(resolved.custom_services[0].file, None);
-        assert_eq!(resolved.custom_services[0].content, Some(b"[Unit]\nDescription=Test\n".to_vec()));
+        assert_eq!(
+            resolved.custom_services[0].content,
+            Some(b"[Unit]\nDescription=Test\n".to_vec())
+        );
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

@@ -30,9 +30,19 @@ pub enum Page {
 pub const PAGES: &[(Page, &str, &str, Option<Area>)] = &[
     (Page::System, "system", "System", Some(Area::System)),
     (Page::Disk, "disk", "Disk", Some(Area::Disk)),
-    (Page::Packages, "packages", "Mirrors & packages", Some(Area::Packages)),
+    (
+        Page::Packages,
+        "packages",
+        "Mirrors & packages",
+        Some(Area::Packages),
+    ),
     (Page::Users, "users", "Users", Some(Area::Users)),
-    (Page::Services, "services", "Services & kernel", Some(Area::Services)),
+    (
+        Page::Services,
+        "services",
+        "Services & kernel",
+        Some(Area::Services),
+    ),
     (Page::Build, "build", "Build & drivers", Some(Area::Build)),
     (Page::Scripts, "scripts", "Scripts", Some(Area::Scripts)),
     (Page::Toml, "toml", "TOML source", None),
@@ -40,7 +50,11 @@ pub const PAGES: &[(Page, &str, &str, Option<Area>)] = &[
 ];
 
 pub fn page_of(area: Area) -> Page {
-    PAGES.iter().find(|p| p.3 == Some(area)).map(|p| p.0).unwrap_or(Page::Toml)
+    PAGES
+        .iter()
+        .find(|p| p.3 == Some(area))
+        .map(|p| p.0)
+        .unwrap_or(Page::Toml)
 }
 
 pub struct App {
@@ -64,19 +78,32 @@ impl App {
     pub fn new(gapp: &gtk::Application) -> Rc<App> {
         // A default size that fits the screen: laptops are smaller than 1180x780.
         let (mut w, mut h) = (1100, 740);
-        if let Some(m) = gtk::gdk::Display::default().and_then(|d| d.monitors().item(0)).and_then(|m| m.downcast::<gtk::gdk::Monitor>().ok()) {
+        if let Some(m) = gtk::gdk::Display::default()
+            .and_then(|d| d.monitors().item(0))
+            .and_then(|m| m.downcast::<gtk::gdk::Monitor>().ok())
+        {
             let g = m.geometry();
             w = w.min(g.width() * 9 / 10);
             h = h.min(g.height() * 85 / 100);
         }
-        let win = gtk::ApplicationWindow::builder().application(gapp).title("Archstaller").default_width(w).default_height(h).build();
+        let win = gtk::ApplicationWindow::builder()
+            .application(gapp)
+            .title("Archstaller")
+            .default_width(w)
+            .default_height(h)
+            .build();
 
         // Header bar: file and tools menus, the sidebar toggle, the document name.
         let header = gtk::HeaderBar::new();
         let title = gtk::Label::builder().label("untitled").build();
         header.set_title_widget(Some(&title));
-        let sidebar_toggle = gtk::ToggleButton::builder().icon_name("sidebar-show-symbolic").active(true).tooltip_text("Show or hide the sidebar").build();
-        sidebar_toggle.update_property(&[gtk::accessible::Property::Label("Show or hide the sidebar")]);
+        let sidebar_toggle = gtk::ToggleButton::builder()
+            .icon_name("sidebar-show-symbolic")
+            .active(true)
+            .tooltip_text("Show or hide the sidebar")
+            .build();
+        sidebar_toggle
+            .update_property(&[gtk::accessible::Property::Label("Show or hide the sidebar")]);
         header.pack_start(&sidebar_toggle);
         let menu = gio::Menu::new();
         let file = gio::Menu::new();
@@ -91,24 +118,37 @@ impl App {
         tools.append(Some("Copy ISO SHA-256"), Some("win.copy-sha"));
         menu.append_section(None, &tools);
         let presets = gio::Menu::new();
-        let preset_list = crate::build::find_root().map(|r| crate::model::presets(&r)).unwrap_or_default();
+        let preset_list = crate::build::find_root()
+            .map(|r| crate::model::presets(&r))
+            .unwrap_or_default();
         for p in &preset_list {
             let item = gio::MenuItem::new(Some(&p.name), None);
             item.set_action_and_target_value(Some("win.preset"), Some(&p.name.to_variant()));
             presets.append_item(&item);
         }
-        let menu_btn = gtk::MenuButton::builder().icon_name("open-menu-symbolic").menu_model(&menu).tooltip_text("Menu").build();
+        let menu_btn = gtk::MenuButton::builder()
+            .icon_name("open-menu-symbolic")
+            .menu_model(&menu)
+            .tooltip_text("Menu")
+            .build();
         header.pack_end(&menu_btn);
         let preset_btn = gtk::MenuButton::builder().label("From preset").menu_model(&presets).sensitive(!preset_list.is_empty()).tooltip_text(if preset_list.is_empty() { "No presets found (install the package, run from a checkout or set ARCHSTALLER_ROOT)" } else { "Start a new, unsaved config from one of the repository's presets" }).build();
         header.pack_end(&preset_btn);
         win.set_titlebar(Some(&header));
 
         // Sidebar.
-        let nav = gtk::ListBox::builder().selection_mode(gtk::SelectionMode::Single).css_classes(["navigation-sidebar", "sidebar-list"]).build();
+        let nav = gtk::ListBox::builder()
+            .selection_mode(gtk::SelectionMode::Single)
+            .css_classes(["navigation-sidebar", "sidebar-list"])
+            .build();
         let mut nav_marks = Vec::new();
         for (_, _, name, _) in PAGES {
             let r = ui::hbox(6);
-            let l = gtk::Label::builder().label(*name).xalign(0.0).hexpand(true).build();
+            let l = gtk::Label::builder()
+                .label(*name)
+                .xalign(0.0)
+                .hexpand(true)
+                .build();
             let mark = gtk::Label::builder().label("").build();
             mark.add_css_class("nav-bad");
             r.append(&l);
@@ -116,11 +156,22 @@ impl App {
             nav.append(&r);
             nav_marks.push(mark);
         }
-        let side = gtk::ScrolledWindow::builder().child(&nav).hscrollbar_policy(gtk::PolicyType::Never).width_request(170).vexpand(true).build();
+        let side = gtk::ScrolledWindow::builder()
+            .child(&nav)
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .width_request(170)
+            .vexpand(true)
+            .build();
 
         // Pages.
         // Not homogeneous: the window may be as narrow as the visible page, not the widest page.
-        let stack = gtk::Stack::builder().hexpand(true).vexpand(true).hhomogeneous(false).vhomogeneous(false).transition_type(gtk::StackTransitionType::None).build();
+        let stack = gtk::Stack::builder()
+            .hexpand(true)
+            .vexpand(true)
+            .hhomogeneous(false)
+            .vhomogeneous(false)
+            .transition_type(gtk::StackTransitionType::None)
+            .build();
         let mut boxes = HashMap::new();
         for (page, id, _, _) in PAGES {
             let (scroll, content) = ui::page_shell();
@@ -131,9 +182,18 @@ impl App {
         // Bottom bar: validation summary and status.
         let bar = ui::hbox(10);
         bar.add_css_class("problem-bar");
-        let problem = gtk::Label::builder().xalign(0.0).hexpand(true).ellipsize(gtk::pango::EllipsizeMode::End).build();
+        let problem = gtk::Label::builder()
+            .xalign(0.0)
+            .hexpand(true)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .build();
         let problem_btn = gtk::Button::with_label("Go to the problem");
-        let status = gtk::Label::builder().xalign(1.0).css_classes(["hint"]).ellipsize(gtk::pango::EllipsizeMode::Start).max_width_chars(60).build();
+        let status = gtk::Label::builder()
+            .xalign(1.0)
+            .css_classes(["hint"])
+            .ellipsize(gtk::pango::EllipsizeMode::Start)
+            .max_width_chars(60)
+            .build();
         bar.append(&problem);
         bar.append(&problem_btn);
         bar.append(&status);
@@ -148,7 +208,21 @@ impl App {
         root.append(&bar);
         win.set_child(Some(&root));
 
-        let app = Rc::new(App { st: RefCell::new(State::new()), win, stack, nav, nav_marks, title, status, problem, problem_btn, boxes, refreshers: RefCell::new(HashMap::new()), current: Cell::new(Page::System), iso_live: RefCell::new(None) });
+        let app = Rc::new(App {
+            st: RefCell::new(State::new()),
+            win,
+            stack,
+            nav,
+            nav_marks,
+            title,
+            status,
+            problem,
+            problem_btn,
+            boxes,
+            refreshers: RefCell::new(HashMap::new()),
+            current: Cell::new(Page::System),
+            iso_live: RefCell::new(None),
+        });
         {
             let side = side.clone();
             sidebar_toggle.connect_toggled(move |t| side.set_visible(t.is_active()));
@@ -202,7 +276,14 @@ impl App {
                 if a.st.borrow().model.dirty {
                     let a2 = a.clone();
                     glib::spawn_future_local(async move {
-                        if dialogs::confirm(a2.win.upcast_ref(), "Discard the unsaved changes?", "This config has changes that were not saved.", "Discard and close").await {
+                        if dialogs::confirm(
+                            a2.win.upcast_ref(),
+                            "Discard the unsaved changes?",
+                            "This config has changes that were not saved.",
+                            "Discard and close",
+                        )
+                        .await
+                        {
                             a2.st.borrow_mut().model.dirty = false;
                             a2.win.close();
                         }
@@ -255,7 +336,10 @@ impl App {
     /// [`App::rebuild`] for a change the user made on the page itself: the view stays where it was instead of
     /// jumping to the top. The position is restored once the new widgets have been laid out.
     pub fn rebuild_keep_scroll(self: &Rc<Self>, page: Page) {
-        let adj = self.boxes[&page].ancestor(gtk::ScrolledWindow::static_type()).and_downcast::<gtk::ScrolledWindow>().map(|w| w.vadjustment());
+        let adj = self.boxes[&page]
+            .ancestor(gtk::ScrolledWindow::static_type())
+            .and_downcast::<gtk::ScrolledWindow>()
+            .map(|w| w.vadjustment());
         let pos = adj.as_ref().map(|a| a.value());
         self.rebuild(page);
         if let (Some(adj), Some(pos)) = (adj, pos) {
@@ -269,12 +353,26 @@ impl App {
         self.refreshers.borrow_mut().remove(&page);
         let raw = self.st.borrow().model.raw.is_some();
         if raw && !matches!(page, Page::Toml | Page::Iso) {
-            ui::heading(content, PAGES.iter().find(|p| p.0 == page).map(|p| p.2).unwrap_or(""), "");
+            ui::heading(
+                content,
+                PAGES
+                    .iter()
+                    .find(|p| p.0 == page)
+                    .map(|p| p.2)
+                    .unwrap_or(""),
+                "",
+            );
             let c = ui::card(content, None);
-            ui::note(&c, ui::Kind::Warn, "This config is being edited as source text.");
+            ui::note(
+                &c,
+                ui::Kind::Warn,
+                "This config is being edited as source text.",
+            );
             ui::hint(&c, "The form pages work on a config the GUI writes. Open the TOML source page: leave source mode there to come back to the forms (a file the GUI did not write is replaced by form output only after you confirm).");
             let a = self.clone();
-            c.append(&ui::button("Open the TOML source page", move || a.show(Page::Toml)));
+            c.append(&ui::button("Open the TOML source page", move || {
+                a.show(Page::Toml)
+            }));
             return;
         }
         match page {
@@ -327,7 +425,13 @@ impl App {
     pub fn refresh_chrome(&self) {
         let (name, dirty, problems) = {
             let st = self.st.borrow();
-            let name = st.model.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "untitled".into());
+            let name = st
+                .model
+                .path
+                .as_ref()
+                .and_then(|p| p.file_name())
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "untitled".into());
             (name, st.model.dirty, st.model.problems())
         };
         let shown = format!("{name}{}", if dirty { " •" } else { "" });
@@ -346,7 +450,8 @@ impl App {
                 self.problem_btn.set_visible(true);
             }
             None => {
-                self.problem.set_text("The config is valid (the same checks as the command line).");
+                self.problem
+                    .set_text("The config is valid (the same checks as the command line).");
                 self.problem.add_css_class("note-ok");
                 self.problem_btn.set_visible(false);
             }
@@ -359,7 +464,13 @@ impl App {
         if !self.st.borrow().model.dirty {
             return true;
         }
-        dialogs::confirm(self.win.upcast_ref(), "Discard the unsaved changes?", "This config has changes that were not saved.", "Discard").await
+        dialogs::confirm(
+            self.win.upcast_ref(),
+            "Discard the unsaved changes?",
+            "This config has changes that were not saved.",
+            "Discard",
+        )
+        .await
     }
 
     pub fn load(self: &Rc<Self>, m: Model, status: String) {
@@ -383,7 +494,15 @@ impl App {
             if !a.may_discard().await {
                 return;
             }
-            let Some(p) = dialogs::open_file(a.win.upcast_ref(), "Open a TOML config", Some(("TOML config", "*.toml"))).await else { return };
+            let Some(p) = dialogs::open_file(
+                a.win.upcast_ref(),
+                "Open a TOML config",
+                Some(("TOML config", "*.toml")),
+            )
+            .await
+            else {
+                return;
+            };
             match Model::open(&p) {
                 Ok(m) => a.load(m, format!("Opened {}", p.display())),
                 Err(e) => a.set_status(e),
@@ -397,7 +516,12 @@ impl App {
             if !a.may_discard().await {
                 return;
             }
-            let path = a.st.borrow().presets.iter().find(|p| p.name == name).map(|p| p.path.clone());
+            let path =
+                a.st.borrow()
+                    .presets
+                    .iter()
+                    .find(|p| p.name == name)
+                    .map(|p| p.path.clone());
             let Some(path) = path else {
                 a.set_status(format!("no preset named {name}"));
                 return;
@@ -421,7 +545,14 @@ impl App {
         let path = self.st.borrow().model.path.clone();
         let path = match path {
             Some(p) => p,
-            None => match dialogs::save_file(self.win.upcast_ref(), "Save the config", "archstaller.toml", Some(("TOML config", "*.toml"))).await {
+            None => match dialogs::save_file(
+                self.win.upcast_ref(),
+                "Save the config",
+                "archstaller.toml",
+                Some(("TOML config", "*.toml")),
+            )
+            .await
+            {
                 Some(p) => p,
                 None => return false,
             },
@@ -450,7 +581,16 @@ impl App {
     pub fn save_as(self: &Rc<Self>) {
         let a = self.clone();
         glib::spawn_future_local(async move {
-            let Some(p) = dialogs::save_file(a.win.upcast_ref(), "Save the config as", "archstaller.toml", Some(("TOML config", "*.toml"))).await else { return };
+            let Some(p) = dialogs::save_file(
+                a.win.upcast_ref(),
+                "Save the config as",
+                "archstaller.toml",
+                Some(("TOML config", "*.toml")),
+            )
+            .await
+            else {
+                return;
+            };
             let r = a.st.borrow_mut().model.save(&p);
             match r {
                 Ok(()) => a.set_status(format!("Saved {}", p.display())),
@@ -489,7 +629,7 @@ impl App {
                 None => a.set_status("no ISO built yet"),
             }
         });
-        simple("launcher", self, |a| crate::launcher::open(a));
+        simple("launcher", self, crate::launcher::open);
         simple("build-iso", self, |a| {
             a.show(Page::Iso);
             pages::iso::start_from_action(a);
@@ -528,7 +668,12 @@ impl App {
             let a = self.clone();
             key.connect_key_pressed(move |_, k, _, mods| {
                 if k == gtk::gdk::Key::slash && mods.is_empty() {
-                    let typing = gtk::prelude::GtkWindowExt::focus(&a.win).is_some_and(|f| f.is::<gtk::Editable>() || f.is::<gtk::TextView>() || f.ancestor(gtk::TextView::static_type()).is_some() || f.ancestor(gtk::Text::static_type()).is_some());
+                    let typing = gtk::prelude::GtkWindowExt::focus(&a.win).is_some_and(|f| {
+                        f.is::<gtk::Editable>()
+                            || f.is::<gtk::TextView>()
+                            || f.ancestor(gtk::TextView::static_type()).is_some()
+                            || f.ancestor(gtk::Text::static_type()).is_some()
+                    });
                     if !typing {
                         crate::launcher::open(&a);
                         return glib::Propagation::Stop;
