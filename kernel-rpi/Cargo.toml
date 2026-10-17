@@ -8,7 +8,7 @@ name = "kernel8"
 path = "src/main.rs"
 test = false
 
-[dependencies]
+[target.'cfg(target_arch = "aarch64")'.dependencies]
 hal = { path = "../crates/hal" }
 
 [lints]

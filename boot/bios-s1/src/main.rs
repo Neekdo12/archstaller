@@ -6,11 +6,13 @@
 //! The BIOS may start this code at 07C0:0000 or 0000:7C00, or have trashed any register but `dl`,
 //! so it normalizes `cs` first; the way to ask for the sector size and the fallback when it
 //! cannot are from Limine's stage 1.
-#![no_std]
-#![no_main]
+#![cfg_attr(target_os = "none", no_std)]
+#![cfg_attr(target_os = "none", no_main)]
 
+#[cfg(target_os = "none")]
 use core::arch::global_asm;
 
+#[cfg(target_os = "none")]
 global_asm!(
     r#"
     .section .s1,"ax"
@@ -193,7 +195,11 @@ s1_len:    .long 0
     "#
 );
 
+#[cfg(target_os = "none")]
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
     loop {}
 }
+
+#[cfg(not(target_os = "none"))]
+fn main() {}

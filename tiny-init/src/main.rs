@@ -1,7 +1,6 @@
-//! Initramfs init: load modules, find the root filesystem by UUID, mount it and switch to it.
-#![cfg_attr(not(test), no_std)]
-#![cfg_attr(not(test), no_main)]
-#![cfg_attr(test, allow(dead_code))]
+#![cfg_attr(target_os = "none", no_std)]
+#![cfg_attr(target_os = "none", no_main)]
+#![cfg_attr(not(target_os = "none"), allow(dead_code, unused_imports))]
 
 mod sys;
 
@@ -205,7 +204,7 @@ fn find_root_by_uuid(uuid: &[u8; 16], out: &mut [u8; 64]) -> Option<usize> {
     }
 }
 
-#[cfg(not(test))]
+#[cfg(target_os = "none")]
 #[no_mangle]
 extern "C" fn entry(_sp: *const usize) -> ! {
     mount("devtmpfs", "/dev", "devtmpfs", 0, "");
@@ -289,6 +288,9 @@ extern "C" fn entry(_sp: *const usize) -> ! {
     };
     fail("cannot execute /usr/lib/systemd/systemd");
 }
+
+#[cfg(not(target_os = "none"))]
+fn main() {}
 
 #[cfg(test)]
 mod tests {

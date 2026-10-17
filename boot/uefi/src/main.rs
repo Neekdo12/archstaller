@@ -5,9 +5,9 @@
 //! * `\archstaller.cfg` (the target disk's ESP, first boot): start the Arch Linux kernel, which is a
 //!   UEFI application itself, with a command line and an initramfs read from the ESP. The config
 //!   is `kernel=<path>`, `initrd=<path>`, `cmdline=<rest of line>`, one per line.
-#![cfg_attr(not(test), no_std)]
-#![cfg_attr(not(test), no_main)]
-#![cfg_attr(test, allow(dead_code))]
+#![cfg_attr(target_os = "uefi", no_std)]
+#![cfg_attr(target_os = "uefi", no_main)]
+#![cfg_attr(not(target_os = "uefi"), allow(dead_code, unused_imports))]
 
 use bootinfo::*;
 use core::ffi::c_void;
@@ -292,7 +292,7 @@ fn say_status(what: &str, s: Status) {
     say("\n");
 }
 
-#[cfg(not(test))]
+#[cfg(target_os = "uefi")]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     if let Some(m) = info.message().as_str() {
@@ -626,7 +626,7 @@ fn boot_installer(image: Handle, payload: *mut u8, payload_len: usize) {
             panic!("cannot exit boot services");
         }
     }
-    #[allow(clippy::deref_addrof)]
+    #[expect(clippy::deref_addrof, reason = "raw pointer deref to MAP")]
     unsafe {
         let map = &mut *(&raw mut MAP);
         d.each(|k, start, pages| map.push(start, pages * 4096, translate(k)));
@@ -762,7 +762,7 @@ fn boot_linux(image: Handle, cfg: &[u8]) {
         }
         // The command line, as the UTF-16 string the Linux EFI stub reads from the load options.
         static mut OPTS: [u16; 2048] = [0; 2048];
-        #[allow(clippy::deref_addrof)]
+        #[expect(clippy::deref_addrof, reason = "raw pointer deref to OPTS")]
         let opts = &mut *(&raw mut OPTS);
         let mut n = 0;
         for b in cmdline.bytes().take(opts.len() - 1) {
@@ -780,7 +780,7 @@ fn boot_linux(image: Handle, cfg: &[u8]) {
     }
 }
 
-#[cfg(not(test))]
+#[cfg(target_os = "uefi")]
 #[no_mangle]
 extern "efiapi" fn efi_main(image: Handle, st: *mut SystemTable) -> Status {
     unsafe { ST = st };
@@ -841,3 +841,6 @@ mod tests {
         assert_eq!(u[5], 0);
     }
 }
+
+#[cfg(not(target_os = "uefi"))]
+fn main() {}

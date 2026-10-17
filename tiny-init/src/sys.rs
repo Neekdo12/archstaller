@@ -169,7 +169,7 @@ macro_rules! log {
     }};
 }
 
-#[cfg(not(test))]
+#[cfg(target_os = "none")]
 core::arch::global_asm!(
     ".globl _start",
     "_start:",
@@ -180,7 +180,7 @@ core::arch::global_asm!(
     "ud2",
 );
 
-#[cfg(not(test))]
+#[cfg(target_os = "none")]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     log!("init: panic: {info}");

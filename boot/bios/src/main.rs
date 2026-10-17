@@ -1,19 +1,19 @@
 //! BIOS stage 2 (64-bit part). `entry.s` collected the memory map and a framebuffer, read what to
 //! boot into high memory, and entered long mode with the first 4 GiB identity mapped; this hands
 //! over to `loadcore` (installer ISO) or boots the installed system's Linux kernel (first boot).
-#![cfg_attr(not(test), no_std)]
-#![cfg_attr(not(test), no_main)]
-#![cfg_attr(test, allow(dead_code, unused_imports))]
+#![cfg_attr(target_os = "none", no_std)]
+#![cfg_attr(target_os = "none", no_main)]
+#![cfg_attr(not(target_os = "none"), allow(dead_code, unused_imports))]
 
 use bootinfo::bios;
 use bootinfo::*;
-#[cfg(not(test))]
+#[cfg(target_os = "none")]
 use core::arch::global_asm;
 use loadcore::{log, log_hex, Boot, Map};
 
 pub mod linux;
 
-#[cfg(not(test))]
+#[cfg(target_os = "none")]
 global_asm!(include_str!("entry.s"));
 
 /// Page tables for the identity map, zeroed and filled by `entry.s`.
@@ -24,7 +24,7 @@ pub static mut boot_pt: PageTables = PageTables([0; 0x6000]);
 
 static mut MAP: Map = Map::new();
 
-#[cfg(not(test))]
+#[cfg(target_os = "none")]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     log("boot: ");
@@ -43,11 +43,11 @@ extern "C" {
     static s2_header: u8;
 }
 
-#[cfg(not(test))]
+#[cfg(target_os = "none")]
 #[no_mangle]
 extern "C" fn bios_main() -> ! {
     log("boot: long mode\n");
-    #[allow(clippy::deref_addrof)]
+    #[expect(clippy::deref_addrof, reason = "raw pointer deref to MAP")]
     unsafe {
         let map = &mut *(&raw mut MAP);
         // E820 entries: base u64, length u64, type u32, extended attributes u32 (bit 0 clear: ignore the entry).
@@ -142,3 +142,6 @@ extern "C" fn bios_main() -> ! {
         panic!("this boot mode is not supported");
     }
 }
+
+#[cfg(not(target_os = "none"))]
+fn main() {}

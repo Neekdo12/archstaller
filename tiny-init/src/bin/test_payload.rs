@@ -1,10 +1,11 @@
 //! Stand-in for systemd in QEMU tests: proves the new root was entered, then powers off.
-#![no_std]
-#![no_main]
+#![cfg_attr(target_os = "none", no_std)]
+#![cfg_attr(target_os = "none", no_main)]
 
 #[path = "../sys.rs"]
 mod sys;
 
+#[cfg(target_os = "none")]
 #[no_mangle]
 extern "C" fn entry(_sp: *const usize) -> ! {
     let mut buf = [0u8; 64];
@@ -20,3 +21,6 @@ extern "C" fn entry(_sp: *const usize) -> ! {
     );
     sys::power_off()
 }
+
+#[cfg(not(target_os = "none"))]
+fn main() {}

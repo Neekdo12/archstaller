@@ -154,7 +154,7 @@ pub unsafe fn boot(
     }
 
     loadcore::log("boot: starting Linux\n");
-    #[allow(clippy::deref_addrof)]
+    #[expect(clippy::deref_addrof, reason = "raw pointer deref to GDTR")]
     unsafe {
         (*(&raw mut GDTR)).base = GDT.as_ptr() as u64;
     }
