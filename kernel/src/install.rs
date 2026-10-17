@@ -708,16 +708,14 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
     let esp_volume_id = u32::from_le_bytes(random::<4>());
     let root_uuid_text = uuid_text(&root_uuid);
     let esp_uuid_text = format!("{:04X}-{:04X}", esp_volume_id >> 16, esp_volume_id & 0xffff);
-    let mut cmdline = format!("root=UUID={root_uuid_text} rw");
-    for k in &cfg.kernel_params {
-        cmdline.push(' ');
-        cmdline.push_str(k);
-    }
+    let cmdline = format_cmdline(&root_uuid_text, &cfg.kernel_params);
     let overlay = |p: &str| format!("{STATE_DIR}/overlay/{p}");
     let mut etc_files: Vec<(String, u16, Vec<u8>)> = Vec::new();
-    etc_files.push(("etc/fstab".into(), 0o644, format!(
-        "UUID={root_uuid_text} / ext4 rw,relatime 0 1\nUUID={esp_uuid_text} /boot vfat rw,relatime,fmask=0077,dmask=0077,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro 0 2\n"
-    ).into_bytes()));
+    etc_files.push((
+        "etc/fstab".into(),
+        0o644,
+        format_fstab(&root_uuid_text, &esp_uuid_text).into_bytes(),
+    ));
     etc_files.push((
         "etc/hostname".into(),
         0o644,
@@ -1179,4 +1177,55 @@ fn uuid_text(u: &[u8; 16]) -> String {
         hex(&u[8..10]),
         hex(&u[10..16])
     )
+}
+
+pub fn format_fstab(root_uuid: &str, esp_uuid: &str) -> String {
+    format!(
+        "UUID={root_uuid} / ext4 rw,relatime 0 1\nUUID={esp_uuid} /boot vfat rw,relatime,fmask=0077,dmask=0077,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro 0 2\n"
+    )
+}
+
+pub fn format_cmdline(root_uuid: &str, extra_params: &[String]) -> String {
+    let mut cmdline = format!("root=UUID={root_uuid} rw");
+    for k in extra_params {
+        cmdline.push(' ');
+        cmdline.push_str(k);
+    }
+    cmdline
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_locale_charset() {
+        assert_eq!(charset_of("en_US.UTF-8"), "UTF-8");
+        assert_eq!(charset_of("ca_ES.ISO-8859-1@euro"), "ISO-8859-1");
+        assert_eq!(charset_of("POSIX"), "UTF-8");
+        assert_eq!(charset_of("en_US"), "UTF-8");
+    }
+
+    #[test]
+    fn formats_valid_fstab() {
+        let fstab = format_fstab("1234-5678", "ABCD-EF01");
+        assert!(fstab.contains("UUID=1234-5678 / ext4"));
+        assert!(fstab.contains("UUID=ABCD-EF01 /boot vfat"));
+    }
+
+    #[test]
+    fn formats_kernel_cmdline() {
+        let extra = alloc::vec!["quiet".to_string(), "loglevel=3".to_string()];
+        let cmdline = format_cmdline("test-uuid-1234", &extra);
+        assert_eq!(cmdline, "root=UUID=test-uuid-1234 rw quiet loglevel=3");
+    }
+
+    #[test]
+    fn formats_uuid_text_correctly() {
+        let bytes: [u8; 16] = [
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54,
+            0x32, 0x10,
+        ];
+        assert_eq!(uuid_text(&bytes), "01234567-89ab-cdef-fedc-ba9876543210");
+    }
 }

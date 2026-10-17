@@ -48,6 +48,9 @@ impl<const N: usize> CStr<N> {
     pub fn ptr(&self) -> usize {
         self.0.as_ptr() as usize
     }
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
 }
 
 pub fn write(fd: i32, data: &[u8]) -> isize {
@@ -166,6 +169,7 @@ macro_rules! log {
     }};
 }
 
+#[cfg(not(test))]
 core::arch::global_asm!(
     ".globl _start",
     "_start:",
@@ -176,6 +180,7 @@ core::arch::global_asm!(
     "ud2",
 );
 
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     log!("init: panic: {info}");

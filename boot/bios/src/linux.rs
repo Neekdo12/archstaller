@@ -34,6 +34,42 @@ static mut GDTR: Gdtr = Gdtr {
     base: 0,
 };
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct BzImageHeader {
+    pub version: u16,
+    pub xloadflags: u16,
+    pub setup_sects: usize,
+    pub align: u64,
+    pub init_size: u64,
+}
+
+pub fn parse_bzimage_header(bz: &[u8]) -> Result<BzImageHeader, &'static str> {
+    if bz.len() < 0x270 {
+        return Err("the kernel image is too small");
+    }
+    if get::<u32>(bz, 0x202) != 0x5372_6448 {
+        return Err("the kernel is not a Linux bzImage");
+    }
+    let version: u16 = get(bz, 0x206);
+    let xloadflags: u16 = get(bz, 0x236);
+    if version < 0x020c || xloadflags & 1 == 0 {
+        return Err("the kernel does not have a 64-bit entry point");
+    }
+    let setup_sects = match bz[0x1f1] {
+        0 => 4,
+        n => n as usize,
+    };
+    let align = (get::<u32>(bz, 0x230) as u64).max(0x20_0000);
+    let init_size = get::<u32>(bz, 0x260) as u64;
+    Ok(BzImageHeader {
+        version,
+        xloadflags,
+        setup_sects,
+        align,
+        init_size,
+    })
+}
+
 /// `bz`: the bzImage, `initrd`: where the initramfs lies, `e820`: the raw BIOS memory map
 /// (count at 0x500, entries at 0x600).
 ///
@@ -47,21 +83,12 @@ pub unsafe fn boot(
     fb: &Framebuffer,
     staged_end: u64,
 ) -> ! {
-    if get::<u32>(bz, 0x202) != 0x5372_6448 {
-        panic!("the kernel is not a Linux bzImage");
-    }
-    let version: u16 = get(bz, 0x206);
-    let xloadflags: u16 = get(bz, 0x236);
-    if version < 0x020c || xloadflags & 1 == 0 {
-        panic!("the kernel does not have a 64-bit entry point");
-    }
-    let setup_sects = match bz[0x1f1] {
-        0 => 4,
-        n => n as usize,
-    };
+    let hdr = parse_bzimage_header(bz).unwrap_or_else(|msg| panic!("{msg}"));
+    let setup_sects = hdr.setup_sects;
     let pm = &bz[(setup_sects + 1) * 512..];
-    let align = (get::<u32>(bz, 0x230) as u64).max(0x20_0000);
-    let init_size = get::<u32>(bz, 0x260) as u64;
+    let align = hdr.align;
+    let init_size = hdr.init_size;
+
     let dest = (staged_end + align - 1) & !(align - 1);
     // The decompressor works in [dest, dest + init_size): it has to be ordinary memory below 4 GiB.
     let ok = map.entries().iter().any(|e| {
@@ -148,4 +175,45 @@ pub unsafe fn boot(
         in("rsi") ZERO_PAGE,
         options(noreturn)
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_mock_bzimage_header() {
+        let mut bz = std::vec![0u8; 0x1000];
+        // setup_sects at 0x1f1
+        bz[0x1f1] = 4;
+        // magic "HdrS" at 0x202
+        bz[0x202..0x206].copy_from_slice(&0x5372_6448u32.to_ne_bytes());
+        // version >= 0x020c at 0x206
+        bz[0x206..0x208].copy_from_slice(&0x020du16.to_ne_bytes());
+        // kernel_alignment at 0x230
+        bz[0x230..0x234].copy_from_slice(&0x200000u32.to_ne_bytes());
+        // xloadflags at 0x236 (bit 0 set for 64-bit entry)
+        bz[0x236..0x238].copy_from_slice(&1u16.to_ne_bytes());
+        // init_size at 0x260
+        bz[0x260..0x264].copy_from_slice(&0x1000000u32.to_ne_bytes());
+
+        let hdr = parse_bzimage_header(&bz).expect("valid bzimage");
+        assert_eq!(hdr.version, 0x020d);
+        assert_eq!(hdr.setup_sects, 4);
+        assert_eq!(hdr.align, 0x20_0000);
+        assert_eq!(hdr.init_size, 0x100_0000);
+    }
+
+    #[test]
+    fn rejects_invalid_magic() {
+        let mut bz = std::vec![0u8; 0x1000];
+        bz[0x202..0x206].copy_from_slice(&0x12345678u32.to_ne_bytes());
+        assert!(parse_bzimage_header(&bz).is_err());
+    }
+
+    #[test]
+    fn rejects_truncated_header() {
+        let bz = std::vec![0u8; 100];
+        assert!(parse_bzimage_header(&bz).is_err());
+    }
 }

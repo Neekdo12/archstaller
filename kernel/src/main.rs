@@ -1,6 +1,7 @@
-#![no_std]
-#![no_main]
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_main)]
 #![feature(abi_x86_interrupt)]
+#![cfg_attr(test, allow(dead_code, unused_imports))]
 
 extern crate alloc;
 
@@ -79,6 +80,7 @@ fn settle() {
     }
 }
 
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     // Break both locks: the console's and the log-capture ring's. A panic can arrive while either is
@@ -92,6 +94,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     halt()
 }
 
+#[cfg(not(test))]
 #[no_mangle]
 extern "C" fn _start(info: &'static BootInfo) -> ! {
     console::init_serial();

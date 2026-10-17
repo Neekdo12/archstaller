@@ -5,8 +5,9 @@
 //! * `\archstaller.cfg` (the target disk's ESP, first boot): start the Arch Linux kernel, which is a
 //!   UEFI application itself, with a command line and an initramfs read from the ESP. The config
 //!   is `kernel=<path>`, `initrd=<path>`, `cmdline=<rest of line>`, one per line.
-#![no_std]
-#![no_main]
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_main)]
+#![cfg_attr(test, allow(dead_code))]
 
 use bootinfo::*;
 use core::ffi::c_void;
@@ -291,6 +292,7 @@ fn say_status(what: &str, s: Status) {
     say("\n");
 }
 
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     if let Some(m) = info.message().as_str() {
@@ -305,7 +307,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     }
 }
 
-fn utf16<const N: usize>(s: &str) -> [u16; N] {
+pub fn utf16<const N: usize>(s: &str) -> [u16; N] {
     let mut out = [0u16; N];
     for (i, c) in s.bytes().enumerate().take(N - 1) {
         out[i] = c as u16;
@@ -677,7 +679,14 @@ static mut INITRD_PATH: [u8; 24] = [
     4, 3, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x7f, 0xff, 4, 0,
 ];
 
-fn boot_linux(image: Handle, cfg: &[u8]) {
+#[derive(Debug, PartialEq, Eq)]
+pub struct LinuxBootConfig<'a> {
+    pub kernel: &'a str,
+    pub initrd: &'a str,
+    pub cmdline: &'a str,
+}
+
+pub fn parse_linux_config(cfg: &[u8]) -> LinuxBootConfig<'_> {
     let text = core::str::from_utf8(cfg).unwrap_or("");
     let (mut kernel, mut initrd, mut cmdline) = ("", "", "");
     for line in text.lines() {
@@ -690,6 +699,16 @@ fn boot_linux(image: Handle, cfg: &[u8]) {
             cmdline = v;
         }
     }
+    LinuxBootConfig {
+        kernel,
+        initrd,
+        cmdline,
+    }
+}
+
+fn boot_linux(image: Handle, cfg: &[u8]) {
+    let conf = parse_linux_config(cfg);
+    let (kernel, initrd, cmdline) = (conf.kernel, conf.initrd, conf.cmdline);
     let Some((root, kbuf, klen)) = find_file(image, kernel) else {
         say("boot: cannot read the kernel\n");
         return;
@@ -761,6 +780,7 @@ fn boot_linux(image: Handle, cfg: &[u8]) {
     }
 }
 
+#[cfg(not(test))]
 #[no_mangle]
 extern "efiapi" fn efi_main(image: Handle, st: *mut SystemTable) -> Status {
     unsafe { ST = st };
@@ -786,4 +806,38 @@ extern "efiapi" fn efi_main(image: Handle, st: *mut SystemTable) -> Status {
     }
     (bs().stall)(10_000_000);
     ERR | 1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_linux_config_file() {
+        let sample = b"kernel=\\vmlinuz-linux\ninitrd=\\initramfs-linux.img\ncmdline=root=UUID=123 rw quiet\n";
+        let cfg = parse_linux_config(sample);
+        assert_eq!(cfg.kernel, "\\vmlinuz-linux");
+        assert_eq!(cfg.initrd, "\\initramfs-linux.img");
+        assert_eq!(cfg.cmdline, "root=UUID=123 rw quiet");
+    }
+
+    #[test]
+    fn handles_empty_or_whitespace_config() {
+        let sample = b"  \n\n  kernel=vmlinuz \n";
+        let cfg = parse_linux_config(sample);
+        assert_eq!(cfg.kernel, "vmlinuz");
+        assert_eq!(cfg.initrd, "");
+        assert_eq!(cfg.cmdline, "");
+    }
+
+    #[test]
+    fn utf16_string_conversion() {
+        let u: [u16; 8] = utf16("hello");
+        assert_eq!(u[0], b'h' as u16);
+        assert_eq!(u[1], b'e' as u16);
+        assert_eq!(u[2], b'l' as u16);
+        assert_eq!(u[3], b'l' as u16);
+        assert_eq!(u[4], b'o' as u16);
+        assert_eq!(u[5], 0);
+    }
 }

@@ -6,7 +6,7 @@ edition = "2021"
 [[bin]]
 name = "boot-bios"
 path = "src/main.rs"
-test = false
+
 
 [dependencies]
 bootinfo = { path = "../../crates/bootinfo" }

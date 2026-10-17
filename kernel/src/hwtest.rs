@@ -375,8 +375,7 @@ fn speedtest(client: &Client, stack: &mut net::Stack, url: &str, r: &mut Report)
     let crypto_ms = to_ms(net::tls::CRYPTO_TSC.load(Relaxed) - crypto0);
     let io_ms = to_ms(net::tls::IO_TSC.load(Relaxed) - io0);
     println!("  of {ms} ms: {crypto_ms} ms TLS record processing (decryption), {io_ms} ms waiting for / reading bytes");
-    let kbit_per_s = bytes * 8 / ms; // bits per millisecond = kbit/s
-    let mib_per_s_x10 = bytes * 10_000 / ms / (1 << 20); // MiB/s * 10
+    let (kbit_per_s, mib_per_s_x10) = calculate_speed(bytes, ms);
     r.ok(&format!(
         "speed test: {}.{} MiB in {}.{:02} s = {}.{} MiB/s ({}.{} Mbit/s)",
         bytes >> 20,
@@ -388,4 +387,33 @@ fn speedtest(client: &Client, stack: &mut net::Stack, url: &str, r: &mut Report)
         kbit_per_s / 1000,
         kbit_per_s % 1000 / 100
     ));
+}
+
+/// Computes (kbit/s, mib_per_s_x10) for a given byte count and elapsed milliseconds.
+pub fn calculate_speed(bytes: u64, ms: u64) -> (u64, u64) {
+    let ms = ms.max(1);
+    let kbit_per_s = bytes * 8 / ms;
+    let mib_per_s_x10 = bytes * 10_000 / ms / (1 << 20);
+    (kbit_per_s, mib_per_s_x10)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn calculates_speed_accurately() {
+        let bytes = 1024 * 1024;
+        let ms = 1000;
+        let (kbit_per_s, mib_per_s_x10) = calculate_speed(bytes, ms);
+        assert_eq!(mib_per_s_x10, 10); // 1.0 MiB/s (* 10)
+        assert_eq!(kbit_per_s, 8388);
+    }
+
+    #[test]
+    fn avoids_divide_by_zero_on_zero_ms() {
+        let (kbit_per_s, mib_per_s_x10) = calculate_speed(1000, 0);
+        assert_eq!(kbit_per_s, 8000);
+        assert_eq!(mib_per_s_x10, 9);
+    }
 }

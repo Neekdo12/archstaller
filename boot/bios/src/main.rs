@@ -1,16 +1,19 @@
 //! BIOS stage 2 (64-bit part). `entry.s` collected the memory map and a framebuffer, read what to
 //! boot into high memory, and entered long mode with the first 4 GiB identity mapped; this hands
 //! over to `loadcore` (installer ISO) or boots the installed system's Linux kernel (first boot).
-#![no_std]
-#![no_main]
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_main)]
+#![cfg_attr(test, allow(dead_code, unused_imports))]
 
 use bootinfo::bios;
 use bootinfo::*;
+#[cfg(not(test))]
 use core::arch::global_asm;
 use loadcore::{log, log_hex, Boot, Map};
 
-mod linux;
+pub mod linux;
 
+#[cfg(not(test))]
 global_asm!(include_str!("entry.s"));
 
 /// Page tables for the identity map, zeroed and filled by `entry.s`.
@@ -21,6 +24,7 @@ pub static mut boot_pt: PageTables = PageTables([0; 0x6000]);
 
 static mut MAP: Map = Map::new();
 
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     log("boot: ");
@@ -39,6 +43,7 @@ extern "C" {
     static s2_header: u8;
 }
 
+#[cfg(not(test))]
 #[no_mangle]
 extern "C" fn bios_main() -> ! {
     log("boot: long mode\n");

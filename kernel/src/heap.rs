@@ -2,7 +2,11 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use spinning_top::RawSpinlock;
 use talc::{source::Manual, TalcLock};
 
+#[cfg(not(test))]
 #[global_allocator]
+static TALC: TalcLock<RawSpinlock, Manual> = TalcLock::new(Manual);
+
+#[cfg(test)]
 static TALC: TalcLock<RawSpinlock, Manual> = TalcLock::new(Manual);
 
 /// Heap size cap; the rest of usable RAM stays untouched.

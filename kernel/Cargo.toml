@@ -6,7 +6,6 @@ edition = "2021"
 [[bin]]
 name = "kernel"
 path = "src/main.rs"
-test = false
 
 [dependencies]
 config = { path = "../config" }

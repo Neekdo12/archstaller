@@ -170,7 +170,7 @@ fn schema(check: bool) -> Result<()> {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|gen-schema|coverage|aur-pin|keyring|update-keyring|rpi-build|rpi-run|rpi-test|floppy|floppy-run|floppy-test> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme|ide] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--profile super-small|large] [--progress json] [--workdir DIR] [--disk-gib N (e2e)] [--limit BYTES]")?;
+    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|test|linux-test|check-presets|gen-schema|coverage|aur-pin|keyring|update-keyring|rpi-build|rpi-run|rpi-test|floppy|floppy-run|floppy-test> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme|ide] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--profile super-small|large] [--progress json] [--workdir DIR] [--disk-gib N (e2e)] [--limit BYTES] [--qemu|--all (test)]")?;
     if cmd == "aur-pin" {
         return aur::pin(rest);
     }
@@ -192,6 +192,23 @@ fn main() -> Result<()> {
     if cmd == "rpi-test" {
         let board = rest.first().map(|s| s.as_str()).unwrap_or("raspi3b");
         return rpi::test(board);
+    }
+    if cmd == "test" {
+        let mut c = Command::new("cargo");
+        c.arg("test").arg("--workspace");
+        run(&mut c)?;
+        if rest.iter().any(|a| a == "--all" || a == "--qemu") {
+            let filtered_rest: Vec<String> = rest
+                .iter()
+                .filter(|a| a.as_str() != "--all" && a.as_str() != "--qemu")
+                .cloned()
+                .collect();
+            let opts = parse(&filtered_rest)?;
+            linux_test::run_test()?;
+            floppy::test(&opts)?;
+            rpi::test("raspi3b")?;
+        }
+        return Ok(());
     }
     let opts = parse(rest)?;
     match cmd.as_str() {

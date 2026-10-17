@@ -1,6 +1,7 @@
 //! Initramfs init: load modules, find the root filesystem by UUID, mount it and switch to it.
-#![no_std]
-#![no_main]
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_main)]
+#![cfg_attr(test, allow(dead_code))]
 
 mod sys;
 
@@ -86,7 +87,7 @@ fn load_modules() {
     }
 }
 
-fn hex_val(c: u8) -> Option<u8> {
+pub fn hex_val(c: u8) -> Option<u8> {
     match c {
         b'0'..=b'9' => Some(c - b'0'),
         b'a'..=b'f' => Some(c - b'a' + 10),
@@ -95,7 +96,7 @@ fn hex_val(c: u8) -> Option<u8> {
     }
 }
 
-fn parse_uuid(s: &str) -> Option<[u8; 16]> {
+pub fn parse_uuid(s: &str) -> Option<[u8; 16]> {
     let mut out = [0u8; 16];
     let mut n = 0;
     let mut hi: Option<u8> = None;
@@ -113,6 +114,27 @@ fn parse_uuid(s: &str) -> Option<[u8; 16]> {
         }
     }
     (n == 16 && hi.is_none()).then_some(out)
+}
+
+pub fn parse_root_arg<'a>(cmdline: &'a str) -> Option<&'a str> {
+    cmdline
+        .split_whitespace()
+        .find_map(|t| t.strip_prefix("root="))
+}
+
+pub fn parse_fstype_arg<'a>(cmdline: &'a str) -> &'a str {
+    cmdline
+        .split_whitespace()
+        .find_map(|t| t.strip_prefix("rootfstype="))
+        .unwrap_or("ext4")
+}
+
+pub fn parse_writable_arg(cmdline: &str) -> bool {
+    cmdline
+        .split_whitespace()
+        .rev()
+        .find(|t| *t == "rw" || *t == "ro")
+        == Some("rw")
 }
 
 /// Returns the device node of the ext4 filesystem with `uuid`, waiting for drivers to probe.
@@ -183,6 +205,7 @@ fn find_root_by_uuid(uuid: &[u8; 16], out: &mut [u8; 64]) -> Option<usize> {
     }
 }
 
+#[cfg(not(test))]
 #[no_mangle]
 extern "C" fn entry(_sp: *const usize) -> ! {
     mount("devtmpfs", "/dev", "devtmpfs", 0, "");
@@ -202,10 +225,8 @@ extern "C" fn entry(_sp: *const usize) -> ! {
     let cmdline = unsafe { &mut *core::ptr::addr_of_mut!(CMDLINE) };
     let n = read_all("/proc/cmdline", cmdline);
     let cmdline = core::str::from_utf8(&cmdline[..n]).unwrap_or("");
-    let root = cmdline
-        .split_whitespace()
-        .find_map(|t| t.strip_prefix("root="))
-        .unwrap_or_else(|| fail("no root= on the kernel command line"));
+    let root =
+        parse_root_arg(cmdline).unwrap_or_else(|| fail("no root= on the kernel command line"));
 
     let mut devbuf = [0u8; 64];
     let dev: &str = if let Some(u) = root.strip_prefix("UUID=") {
@@ -220,16 +241,9 @@ extern "C" fn entry(_sp: *const usize) -> ! {
     };
     log!("init: root is {dev}");
 
-    let fstype = cmdline
-        .split_whitespace()
-        .find_map(|t| t.strip_prefix("rootfstype="))
-        .unwrap_or("ext4");
-    // Like the kernel's own root handling: read-only unless `rw` is given.
-    let writable = cmdline
-        .split_whitespace()
-        .rev()
-        .find(|t| *t == "rw" || *t == "ro")
-        == Some("rw");
+    let fstype = parse_fstype_arg(cmdline);
+    let writable = parse_writable_arg(cmdline);
+
     let mut r = -1;
     for _ in 0..40 {
         r = mount(
@@ -274,4 +288,59 @@ extern "C" fn entry(_sp: *const usize) -> ! {
         )
     };
     fail("cannot execute /usr/lib/systemd/systemd");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_valid_uuid() {
+        let raw = "c1b9d5a3-4b2a-4a2b-8a2c-0123456789ab";
+        let parsed = parse_uuid(raw).expect("valid uuid");
+        assert_eq!(
+            parsed,
+            [
+                0xc1, 0xb9, 0xd5, 0xa3, 0x4b, 0x2a, 0x4a, 0x2b, 0x8a, 0x2c, 0x01, 0x23, 0x45, 0x67,
+                0x89, 0xab
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_uuids() {
+        assert!(parse_uuid("").is_none());
+        assert!(parse_uuid("not-a-uuid").is_none());
+        assert!(parse_uuid("c1b9d5a3-4b2a-4a2b-8a2c-0123456789a").is_none());
+        assert!(parse_uuid("c1b9d5a3-4b2a-4a2b-8a2c-0123456789ab0").is_none());
+        assert!(parse_uuid("g1b9d5a3-4b2a-4a2b-8a2c-0123456789ab").is_none());
+    }
+
+    #[test]
+    fn parses_cmdline_parameters() {
+        let cmd =
+            "console=ttyS0 root=UUID=c1b9d5a3-4b2a-4a2b-8a2c-0123456789ab rootfstype=ext4 rw quiet";
+        assert_eq!(
+            parse_root_arg(cmd),
+            Some("UUID=c1b9d5a3-4b2a-4a2b-8a2c-0123456789ab")
+        );
+        assert_eq!(parse_fstype_arg(cmd), "ext4");
+        assert!(parse_writable_arg(cmd));
+
+        let ro_cmd = "root=/dev/vda2 ro";
+        assert_eq!(parse_root_arg(ro_cmd), Some("/dev/vda2"));
+        assert_eq!(parse_fstype_arg(ro_cmd), "ext4");
+        assert!(!parse_writable_arg(ro_cmd));
+
+        let override_cmd = "rw root=/dev/sda1 ro";
+        assert!(!parse_writable_arg(override_cmd));
+    }
+
+    #[test]
+    fn cstr_stack_string_bounds() {
+        let c = CStr::<8>::new("hello");
+        assert_eq!(c.as_bytes()[5], 0);
+        let long_c = CStr::<4>::new("hello");
+        assert_eq!(long_c.as_bytes()[3], 0);
+    }
 }
