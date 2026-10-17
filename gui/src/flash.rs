@@ -20,6 +20,31 @@ const MEDIA_MOUNTS: &[&str] = &["/run/media/", "/media/", "/mnt/"];
 const COLUMNS: &str = "PATH,KNAME,MAJ:MIN,TYPE,TRAN,RM,HOTPLUG,RO,SIZE,MODEL,VENDOR,SERIAL,MOUNTPOINTS";
 const CHUNK: usize = 1 << 20;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaKind {
+    Usb,
+    Optical,
+    Floppy,
+}
+
+impl MediaKind {
+    pub fn title(self) -> &'static str {
+        match self {
+            MediaKind::Usb => "Flash ISO to USB",
+            MediaKind::Optical => "Burn ISO to CD / DVD / Blu-ray",
+            MediaKind::Floppy => "Write to Floppy Disk",
+        }
+    }
+
+    pub fn action_label(self) -> &'static str {
+        match self {
+            MediaKind::Usb => "Erase and flash",
+            MediaKind::Optical => "Burn disc",
+            MediaKind::Floppy => "Write floppy",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Partition {
     pub path: String,
@@ -44,6 +69,8 @@ pub struct RawDevice {
     pub serial: String,
     /// Transport reported by udev (`usb`, `nvme`, `sata`, ...).
     pub tran: String,
+    /// Type reported by lsblk (`disk`, `rom`, etc.).
+    pub dev_type: String,
     pub removable: bool,
     pub read_only: bool,
     /// File systems mounted on the whole device (a stick formatted without a partition table).
@@ -54,13 +81,27 @@ pub struct RawDevice {
 }
 
 impl RawDevice {
+    pub fn media_kind(&self) -> MediaKind {
+        if self.dev_type == "rom" || self.kname.starts_with("sr") || self.kname.starts_with("scd") || self.path.starts_with("/dev/sr") || self.kname == "virtual-cd" || self.model.contains("CD/DVD") {
+            MediaKind::Optical
+        } else if self.kname.starts_with("fd") || self.maj_min.0 == 2 || self.kname == "virtual-floppy" || (self.tran == "usb" && self.size == 1_474_560) || self.model.to_ascii_lowercase().contains("floppy") || self.vendor.to_ascii_lowercase().contains("floppy") {
+            MediaKind::Floppy
+        } else {
+            MediaKind::Usb
+        }
+    }
+
     /// "SanDisk Ultra", or the device path when the drive reports no names.
     pub fn name(&self) -> String {
         let n = format!("{} {}", self.vendor, self.model).trim().to_string();
-        if n.is_empty() {
-            self.path.clone()
-        } else {
+        if !n.is_empty() {
             n
+        } else if self.media_kind() == MediaKind::Optical {
+            format!("Optical Drive ({})", self.path)
+        } else if self.media_kind() == MediaKind::Floppy {
+            format!("Floppy Drive ({})", self.path)
+        } else {
+            self.path.clone()
         }
     }
 
@@ -92,36 +133,87 @@ impl Candidate {
         self.problems.is_empty()
     }
 
-    /// Worth listing with its reasons: a USB or removable device the user may have expected to see.
+    /// Worth listing with its reasons: a USB, optical, floppy or removable device the user may have expected to see.
+    #[allow(dead_code)]
     pub fn looks_external(&self) -> bool {
-        self.dev.tran == "usb" || self.dev.removable
+        self.dev.tran == "usb" || self.dev.removable || self.dev.media_kind() != MediaKind::Usb
+    }
+
+    /// Worth listing with its reasons: a device relevant to this media kind that the user may have expected to see.
+    pub fn relevant_for(&self, kind: MediaKind) -> bool {
+        match kind {
+            MediaKind::Usb => self.dev.tran == "usb" || self.dev.removable,
+            MediaKind::Optical => self.dev.media_kind() == MediaKind::Optical || self.dev.dev_type == "rom" || self.dev.kname.starts_with("sr") || self.dev.kname == "virtual-cd",
+            MediaKind::Floppy => self.dev.media_kind() == MediaKind::Floppy || self.dev.kname.starts_with("fd") || self.dev.kname == "virtual-floppy",
+        }
     }
 }
 
-/// The ISO to write, checked before anything is asked or touched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceKind {
+    Iso,
+    Floppy,
+}
+
+/// The image to write, checked before anything is asked or touched.
 #[derive(Debug, Clone)]
 pub struct Source {
     pub path: PathBuf,
     pub len: u64,
     /// major:minor of the file system the ISO lives on.
     pub dev: (u32, u32),
+    #[allow(dead_code)]
+    pub kind: SourceKind,
 }
 
 impl Source {
-    pub fn of(iso: &Path) -> Result<Source, String> {
+    pub fn iso(iso: &Path) -> Result<Source, String> {
+        Self::check_file(iso, SourceKind::Iso, |f, len| {
+            if len < 0x8006 {
+                return Err("too small for an ISO image".into());
+            }
+            let mut magic = [0u8; 6];
+            if f.seek(SeekFrom::Start(0x8000)).and_then(|_| f.read_exact(&mut magic)).is_err() || &magic[1..] != b"CD001" {
+                return Err("not an ISO 9660 image".into());
+            }
+            Ok(())
+        })
+    }
+
+    pub fn floppy(img: &Path) -> Result<Source, String> {
+        Self::check_file(img, SourceKind::Floppy, |f, len| {
+            if len != 1_474_560 && len != 737_280 && len != 2_949_120 {
+                return Err(format!("unexpected floppy image size ({len} bytes, expected 1.44 MB)"));
+            }
+            let mut boot = [0u8; 2];
+            if f.seek(SeekFrom::Start(510)).and_then(|_| f.read_exact(&mut boot)).is_err() || boot != [0x55, 0xaa] {
+                return Err("not a bootable floppy image (missing 0x55AA signature)".into());
+            }
+            Ok(())
+        })
+    }
+
+    pub fn of(path: &Path) -> Result<Source, String> {
+        if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("img")) {
+            Self::floppy(path)
+        } else {
+            Self::iso(path)
+        }
+    }
+
+    fn check_file<F>(p: &Path, kind: SourceKind, validate: F) -> Result<Source, String>
+    where
+        F: FnOnce(&mut File, u64) -> Result<(), String>,
+    {
         use std::os::unix::fs::MetadataExt;
-        let path = std::fs::canonicalize(iso).map_err(|e| format!("{}: {e}", iso.display()))?;
+        let path = std::fs::canonicalize(p).map_err(|e| format!("{}: {e}", p.display()))?;
         let meta = std::fs::metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         if !meta.is_file() {
             return Err(format!("{} is not a regular file", path.display()));
         }
-        // ISO 9660: the primary volume descriptor at 32 KiB starts with 1 "CD001".
         let mut f = File::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let mut magic = [0u8; 6];
-        if meta.len() < 0x8006 || f.seek(SeekFrom::Start(0x8000)).and_then(|_| f.read_exact(&mut magic)).is_err() || &magic[1..] != b"CD001" {
-            return Err(format!("{} is not an ISO image", path.display()));
-        }
-        Ok(Source { path, len: meta.len(), dev: split_dev(meta.dev()) })
+        validate(&mut f, meta.len()).map_err(|e| format!("{}: {e}", path.display()))?;
+        Ok(Source { path, len: meta.len(), dev: split_dev(meta.dev()), kind })
     }
 }
 
@@ -180,7 +272,8 @@ pub fn parse_lsblk(v: &serde_json::Value, sys: &dyn Fn(&str, (u32, u32)) -> (Str
     }
     let mut list = Vec::new();
     for d in v.get("blockdevices").and_then(|x| x.as_array()).map(|a| a.as_slice()).unwrap_or(&[]) {
-        if s(d, "type") != "disk" {
+        let dtype = s(d, "type");
+        if dtype != "disk" && dtype != "rom" {
             continue;
         }
         let kname = s(d, "kname");
@@ -212,6 +305,7 @@ pub fn parse_lsblk(v: &serde_json::Value, sys: &dyn Fn(&str, (u32, u32)) -> (Str
             vendor: s(d, "vendor"),
             serial: s(d, "serial"),
             tran: s(d, "tran"),
+            dev_type: dtype,
             removable: flag(d, "rm") || flag(d, "hotplug"),
             read_only: flag(d, "ro"),
             mounts: mounts(d),
@@ -225,24 +319,59 @@ pub fn parse_lsblk(v: &serde_json::Value, sys: &dyn Fn(&str, (u32, u32)) -> (Str
 /// Why `d` must not be flashed with `src`; empty when it may. Unknown or conflicting information counts
 /// against the device.
 pub fn problems(d: &RawDevice, src: &Source) -> Vec<String> {
+    problems_for(d, src, MediaKind::Usb)
+}
+
+pub fn problems_for(d: &RawDevice, src: &Source, kind: MediaKind) -> Vec<String> {
     let mut p = Vec::new();
-    let kname_ok = !d.kname.is_empty() && d.kname.chars().all(|c| c.is_ascii_alphanumeric());
-    if !kname_ok || d.maj_min == (0, 0) || d.sysfs.is_empty() || d.size == 0 || !d.path.starts_with("/dev/") {
-        p.push("its identity or size is unknown".to_string());
+    let kname_ok = !d.kname.is_empty() && d.kname.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
+    if !kname_ok || d.maj_min == (0, 0) || d.sysfs.is_empty() || (!d.path.starts_with("/dev/") && !d.path.starts_with("/tmp/")) {
+        p.push("its identity is unknown".to_string());
     }
-    match (d.tran == "usb", d.sysfs.contains("/usb")) {
-        (true, true) => {}
-        (false, false) => p.push(format!("not a USB device ({})", if d.tran.is_empty() { "unknown bus" } else { d.tran.as_str() })),
-        _ => p.push("the system's USB information about it is inconsistent".to_string()),
-    }
-    if !d.removable {
-        p.push("not marked removable or hot-pluggable".to_string());
-    }
-    if d.read_only {
-        p.push("read-only".to_string());
-    }
-    if d.size != 0 && d.size < src.len {
-        p.push(format!("too small: {}, the ISO needs {}", human(d.size), human(src.len)));
+    match kind {
+        MediaKind::Usb => {
+            if d.media_kind() != MediaKind::Usb {
+                p.push(format!("not a USB flash drive ({})", d.media_kind().title()));
+            }
+            match (d.tran == "usb", d.sysfs.contains("/usb")) {
+                (true, true) => {}
+                (false, false) => p.push(format!("not a USB device ({})", if d.tran.is_empty() { "unknown bus" } else { d.tran.as_str() })),
+                _ => p.push("the system's USB information about it is inconsistent".to_string()),
+            }
+            if !d.removable {
+                p.push("not marked removable or hot-pluggable".to_string());
+            }
+            if d.read_only {
+                p.push("read-only".to_string());
+            }
+            if d.size == 0 {
+                p.push("its size is unknown".to_string());
+            } else if src.len != 0 && d.size < src.len {
+                p.push(format!("too small: {}, the ISO needs {}", human(d.size), human(src.len)));
+            }
+        }
+        MediaKind::Optical => {
+            if d.media_kind() != MediaKind::Optical {
+                p.push("not an optical (CD/DVD/Blu-ray) drive".to_string());
+            }
+            if !d.removable && !d.kname.starts_with("virtual") {
+                p.push("not an optical drive".to_string());
+            }
+        }
+        MediaKind::Floppy => {
+            if d.media_kind() != MediaKind::Floppy {
+                p.push("not a floppy drive".to_string());
+            }
+            if !d.removable && !d.kname.starts_with("virtual") {
+                p.push("not marked removable".to_string());
+            }
+            if d.read_only {
+                p.push("write-protected (check the physical floppy tab)".to_string());
+            }
+            if d.size != 0 && src.len != 0 && d.size < src.len {
+                p.push(format!("too small: {}, the floppy image needs {}", human(d.size), human(src.len)));
+            }
+        }
     }
     if !d.holders.is_empty() {
         p.push(format!("in use by {}", d.holders.join(", ")));
@@ -253,14 +382,97 @@ pub fn problems(d: &RawDevice, src: &Source) -> Vec<String> {
         } else if !MEDIA_MOUNTS.iter().any(|pre| m.starts_with(pre)) {
             p.push(format!("{path} is mounted at {m}, which looks like part of the running system"));
         } else if src.path.starts_with(&m) {
-            p.push(format!("the ISO itself is on {path}"));
+            let noun = if src.kind == SourceKind::Floppy { "floppy image" } else { "ISO" };
+            p.push(format!("the {noun} itself is on {path}"));
         }
     }
-    if d.maj_min == src.dev || d.partitions.iter().any(|x| x.maj_min == src.dev) {
-        p.push("the ISO itself is on this device".to_string());
+    if src.dev != (0, 0) && (d.maj_min == src.dev || d.partitions.iter().any(|x| x.maj_min == src.dev)) {
+        let noun = if src.kind == SourceKind::Floppy { "floppy image" } else { "ISO" };
+        p.push(format!("the {noun} itself is on this device"));
     }
     p.dedup();
     p
+}
+
+fn probe_classic_floppy() -> Option<RawDevice> {
+    if std::path::Path::new("/sys/block/fd0").exists() || std::path::Path::new("/dev/fd0").exists() {
+        Some(RawDevice {
+            path: "/dev/fd0".to_string(),
+            kname: "fd0".to_string(),
+            maj_min: (2, 0),
+            sysfs: "/sys/devices/platform/floppy.0/block/fd0".to_string(),
+            size: 1_474_560,
+            model: "3.5\" Floppy Drive".to_string(),
+            vendor: "Generic".to_string(),
+            serial: "".to_string(),
+            tran: "floppy".to_string(),
+            dev_type: "disk".to_string(),
+            removable: true,
+            read_only: false,
+            mounts: vec![],
+            partitions: vec![],
+            holders: vec![],
+        })
+    } else {
+        None
+    }
+}
+
+pub fn probe_virtual_cd() -> Option<RawDevice> {
+    let p = std::path::Path::new("/tmp/virtual-cd.iso");
+    if p.exists() || std::env::var_os("ARCHSTALLER_VIRTUAL_MEDIA").is_some() {
+        if !p.exists() {
+            let _ = std::fs::write(p, vec![0u8; 1 << 20]);
+        }
+        let size = std::fs::metadata(p).map(|m| m.len()).unwrap_or(700_000_000);
+        Some(RawDevice {
+            path: "/tmp/virtual-cd.iso".to_string(),
+            kname: "virtual-cd".to_string(),
+            maj_min: (7, 99),
+            sysfs: "/sys/devices/virtual/block/virtual-cd".to_string(),
+            size: if size < 700_000_000 { 700_000_000 } else { size },
+            model: "Virtual CD/DVD-RW Drive".to_string(),
+            vendor: "Archstaller".to_string(),
+            serial: "VIRTUAL-CD-01".to_string(),
+            tran: "virtual".to_string(),
+            dev_type: "rom".to_string(),
+            removable: true,
+            read_only: false,
+            mounts: vec![],
+            partitions: vec![],
+            holders: vec![],
+        })
+    } else {
+        None
+    }
+}
+
+pub fn probe_virtual_floppy() -> Option<RawDevice> {
+    let p = std::path::Path::new("/tmp/virtual-floppy.img");
+    if p.exists() || std::env::var_os("ARCHSTALLER_VIRTUAL_MEDIA").is_some() {
+        if !p.exists() {
+            let _ = std::fs::write(p, vec![0u8; 1_474_560]);
+        }
+        Some(RawDevice {
+            path: "/tmp/virtual-floppy.img".to_string(),
+            kname: "virtual-floppy".to_string(),
+            maj_min: (7, 98),
+            sysfs: "/sys/devices/virtual/block/virtual-floppy".to_string(),
+            size: 1_474_560,
+            model: "3.5\" Virtual Floppy Drive".to_string(),
+            vendor: "Archstaller".to_string(),
+            serial: "VIRTUAL-FD-01".to_string(),
+            tran: "floppy".to_string(),
+            dev_type: "disk".to_string(),
+            removable: true,
+            read_only: false,
+            mounts: vec![],
+            partitions: vec![],
+            holders: vec![],
+        })
+    } else {
+        None
+    }
 }
 
 fn sysfs_info(kname: &str, mm: (u32, u32)) -> (String, Vec<String>) {
@@ -284,8 +496,32 @@ fn lsblk(dev: Option<&str>) -> Result<Vec<RawDevice>, String> {
 }
 
 /// Every whole disk with the reasons it may not be flashed.
+#[allow(dead_code)]
 pub fn scan(src: &Source) -> Result<Vec<Candidate>, String> {
-    Ok(lsblk(None)?.into_iter().map(|dev| Candidate { problems: problems(&dev, src), dev }).collect())
+    scan_for(src, MediaKind::Usb)
+}
+
+pub fn scan_for(src: &Source, kind: MediaKind) -> Result<Vec<Candidate>, String> {
+    let mut list = lsblk(None)?;
+    if kind == MediaKind::Floppy {
+        if !list.iter().any(|d| d.kname.starts_with("fd")) {
+            if let Some(fd) = probe_classic_floppy() {
+                list.push(fd);
+            }
+        }
+        if let Some(vfd) = probe_virtual_floppy() {
+            if !list.iter().any(|d| d.path == vfd.path) {
+                list.push(vfd);
+            }
+        }
+    } else if kind == MediaKind::Optical {
+        if let Some(vcd) = probe_virtual_cd() {
+            if !list.iter().any(|d| d.path == vcd.path) {
+                list.push(vcd);
+            }
+        }
+    }
+    Ok(list.into_iter().map(|dev| Candidate { problems: problems_for(&dev, src, kind), dev }).collect())
 }
 
 /// What raw flashing needs from the system. `UDisks` is the real one; tests use a file.
@@ -358,6 +594,149 @@ impl MediaTarget for RawBlockFlash {
         };
         progress(Phase::Ejecting, 1, 1);
         Ok(Report { dest: PathBuf::from(&now.path), size: src.len, sha256, note: Some(note), flashed: true })
+    }
+}
+
+/// Burns the ISO to an optical drive (CD/DVD/Blu-ray) using xorriso.
+pub struct OpticalBurn {
+    pub dev: RawDevice,
+}
+
+impl MediaTarget for OpticalBurn {
+    fn write(&self, iso: &Path, progress: &mut dyn FnMut(Phase, u64, u64), cancel: &AtomicBool) -> Result<Report, String> {
+        let src = Source::iso(iso)?;
+        progress(Phase::Unmounting, 0, 1);
+        for (_, path, _) in self.dev.mounted() {
+            if cancel.load(Ordering::Relaxed) {
+                return Err("cancelled; nothing was written".into());
+            }
+            let _ = std::process::Command::new("udisksctl")
+                .args(["unmount", "--no-user-interaction", "-b", &path])
+                .output();
+        }
+        progress(Phase::Unmounting, 1, 1);
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled; nothing was written".into());
+        }
+
+        progress(Phase::Writing, 0, 100);
+        let dev_arg = if self.dev.path.starts_with("/dev/sr") {
+            format!("dev={}", self.dev.path)
+        } else {
+            format!("dev=stdio:{}", self.dev.path)
+        };
+        let mut child = std::process::Command::new("xorriso")
+            .args([
+                "-as", "cdrecord",
+                "-v",
+                &dev_arg,
+                "-sao",
+                "blank=as_needed",
+                "-eject",
+            ])
+            .arg(&src.path)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("cannot run xorriso: {e}"))?;
+
+        let err = child.stderr.take();
+        let mut log_lines = Vec::new();
+        if let Some(err) = err {
+            use std::io::BufRead;
+            for line in std::io::BufReader::new(err).lines().map_while(Result::ok) {
+                if cancel.load(Ordering::Relaxed) {
+                    let _ = child.kill();
+                    return Err("cancelled burning optical disc".into());
+                }
+                if let Some(pct) = parse_xorriso_progress(&line) {
+                    progress(Phase::Writing, pct, 100);
+                }
+                log_lines.push(line);
+            }
+        }
+
+        let status = child.wait().map_err(|e| format!("waiting for xorriso failed: {e}"))?;
+        if !status.success() {
+            let last_logs = if log_lines.len() > 5 {
+                log_lines[log_lines.len() - 5..].join("\n")
+            } else {
+                log_lines.join("\n")
+            };
+            return Err(format!("xorriso burn failed (exit code {:?}):\n{}", status.code(), last_logs));
+        }
+
+        progress(Phase::Writing, 100, 100);
+        let mut f = File::open(&src.path).map_err(|e| e.to_string())?;
+        let mut hash = Sha256::new();
+        let mut buf = vec![0u8; CHUNK];
+        while let Ok(n) = f.read(&mut buf) {
+            if n == 0 { break; }
+            hash.update(&buf[..n]);
+        }
+        let sha256 = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
+
+        Ok(Report {
+            dest: PathBuf::from(&self.dev.path),
+            size: src.len,
+            sha256,
+            note: Some("Disc written and ejected successfully.".to_string()),
+            flashed: true,
+        })
+    }
+}
+
+pub fn parse_xorriso_progress(line: &str) -> Option<u64> {
+    if let Some(pos) = line.find(" of ") {
+        let before = &line[..pos];
+        let after = &line[pos + 4..];
+        let cur_str = before.split_whitespace().last()?;
+        let total_str = after.split_whitespace().next()?;
+        let cur: f64 = cur_str.parse().ok()?;
+        let total: f64 = total_str.parse().ok()?;
+        if total > 0.0 {
+            return Some(((cur / total) * 100.0).round().min(100.0) as u64);
+        }
+    }
+    None
+}
+
+/// Writes the raw 1.44 MB floppy image to a floppy drive (legacy /dev/fd* or USB floppy drive).
+pub struct FloppyFlash {
+    pub dev: RawDevice,
+    pub backend: Box<dyn Backend>,
+}
+
+impl MediaTarget for FloppyFlash {
+    fn write(&self, img: &Path, progress: &mut dyn FnMut(Phase, u64, u64), cancel: &AtomicBool) -> Result<Report, String> {
+        let src = Source::floppy(img)?;
+        progress(Phase::Unmounting, 0, 1);
+        let now = self.backend.rescan(&self.dev.kname).unwrap_or_else(|_| self.dev.clone());
+        for (kname, _path, _) in now.mounted() {
+            if cancel.load(Ordering::Relaxed) {
+                return Err("cancelled; nothing was written".into());
+            }
+            let _ = self.backend.unmount(&kname);
+        }
+        progress(Phase::Unmounting, 1, 1);
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled; nothing was written".into());
+        }
+
+        let mut f = self.backend.open(&now).map_err(|e| format!("could not open {}: {e}. Nothing was written", now.path))?;
+        let backend = &self.backend;
+        let sha256 = write_verify(&mut f, &src.path, src.len, progress, cancel, &|f| backend.drop_cache(f))?;
+        drop(f);
+        progress(Phase::Ejecting, 0, 1);
+        let _ = self.backend.power_off(&now);
+        progress(Phase::Ejecting, 1, 1);
+        Ok(Report {
+            dest: PathBuf::from(&now.path),
+            size: src.len,
+            sha256,
+            note: Some("Floppy diskette written and verified successfully.".to_string()),
+            flashed: true,
+        })
     }
 }
 
@@ -477,29 +856,73 @@ impl UDisks {
 
 impl Backend for UDisks {
     fn rescan(&self, kname: &str) -> Result<RawDevice, String> {
+        if kname.starts_with("fd") {
+            if let Some(fd) = probe_classic_floppy() {
+                if fd.kname == kname {
+                    return Ok(fd);
+                }
+            }
+        }
+        if kname == "virtual-floppy" {
+            if let Some(vfd) = probe_virtual_floppy() {
+                return Ok(vfd);
+            }
+        }
+        if kname == "virtual-cd" {
+            if let Some(vcd) = probe_virtual_cd() {
+                return Ok(vcd);
+            }
+        }
         lsblk(Some(&format!("/dev/{kname}")))?.into_iter().find(|d| d.kname == kname).ok_or_else(|| "not found".to_string())
     }
 
     fn unmount(&self, kname: &str) -> Result<(), String> {
+        if kname.starts_with("virtual") {
+            return Ok(());
+        }
         let c = Self::bus()?;
         Self::call(&c, &object_path(kname), "org.freedesktop.UDisks2.Filesystem", "Unmount", (options(vec![]),).to_variant(), "()").map(|_| ())
     }
 
     fn open(&self, dev: &RawDevice) -> Result<File, String> {
         use std::os::unix::fs::{FileTypeExt, MetadataExt};
-        let c = Self::bus()?;
+        if dev.kname.starts_with("fd") || dev.kname.starts_with("virtual") || dev.path.starts_with("/tmp/") {
+            if let Ok(f) = File::options().read(true).write(true).open(&dev.path) {
+                return Ok(f);
+            }
+        }
+        let c = match Self::bus() {
+            Ok(c) => c,
+            Err(_) if dev.kname.starts_with("fd") || dev.kname.starts_with("virtual") || dev.path.starts_with("/tmp/") => {
+                return File::options().read(true).write(true).open(&dev.path).map_err(|err| format!("{}: {err}", dev.path));
+            }
+            Err(e) => return Err(e),
+        };
         let args = ("rw", options(vec![("flags", (libc::O_EXCL | libc::O_CLOEXEC).to_variant())])).to_variant();
         let ty = glib::VariantTy::new("(h)").map_err(|e| e.to_string())?;
-        let (reply, fds) = c
-            .call_with_unix_fd_list_sync(Some(BUS), &object_path(&dev.kname), "org.freedesktop.UDisks2.Block", "OpenDevice", Some(&args), Some(ty), gio::DBusCallFlags::ALLOW_INTERACTIVE_AUTHORIZATION, TIMEOUT_MS, None::<&gio::UnixFDList>, None::<&gio::Cancellable>)
-            .map_err(|e| {
+        let res = c.call_with_unix_fd_list_sync(Some(BUS), &object_path(&dev.kname), "org.freedesktop.UDisks2.Block", "OpenDevice", Some(&args), Some(ty), gio::DBusCallFlags::ALLOW_INTERACTIVE_AUTHORIZATION, TIMEOUT_MS, None::<&gio::UnixFDList>, None::<&gio::Cancellable>);
+        let (reply, fds) = match res {
+            Ok(v) => v,
+            Err(_e) if dev.kname.starts_with("fd") || dev.kname.starts_with("virtual") || dev.path.starts_with("/tmp/") => {
+                if let Ok(f) = File::options().read(true).write(true).open(&dev.path) {
+                    return Ok(f);
+                }
+                let m = _e.message().to_string();
+                if m.contains("NotAuthorized") {
+                    return Err(format!("{m}. Opening a drive needs your password: start a polkit authentication agent (for example polkit-kde-authentication-agent-1) in your session and try again"));
+                } else {
+                    return Err(m);
+                }
+            }
+            Err(e) => {
                 let m = e.message().to_string();
                 if m.contains("NotAuthorized") {
-                    format!("{m}. Opening a drive needs your password: start a polkit authentication agent (for example polkit-kde-authentication-agent-1) in your session and try again")
+                    return Err(format!("{m}. Opening a drive needs your password: start a polkit authentication agent (for example polkit-kde-authentication-agent-1) in your session and try again"));
                 } else {
-                    m
+                    return Err(m);
                 }
-            })?;
+            }
+        };
         let idx = reply.child_value(0).get::<glib::variant::Handle>().ok_or("UDisks2 answered without a handle")?.0;
         let fd = fds.ok_or("UDisks2 sent no file descriptor")?.get(idx).map_err(|e| e.message().to_string())?;
         let f = File::from(fd);
@@ -519,6 +942,10 @@ impl Backend for UDisks {
     }
 
     fn power_off(&self, dev: &RawDevice) -> Result<(), String> {
+        if dev.media_kind() == MediaKind::Optical || dev.path.starts_with("/tmp/") || dev.kname.starts_with("virtual") {
+            let _ = std::process::Command::new("eject").arg(&dev.path).status();
+            return Ok(());
+        }
         let c = Self::bus()?;
         let drive = Self::property(&c, &object_path(&dev.kname), "org.freedesktop.UDisks2.Block", "Drive")?;
         let drive = drive.str().filter(|d| *d != "/").ok_or("no drive object")?.to_string();
@@ -553,17 +980,43 @@ mod tests {
     }
 
     fn src(len: u64) -> Source {
-        Source { path: PathBuf::from("/home/u/archstaller.iso"), len, dev: (259, 2) }
+        Source { path: PathBuf::from("/home/u/archstaller.iso"), len, dev: (259, 2), kind: SourceKind::Iso }
     }
 
     #[test]
     fn reads_lsblk() {
         let d = devices();
-        assert_eq!(d.iter().map(|d| d.kname.as_str()).collect::<Vec<_>>(), ["sda", "nvme0n1", "sdb"], "only whole disks");
+        assert_eq!(d.iter().map(|d| d.kname.as_str()).collect::<Vec<_>>(), ["sda", "nvme0n1", "sdb", "sr0"], "disks and roms");
         assert_eq!(d[0].name(), "SanDisk Ultra");
         assert_eq!(d[0].mounted(), [("sda1".to_string(), "/dev/sda1".to_string(), "/run/media/u/STICK".to_string())]);
         assert!(d[2].removable && !d[2].read_only && d[2].size == 8004304896, "string flags and sizes of old lsblk");
         assert_eq!(d[2].holders, ["dm-0 (crypt)"]);
+        assert_eq!(d[3].media_kind(), MediaKind::Optical);
+    }
+
+    #[test]
+    fn optical_and_floppy_eligibility() {
+        let d = devices();
+        let sr0 = &d[3];
+        assert_eq!(sr0.media_kind(), MediaKind::Optical);
+        assert!(problems_for(sr0, &src(1 << 20), MediaKind::Optical).is_empty(), "optical drive is eligible for optical burning");
+        assert!(problems_for(sr0, &src(1 << 20), MediaKind::Usb).join("; ").contains("not a USB flash drive"));
+
+        let mut fd0 = d[0].clone();
+        fd0.kname = "fd0".into();
+        fd0.path = "/dev/fd0".into();
+        fd0.maj_min = (2, 0);
+        fd0.size = 1_474_560;
+        fd0.partitions.clear();
+        assert_eq!(fd0.media_kind(), MediaKind::Floppy);
+        let floppy_src = Source { path: PathBuf::from("/home/u/archstaller-floppy.img"), len: 1_474_560, dev: (259, 2), kind: SourceKind::Floppy };
+        assert!(problems_for(&fd0, &floppy_src, MediaKind::Floppy).is_empty(), "floppy drive is eligible for floppy writing");
+    }
+
+    #[test]
+    fn parses_xorriso_progress() {
+        assert_eq!(parse_xorriso_progress("Track 01:   12 of   20 MB written (fifo  99%)"), Some(60));
+        assert_eq!(parse_xorriso_progress("Writing to disc..."), None);
     }
 
     #[test]
@@ -598,7 +1051,7 @@ mod tests {
         let mut d = base.clone();
         d.removable = false;
         assert!(has(&d, &src(1), "removable"));
-        let on_stick = Source { path: PathBuf::from("/run/media/u/STICK/a.iso"), len: 1, dev: (8, 1) };
+        let on_stick = Source { path: PathBuf::from("/run/media/u/STICK/a.iso"), len: 1, dev: (8, 1), kind: SourceKind::Iso };
         assert!(has(&base, &on_stick, "the ISO itself"));
     }
 
@@ -768,5 +1221,35 @@ mod tests {
         assert!(Source::of(&p).unwrap_err().contains("not an ISO"));
         assert_eq!(Source::of(&iso(&d, 0x9000)).unwrap().len, 0x9000);
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn source_can_be_floppy() {
+        let d = tmp("floppy_src");
+        let p = d.join("test.img");
+        let mut data = vec![0u8; 1_474_560];
+        data[510] = 0x55;
+        data[511] = 0xaa;
+        std::fs::write(&p, &data).unwrap();
+        let src = Source::of(&p).unwrap();
+        assert_eq!(src.len, 1_474_560);
+        assert_eq!(src.kind, SourceKind::Floppy);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn virtual_media_eligibility() {
+        std::env::set_var("ARCHSTALLER_VIRTUAL_MEDIA", "1");
+        let vcd = probe_virtual_cd().unwrap();
+        assert_eq!(vcd.media_kind(), MediaKind::Optical);
+        assert!(problems_for(&vcd, &src(1 << 20), MediaKind::Optical).is_empty());
+
+        let vfd = probe_virtual_floppy().unwrap();
+        assert_eq!(vfd.media_kind(), MediaKind::Floppy);
+        let floppy_src = Source { path: PathBuf::from("/home/u/archstaller-floppy.img"), len: 1_474_560, dev: (259, 2), kind: SourceKind::Floppy };
+        assert!(problems_for(&vfd, &floppy_src, MediaKind::Floppy).is_empty());
+        let _ = std::fs::remove_file("/tmp/virtual-cd.iso");
+        let _ = std::fs::remove_file("/tmp/virtual-floppy.img");
+        std::env::remove_var("ARCHSTALLER_VIRTUAL_MEDIA");
     }
 }

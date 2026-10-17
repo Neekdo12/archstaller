@@ -63,6 +63,15 @@ pub fn target_dir(root: &Path) -> PathBuf {
 impl Build {
     /// Starts a build of `config` into a per-build workspace under `<target dir>/gui-builds/`.
     pub fn start(root: &Path, config: &Path, id: &str) -> Result<Build, String> {
+        Self::start_cmd(root, config, id, "build", "archstaller.iso")
+    }
+
+    /// Starts a build of the 1.44 MB floppy image for `config`.
+    pub fn start_floppy(root: &Path, config: &Path, id: &str) -> Result<Build, String> {
+        Self::start_cmd(root, config, id, "floppy", "archstaller-floppy.img")
+    }
+
+    fn start_cmd(root: &Path, config: &Path, id: &str, cmd: &str, out_file: &str) -> Result<Build, String> {
         let target = target_dir(root);
         let base = target.join("gui-builds");
         let workdir = base.join(id);
@@ -75,10 +84,10 @@ impl Build {
             .current_dir(root)
             // cargo and xtask must agree on where the builds land.
             .env("CARGO_TARGET_DIR", &target)
-            .args(["xtask", "build", "--config"])
+            .args(["xtask", cmd, "--config"])
             .arg(config)
             .arg("--out")
-            .arg(workdir.join("archstaller.iso"))
+            .arg(workdir.join(out_file))
             .arg("--workdir")
             .arg(&workdir)
             .args(["--progress", "json"])

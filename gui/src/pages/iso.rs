@@ -34,8 +34,10 @@ pub struct Live {
     media_progress: gtk::ProgressBar,
     media_cancel: gtk::Button,
     copy_btn: gtk::Button,
-    /// "Flash ISO to USB", always offered (an empty or unformatted stick has no volume to list).
+    /// Physical media actions.
     flash_btn: Option<gtk::Button>,
+    burn_btn: Option<gtk::Button>,
+    floppy_btn: Option<gtk::Button>,
     media_result: gtk::Label,
     drive_note: gtk::Label,
     iso_label: gtk::Label,
@@ -320,17 +322,19 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     }
     // Always offered, never by default: an empty or unformatted stick has no volume above, so a raw
     // flash is the only way to use it.
-    let flash_btn = {
+    let (flash_btn, burn_btn, floppy_btn) = {
         c.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-        c.append(&ui::strong("Write to a whole USB stick"));
-        let any_removable = volumes.iter().any(|v| v.removable);
-        ui::hint(&c, if any_removable { "Or write the ISO over a whole USB stick. Flashing erases every partition and file on that stick." } else { "No USB volume with a file system was found. A blank or unformatted stick is not listed above; write the ISO over the whole stick instead. Flashing erases every partition and file on it." });
-        let b = gtk::Button::with_label("Flash ISO to USB (erases device)…");
-        b.add_css_class("destructive-action");
-        b.set_halign(gtk::Align::Start);
+        c.append(&ui::strong("Write directly to physical media"));
+        ui::hint(&c, "Write the installer directly to a USB stick, burn to an optical disc (CD/DVD/Blu-ray), or write to a 1.44 MB floppy diskette.");
+        let row = ui::hbox(8);
+        row.set_margin_top(4);
+        row.set_margin_bottom(4);
+
+        let b_usb = gtk::Button::with_label("Flash ISO to USB (erases device)…");
+        b_usb.add_css_class("destructive-action");
+        b_usb.set_halign(gtk::Align::Start);
         let a = app.clone();
-        b.connect_clicked(move |_| {
-            // An ISO picked by hand is flashed as it is; otherwise the flash builds one from this config first.
+        b_usb.connect_clicked(move |_| {
             let iso = a.st.borrow().media.iso_override.clone();
             if iso.is_none() {
                 if a.st.borrow().build.running.is_some() {
@@ -342,10 +346,47 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
                     return;
                 }
             }
-            flash_dialog(&a, iso);
+            flash_dialog(&a, iso, flash::MediaKind::Usb);
         });
-        c.append(&b);
-        Some(b)
+        row.append(&b_usb);
+
+        let b_optical = gtk::Button::with_label("Burn to CD / DVD / Blu-ray…");
+        b_optical.set_halign(gtk::Align::Start);
+        let a = app.clone();
+        b_optical.connect_clicked(move |_| {
+            let iso = a.st.borrow().media.iso_override.clone();
+            if iso.is_none() {
+                if a.st.borrow().build.running.is_some() {
+                    a.set_status("a build is already running");
+                    return;
+                }
+                if !a.st.borrow().model.problems().is_empty() {
+                    a.set_status("the config is invalid; see the problem bar");
+                    return;
+                }
+            }
+            flash_dialog(&a, iso, flash::MediaKind::Optical);
+        });
+        row.append(&b_optical);
+
+        let b_floppy = gtk::Button::with_label("Write to Floppy (1.44 MB)…");
+        b_floppy.set_halign(gtk::Align::Start);
+        let a = app.clone();
+        b_floppy.connect_clicked(move |_| {
+            if a.st.borrow().build.running.is_some() {
+                a.set_status("a build is already running");
+                return;
+            }
+            if !a.st.borrow().model.problems().is_empty() {
+                a.set_status("the config is invalid; see the problem bar");
+                return;
+            }
+            flash_dialog(&a, None, flash::MediaKind::Floppy);
+        });
+        row.append(&b_floppy);
+
+        c.append(&row);
+        (Some(b_usb), Some(b_optical), Some(b_floppy))
     };
     let rr = ui::hbox(8);
     let copy_btn = ui::primary("Copy to the selected volume", {
@@ -377,7 +418,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     let media_result = gtk::Label::builder().xalign(0.0).wrap(true).selectable(true).build();
     c.append(&media_result);
 
-    let live = Rc::new(Live { stages, error, done, sha, summary, spinner, cancel, build_btn, log, log_view, media_progress, media_cancel, copy_btn, flash_btn, media_result, drive_note, iso_label });
+    let live = Rc::new(Live { stages, error, done, sha, summary, spinner, cancel, build_btn, log, log_view, media_progress, media_cancel, copy_btn, flash_btn, burn_btn, floppy_btn, media_result, drive_note, iso_label });
     // The log is rebuilt from the state for a page that is built mid-build.
     app.st.borrow_mut().build.log_shown = 0;
     *app.iso_live.borrow_mut() = Some(live);
@@ -448,6 +489,12 @@ pub fn live_refresh(app: &Rc<App>) {
     let busy = st.media.rx.is_some();
     l.copy_btn.set_sensitive(iso.is_some() && st.media.selected.is_some() && !busy);
     if let Some(b) = &l.flash_btn {
+        b.set_sensitive(!busy && st.build.running.is_none());
+    }
+    if let Some(b) = &l.burn_btn {
+        b.set_sensitive(!busy && st.build.running.is_none());
+    }
+    if let Some(b) = &l.floppy_btn {
         b.set_sensitive(!busy && st.build.running.is_none());
     }
     l.media_cancel.set_visible(busy);
@@ -565,8 +612,13 @@ fn start_build_and_flash(app: &Rc<App>, dev: flash::RawDevice) {
         };
         match cfg {
             Ok(cfg) => {
-                let out = std::env::temp_dir().join("archstaller-flash.iso");
-                start_build(&a, cfg, out);
+                if dev.media_kind() == flash::MediaKind::Floppy {
+                    let out = std::env::temp_dir().join("archstaller-flash.img");
+                    start_build_floppy(&a, cfg, out);
+                } else {
+                    let out = std::env::temp_dir().join("archstaller-flash.iso");
+                    start_build(&a, cfg, out);
+                }
                 let mut st = a.st.borrow_mut();
                 if st.build.running.is_some() {
                     st.build.flash = Some(dev);
@@ -575,6 +627,29 @@ fn start_build_and_flash(app: &Rc<App>, dev: flash::RawDevice) {
             Err(e) => a.st.borrow_mut().build.error = Some(e),
         }
     });
+}
+
+fn start_build_floppy(app: &Rc<App>, cfg: PathBuf, out: PathBuf) {
+    let root = match build::find_root() {
+        Ok(r) => r,
+        Err(e) => {
+            app.st.borrow_mut().build.error = Some(e);
+            return;
+        }
+    };
+    let mut st = app.st.borrow_mut();
+    st.next_build += 1;
+    let id = format!("{}-{}", std::process::id(), st.next_build);
+    st.build = BuildState::default();
+    match Build::start_floppy(&root, &cfg, &id) {
+        Ok(b) => {
+            st.build.out = Some(out);
+            let profile = st.model.effective_profile();
+            st.build.summary = Some(format!("floppy config {}, profile {}", cfg.display(), profile));
+            st.build.running = Some(b);
+        }
+        Err(e) => st.build.error = Some(e),
+    }
 }
 
 fn start_build(app: &Rc<App>, cfg: PathBuf, out: PathBuf) {
@@ -834,7 +909,12 @@ fn start_copy(app: &Rc<App>, iso: PathBuf, v: Volume, dir: PathBuf, delete: Vec<
 }
 
 fn start_flash(app: &Rc<App>, iso: PathBuf, dev: flash::RawDevice) {
-    run_media(app, iso, Box::new(flash::RawBlockFlash { dev, backend: Box::new(flash::UDisks) }), true);
+    let target: Box<dyn MediaTarget + Send> = match dev.media_kind() {
+        flash::MediaKind::Optical => Box::new(flash::OpticalBurn { dev }),
+        flash::MediaKind::Floppy => Box::new(flash::FloppyFlash { dev, backend: Box::new(flash::UDisks) }),
+        flash::MediaKind::Usb => Box::new(flash::RawBlockFlash { dev, backend: Box::new(flash::UDisks) }),
+    };
+    run_media(app, iso, target, true);
 }
 
 /// Runs a copy or a flash on a thread; `pump_copy` picks up its progress and result.
@@ -876,11 +956,11 @@ fn run_drive(app: &Rc<App>, dev: String, mount: bool) {
     });
 }
 
-/// Raw flash: a dialog that looks for USB drives off the main thread, lists the ones that may be flashed
-/// (none preselected) and the external ones that may not, with the reasons, and starts only after the
-/// user selected a drive and typed its kernel name.
-fn flash_dialog(app: &Rc<App>, iso: Option<PathBuf>) {
-    let win = gtk::Window::builder().title("Flash ISO to USB").modal(true).transient_for(&app.window()).default_width(560).default_height(420).build();
+/// Raw write: a dialog that looks for appropriate media drives (USB, optical, or floppy) off the main thread,
+/// lists the ones that may be written (none preselected) and the relevant ones that may not, with the reasons,
+/// and starts only after the user selected a drive and typed its kernel name.
+fn flash_dialog(app: &Rc<App>, iso: Option<PathBuf>, kind: flash::MediaKind) {
+    let win = gtk::Window::builder().title(kind.title()).modal(true).transient_for(&app.window()).default_width(560).default_height(420).build();
     let body = ui::vbox(8);
     body.set_margin_top(14);
     body.set_margin_bottom(14);
@@ -888,65 +968,112 @@ fn flash_dialog(app: &Rc<App>, iso: Option<PathBuf>) {
     body.set_margin_end(16);
     win.set_child(Some(&body));
     win.present();
-    flash_scan(app, &win, &body, iso);
+    flash_scan(app, &win, &body, iso, kind);
 }
 
-fn flash_scan(app: &Rc<App>, win: &gtk::Window, body: &gtk::Box, iso: Option<PathBuf>) {
+fn flash_scan(app: &Rc<App>, win: &gtk::Window, body: &gtk::Box, iso: Option<PathBuf>, kind: flash::MediaKind) {
     ui::clear(body);
-    body.append(&ui::spinner_row("Looking for USB drives…").0);
+    let searching_label = match kind {
+        flash::MediaKind::Usb => "Looking for USB drives…",
+        flash::MediaKind::Optical => "Looking for optical drives (CD/DVD/Blu-ray)…",
+        flash::MediaKind::Floppy => "Looking for floppy drives…",
+    };
+    body.append(&ui::spinner_row(searching_label).0);
     let (a, w, b) = (app.clone(), win.clone(), body.clone());
     glib::spawn_future_local(async move {
         let path = iso.clone();
         let found = gtk::gio::spawn_blocking(move || {
-            // No ISO yet (it is built after the drive is chosen): the real checks run again on the built file.
             let src = match &path {
-                Some(p) => flash::Source::of(p)?,
-                None => flash::Source { path: PathBuf::new(), len: 0, dev: (0, 0) },
+                Some(p) => match kind {
+                    flash::MediaKind::Floppy => flash::Source::floppy(p)?,
+                    _ => flash::Source::iso(p)?,
+                },
+                None => match kind {
+                    flash::MediaKind::Floppy => flash::Source {
+                        path: PathBuf::new(),
+                        len: 1_474_560,
+                        dev: (0, 0),
+                        kind: flash::SourceKind::Floppy,
+                    },
+                    _ => flash::Source {
+                        path: PathBuf::new(),
+                        len: 0,
+                        dev: (0, 0),
+                        kind: flash::SourceKind::Iso,
+                    },
+                },
             };
-            flash::UDisks::ready()?;
-            let list = flash::scan(&src)?;
+            if kind == flash::MediaKind::Usb {
+                flash::UDisks::ready()?;
+            }
+            let list = flash::scan_for(&src, kind)?;
             Ok::<_, String>((src, list))
         })
         .await
         .unwrap_or_else(|_| Err("the drive scan failed unexpectedly".into()));
-        flash_show(&a, &w, &b, iso, found);
+        flash_show(&a, &w, &b, iso, kind, found);
     });
 }
 
-fn flash_show(app: &Rc<App>, win: &gtk::Window, body: &gtk::Box, iso: Option<PathBuf>, found: Result<(flash::Source, Vec<Candidate>), String>) {
+fn flash_show(app: &Rc<App>, win: &gtk::Window, body: &gtk::Box, iso: Option<PathBuf>, kind: flash::MediaKind, found: Result<(flash::Source, Vec<Candidate>), String>) {
     ui::clear(body);
-    body.append(&ui::strong("Write the ISO over a whole USB stick"));
+    let heading = match kind {
+        flash::MediaKind::Usb => "Write the ISO over a whole USB stick",
+        flash::MediaKind::Optical => "Burn the ISO to an optical disc (CD/DVD/Blu-ray)",
+        flash::MediaKind::Floppy => "Write floppy image to a 1.44 MB diskette",
+    };
+    body.append(&ui::strong(heading));
     let buttons = ui::hbox(8);
     buttons.set_halign(gtk::Align::End);
     buttons.append(&ui::button("Refresh", {
         let (a, w, b, iso) = (app.clone(), win.clone(), body.clone(), iso.clone());
-        move || flash_scan(&a, &w, &b, iso.clone())
+        move || flash_scan(&a, &w, &b, iso.clone(), kind)
     }));
     buttons.append(&ui::button("Cancel", {
         let w = win.clone();
         move || w.close()
     }));
-    let go = gtk::Button::with_label("Erase and flash");
+    let go = gtk::Button::with_label(kind.action_label());
     go.add_css_class("destructive-action");
     go.set_sensitive(false);
     buttons.append(&go);
     let (src, list) = match found {
         Ok(x) => x,
         Err(e) => {
-            ui::note(body, Kind::Bad, &format!("Raw flashing is not possible: {e}")).set_selectable(true);
+            let note_msg = match kind {
+                flash::MediaKind::Usb => format!("Raw flashing is not possible: {e}"),
+                flash::MediaKind::Optical => format!("Optical burning is not possible: {e}"),
+                flash::MediaKind::Floppy => format!("Floppy writing is not possible: {e}"),
+            };
+            ui::note(body, Kind::Bad, &note_msg).set_selectable(true);
             ui::hint(body, "Copying the ISO into a folder of a mounted volume still works.");
             body.append(&buttons);
             return;
         }
     };
     if iso.is_some() {
-        ui::hint(body, &format!("{} ({}) is written from the first byte of the device. Every partition and file on the stick is destroyed; this cannot be undone.", src.path.display(), flash::human(src.len)));
+        let desc = match kind {
+            flash::MediaKind::Usb => format!("{} ({}) is written from the first byte of the device. Every partition and file on the stick is destroyed; this cannot be undone.", src.path.display(), flash::human(src.len)),
+            flash::MediaKind::Optical => format!("{} ({}) will be burned to the optical disc in the selected drive.", src.path.display(), flash::human(src.len)),
+            flash::MediaKind::Floppy => format!("{} ({}) will be written to sector 0 of the floppy diskette. All data on the diskette will be overwritten.", src.path.display(), flash::human(src.len)),
+        };
+        ui::hint(body, &desc);
     } else {
-        ui::hint(body, "The config is saved, the ISO is built, written from the first byte of the device and checked, then the built ISO is deleted. Every partition and file on the stick is destroyed; this cannot be undone.");
+        let desc = match kind {
+            flash::MediaKind::Usb => "The config is saved, the ISO is built, written from the first byte of the device and checked, then the built ISO is deleted. Every partition and file on the stick is destroyed; this cannot be undone.",
+            flash::MediaKind::Optical => "The config is saved, the ISO is built, burned to the optical disc in the selected drive, then the built ISO is deleted.",
+            flash::MediaKind::Floppy => "The config is saved, the floppy image (1.44 MB) is built, written to the floppy diskette and verified, then the temporary image is deleted. All data on the diskette will be overwritten.",
+        };
+        ui::hint(body, desc);
     }
     let (ok, rest): (Vec<Candidate>, Vec<Candidate>) = list.into_iter().partition(|c| c.eligible());
     if ok.is_empty() {
-        ui::note(body, Kind::Warn, "No USB drive can be flashed. Plug one in and press Refresh.");
+        let empty_msg = match kind {
+            flash::MediaKind::Usb => "No USB drive can be flashed. Plug one in and press Refresh.",
+            flash::MediaKind::Optical => "No writable optical drive detected. Insert a blank/rewritable disc and press Refresh.",
+            flash::MediaKind::Floppy => "No floppy drive detected. Insert a floppy diskette and press Refresh.",
+        };
+        ui::note(body, Kind::Warn, empty_msg);
     }
     let chosen: Rc<RefCell<Option<flash::RawDevice>>> = Rc::new(RefCell::new(None));
     let warn = gtk::Label::builder().xalign(0.0).wrap(true).max_width_chars(70).css_classes(["note-bad"]).visible(false).build();
@@ -955,7 +1082,8 @@ fn flash_show(app: &Rc<App>, win: &gtk::Window, body: &gtk::Box, iso: Option<Pat
     let mut group: Option<gtk::CheckButton> = None;
     for cand in ok {
         let d = cand.dev;
-        let rb = ui::check_button(&format!("{}   {}   {}", d.name(), d.path, flash::human(d.size)));
+        let size_str = if d.size > 0 { flash::human(d.size) } else { String::new() };
+        let rb = ui::check_button(&format!("{}   {}   {}", d.name(), d.path, size_str));
         if let Some(g) = &group {
             rb.set_group(Some(g));
         } else {
@@ -965,14 +1093,29 @@ fn flash_show(app: &Rc<App>, win: &gtk::Window, body: &gtk::Box, iso: Option<Pat
         body.append(&rb);
         let serial = if d.serial.is_empty() { "unknown".to_string() } else { d.serial.clone() };
         let mounted: Vec<String> = d.mounted().into_iter().map(|(_, p, m)| format!("{p} at {m}")).collect();
-        let detail = if mounted.is_empty() { format!("USB, serial {serial}; nothing mounted") } else { format!("USB, serial {serial}; mounted: {} (unmounted before writing)", mounted.join(", ")) };
+        let detail = match kind {
+            flash::MediaKind::Usb => {
+                if mounted.is_empty() { format!("USB, serial {serial}; nothing mounted") } else { format!("USB, serial {serial}; mounted: {} (unmounted before writing)", mounted.join(", ")) }
+            }
+            flash::MediaKind::Optical => {
+                if mounted.is_empty() { format!("Optical drive, {}; nothing mounted", if d.removable { "removable" } else { "internal" }) } else { format!("Optical drive; mounted: {} (unmounted before burning)", mounted.join(", ")) }
+            }
+            flash::MediaKind::Floppy => {
+                if mounted.is_empty() { "Floppy drive (1.44 MB standard); nothing mounted".to_string() } else { format!("Floppy drive; mounted: {} (unmounted before writing)", mounted.join(", ")) }
+            }
+        };
         ui::hint(body, &detail).set_margin_start(24);
         let (chosen, warn, prompt, typed, go) = (chosen.clone(), warn.clone(), prompt.clone(), typed.clone(), go.clone());
         rb.connect_toggled(move |b| {
             if !b.is_active() {
                 return;
             }
-            warn.set_text(&format!("Every partition and file on {} ({}, {}) will be destroyed.", d.name(), d.path, flash::human(d.size)));
+            let warn_text = match kind {
+                flash::MediaKind::Usb => format!("Every partition and file on {} ({}, {}) will be destroyed.", d.name(), d.path, flash::human(d.size)),
+                flash::MediaKind::Optical => format!("The disc in {} ({}) will be written.", d.name(), d.path),
+                flash::MediaKind::Floppy => format!("All data on floppy {} ({}) will be overwritten.", d.name(), d.path),
+            };
+            warn.set_text(&warn_text);
             prompt.set_text(&format!("Type {} to confirm:", d.kname));
             warn.set_visible(true);
             prompt.set_visible(true);
@@ -992,7 +1135,7 @@ fn flash_show(app: &Rc<App>, win: &gtk::Window, body: &gtk::Box, iso: Option<Pat
             go.set_sensitive(matches);
         });
     }
-    let shown: Vec<&Candidate> = rest.iter().filter(|c| c.looks_external()).collect();
+    let shown: Vec<&Candidate> = rest.iter().filter(|c| c.relevant_for(kind)).collect();
     let hidden = rest.len() - shown.len();
     if !shown.is_empty() || hidden > 0 {
         body.append(&ui::strong("Not offered"));
@@ -1000,7 +1143,7 @@ fn flash_show(app: &Rc<App>, win: &gtk::Window, body: &gtk::Box, iso: Option<Pat
             ui::hint(body, &format!("{} ({}): {}", c.dev.name(), c.dev.path, c.problems.join("; ")));
         }
         if hidden > 0 {
-            ui::hint(body, &format!("{hidden} internal disk(s) are never offered."));
+            ui::hint(body, &format!("{hidden} other disk(s) are not offered."));
         }
     }
     body.append(&buttons);

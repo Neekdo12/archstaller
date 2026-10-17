@@ -47,6 +47,19 @@ pub fn build(opts: &Options) -> Result<PathBuf> {
     println!("  Total Used:            {} / {} bytes ({:.1}%)", total_len, FLOPPY_SIZE, (total_len as f64 / FLOPPY_SIZE as f64) * 100.0);
     println!("  Free Space:            {} bytes ({:.1}%)", FLOPPY_SIZE as u64 - total_len, ((FLOPPY_SIZE as u64 - total_len) as f64 / FLOPPY_SIZE as f64) * 100.0);
 
+    use sha2::Digest;
+    let sha256: String = sha2::Sha256::digest(&img).iter().map(|b| format!("{b:02x}")).collect();
+    iso::emit(
+        opts,
+        hostcfg::progress::Event::Done {
+            path: out.display().to_string(),
+            size: img.len() as u64,
+            sha256,
+            profile: components.resolved.profile.name().into(),
+            config: opts.config.display().to_string(),
+        },
+    );
+
     Ok(out)
 }
 
