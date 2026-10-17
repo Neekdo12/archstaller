@@ -246,10 +246,23 @@ fn ident(s: &str, extra: &str) -> bool {
 }
 
 fn crypt_hash(h: &str) -> bool {
-    h.starts_with("$6$")
-        && h.len() > 20
+    let valid_prefix = h.starts_with("$y$")
+        || h.starts_with("$gy$")
+        || h.starts_with("$7$")
+        || h.starts_with("$6$")
+        || h.starts_with("$5$")
+        || h.starts_with("$2b$")
+        || h.starts_with("$2y$")
+        || h.starts_with("$2a$")
+        || h.starts_with("$2x$")
+        || h.starts_with("$1$")
+        || h.starts_with("$argon2id$")
+        || h.starts_with("$argon2i$")
+        || h.starts_with("$argon2d$");
+    valid_prefix
+        && h.len() > 13
         && h.chars()
-            .all(|c| c.is_ascii_alphanumeric() || "$./".contains(c))
+            .all(|c| c.is_ascii_alphanumeric() || "$./=,+-".contains(c))
 }
 
 impl Config {
@@ -307,7 +320,7 @@ impl Config {
         if let Some(h) = &self.root_password_hash {
             if !crypt_hash(h) {
                 return bad(
-                    "root_password_hash (need a $6$ SHA-512 crypt hash)",
+                    "root_password_hash (need a valid crypt hash, e.g. yescrypt $y$ or SHA-512 $6$)",
                     "<hidden>",
                 );
             }
@@ -329,7 +342,7 @@ impl Config {
             }
             if !crypt_hash(&u.password_hash) {
                 return bad(
-                    "password_hash (need a $6$ SHA-512 crypt hash) for user",
+                    "password_hash (need a valid crypt hash, e.g. yescrypt $y$ or SHA-512 $6$) for user",
                     &u.name,
                 );
             }
@@ -617,6 +630,28 @@ mod tests {
         for bad in [".box", "box.", "a..b", "-box", "a.-b"] {
             assert!(with_host(bad).validate().is_err(), "hostname {bad:?}");
         }
+    }
+
+    #[test]
+    fn accepts_modern_crypt_hashes_and_rejects_bad_ones() {
+        let with_hash = |h: &str| {
+            let mut c = base();
+            c.root_password_hash = Some(h.into());
+            c.validate()
+        };
+        // SHA-512 ($6$)
+        with_hash("$6$abc$12345678901234567890").unwrap();
+        // Yescrypt ($y$)
+        with_hash("$y$j9T$12345678901234567890").unwrap();
+        // Bcrypt ($2b$)
+        with_hash("$2b$12$12345678901234567890").unwrap();
+        // Argon2 ($argon2id$)
+        with_hash("$argon2id$v=19$m=65536,t=3,p=4$12345678$123456789012").unwrap();
+        // Bad hashes
+        assert!(with_hash("plaintext_password").is_err());
+        assert!(with_hash("$6$short").is_err());
+        assert!(with_hash("").is_err());
+        assert!(with_hash("$invalid$abc1234567890").is_err());
     }
 
     #[test]

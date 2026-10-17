@@ -1074,6 +1074,7 @@ name = "hostcfg"
 version = "0.1.0"
 dependencies = [
  "config",
+ "libc",
  "pkg",
  "postcard",
  "schemars",

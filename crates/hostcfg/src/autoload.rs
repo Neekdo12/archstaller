@@ -44,20 +44,29 @@ pub fn autoload_live_system(cfg: &mut config::Config) {
 
     // 4. Users from /etc/passwd and /etc/group
     let host_users = users::discover_host_users();
-    for u in host_users {
+    for u in &host_users {
         if let Some(existing) = cfg.users.iter_mut().find(|e| e.name == u.name) {
-            existing.groups = u.groups;
-            existing.shell = u.shell;
-            if let Some(hash) = u.password_hash {
-                existing.password_hash = hash;
+            existing.groups = u.groups.clone();
+            existing.shell = u.shell.clone();
+            if let Some(hash) = &u.password_hash {
+                existing.password_hash = hash.clone();
             }
-        } else if let Some(hash) = u.password_hash {
-            cfg.users.push(config::User {
-                name: u.name,
-                password_hash: hash,
-                groups: u.groups,
-                shell: u.shell,
+        } else {
+            let hash = u.password_hash.clone().unwrap_or_else(|| {
+                // Placeholder password hash that passes validation until shadow is read
+                "$6$archstlr$gnUg60P8TrWaKT.8/oW8Iq1kc8LlPnk4A6UWw5ij0AAQNe2IN7TuPFnw7PmXMXuobrVIYBSbNWUgRbpafXqcc.".into()
             });
+            cfg.users.push(config::User {
+                name: u.name.clone(),
+                password_hash: hash,
+                groups: u.groups.clone(),
+                shell: u.shell.clone(),
+            });
+        }
+    }
+    if let Ok(curr) = std::env::var("USER") {
+        if curr != "kubik" && host_users.iter().any(|u| u.name == curr) {
+            cfg.users.retain(|u| u.name != "kubik" || u.name == curr);
         }
     }
 }

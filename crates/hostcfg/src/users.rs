@@ -102,9 +102,10 @@ pub fn parse_shadow_hash(shadow_content: &str, username: &str) -> Option<String>
     for line in shadow_content.lines() {
         let parts: Vec<&str> = line.trim().split(':').collect();
         if parts.len() >= 2 && parts.first().copied() == Some(username) {
-            if let Some(&hash) = parts.get(1) {
-                // Crypt hashes typically start with '$' (e.g. $6$ or $y$), and are not disabled ('*', '!', 'x', or empty)
-                if hash.starts_with('$') && !hash.starts_with('!') && !hash.starts_with('*') {
+            if let Some(&raw_hash) = parts.get(1) {
+                // Strip any locking prefix '!' (e.g. !$y$... or !!$6$...) to extract the underlying crypt hash
+                let hash = raw_hash.trim_start_matches('!');
+                if hash.starts_with('$') && !hash.starts_with('*') && hash.len() > 13 {
                     return Some(hash.to_string());
                 }
             }
@@ -187,6 +188,257 @@ pub fn current_user() -> Option<HostUser> {
     users.into_iter().next()
 }
 
+/// Updates user password hashes from a shadow file string.
+/// Returns the number of users whose hashes were updated.
+pub fn update_users_from_shadow(users: &mut [config::User], shadow_content: &str) -> usize {
+    let mut updated = 0;
+    for u in users.iter_mut() {
+        if let Some(h) = parse_shadow_hash(shadow_content, &u.name) {
+            if u.password_hash != h {
+                u.password_hash = h;
+                updated += 1;
+            }
+        }
+    }
+    updated
+}
+
+/// Tries to execute `sudo` with the given password via stdin.
+fn try_sudo_with_password(pw: &str) -> Result<String, String> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new("sudo")
+        .args(["-S", "-k", "-p", "", "cat", "/etc/shadow"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("cannot run sudo: {e}"))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        drop(stdin.write_all(pw.as_bytes()));
+        drop(stdin.write_all(b"\n"));
+        drop(stdin.flush());
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("sudo error: {e}"))?;
+    if output.status.success() {
+        let text = String::from_utf8_lossy(&output.stdout).to_string();
+        if text.contains(':') {
+            return Ok(text);
+        }
+    }
+    let err = String::from_utf8_lossy(&output.stderr).to_string();
+    Err(if err.trim().is_empty() {
+        "sudo authentication failed".to_string()
+    } else {
+        err.trim().to_string()
+    })
+}
+
+/// Tries to execute `su -c "cat /etc/shadow"` with the root password over a pseudo-terminal.
+fn try_su_with_password(pw: &str) -> Result<String, String> {
+    use std::fs::File;
+    use std::io::{Read, Write};
+    use std::os::unix::io::{FromRawFd, RawFd};
+    use std::process::{Command, Stdio};
+
+    let mut master: RawFd = 0;
+    let mut slave: RawFd = 0;
+    // SAFETY: openpty takes pointers to master/slave RawFd and NULL for optional term/winsize structs.
+    let res = unsafe {
+        libc::openpty(
+            &mut master,
+            &mut slave,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    if res != 0 {
+        return Err("failed to allocate pty".to_string());
+    }
+
+    // SAFETY: slave is a valid open file descriptor returned by openpty.
+    let slave_file = unsafe { File::from_raw_fd(slave) };
+    let slave_in = match slave_file.try_clone() {
+        Ok(f) => Stdio::from(f),
+        Err(_) => return Err("cannot clone slave pty fd".to_string()),
+    };
+    let slave_out = match slave_file.try_clone() {
+        Ok(f) => Stdio::from(f),
+        Err(_) => return Err("cannot clone slave pty fd".to_string()),
+    };
+    let slave_err = Stdio::from(slave_file);
+
+    let mut child = Command::new("su")
+        .args(["-c", "cat /etc/shadow"])
+        .stdin(slave_in)
+        .stdout(slave_out)
+        .stderr(slave_err)
+        .spawn()
+        .map_err(|e| {
+            // SAFETY: master is a valid open file descriptor allocated by openpty.
+            unsafe { libc::close(master) };
+            format!("cannot run su: {e}")
+        })?;
+
+    // SAFETY: master is a valid open file descriptor allocated by openpty.
+    let mut master_file = unsafe { File::from_raw_fd(master) };
+
+    // Wait briefly for prompt
+    let mut prompt_buf = [0u8; 512];
+    let mut prompt_read = 0;
+    let start = std::time::Instant::now();
+    while start.elapsed() < std::time::Duration::from_secs(3) {
+        let mut pfd = libc::pollfd {
+            fd: master,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: poll operates on a stack pollfd referencing master.
+        let poll_res = unsafe { libc::poll(&mut pfd, 1, 150) };
+        if poll_res > 0 && (pfd.revents & libc::POLLIN) != 0 {
+            if let Some(dest) = prompt_buf.get_mut(prompt_read..) {
+                if let Ok(n) = master_file.read(dest) {
+                    prompt_read += n;
+                    if let Some(slice) = prompt_buf.get(..prompt_read) {
+                        let text = String::from_utf8_lossy(slice);
+                        if text.contains(':') {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if let Ok(Some(_)) = child.try_wait() {
+            break;
+        }
+    }
+
+    // Write the password followed by newline
+    drop(master_file.write_all(pw.as_bytes()));
+    drop(master_file.write_all(b"\n"));
+    drop(master_file.flush());
+
+    // Collect output until process exits or times out
+    let mut out_bytes = Vec::new();
+    let mut buf = [0u8; 4096];
+    let start = std::time::Instant::now();
+    while start.elapsed() < std::time::Duration::from_secs(5) {
+        let mut pfd = libc::pollfd {
+            fd: master,
+            events: libc::POLLIN | libc::POLLHUP,
+            revents: 0,
+        };
+        // SAFETY: poll operates on a stack pollfd referencing master.
+        let poll_res = unsafe { libc::poll(&mut pfd, 1, 150) };
+        if poll_res > 0 {
+            if (pfd.revents & libc::POLLIN) != 0 {
+                if let Ok(n) = master_file.read(&mut buf) {
+                    if n == 0 {
+                        break;
+                    }
+                    if let Some(chunk) = buf.get(..n) {
+                        out_bytes.extend_from_slice(chunk);
+                    }
+                }
+            } else if (pfd.revents & libc::POLLHUP) != 0 {
+                break;
+            }
+        }
+        if let Ok(Some(status)) = child.try_wait() {
+            if !status.success() {
+                return Err("su authentication failed".to_string());
+            }
+            while let Ok(n) = master_file.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                if let Some(chunk) = buf.get(..n) {
+                    out_bytes.extend_from_slice(chunk);
+                }
+            }
+            break;
+        }
+    }
+
+    drop(child.wait());
+    let text = String::from_utf8_lossy(&out_bytes);
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.contains(':') && !l.starts_with("Password") && !l.starts_with("su:"))
+        .collect();
+    if lines.len() >= 2 {
+        Ok(lines.join("\n"))
+    } else {
+        Err("su authentication failed".to_string())
+    }
+}
+
+/// Tries to execute `pkexec cat /etc/shadow` using the system's Polkit authentication agent.
+fn try_pkexec() -> Result<String, String> {
+    use std::process::Command;
+
+    let output = Command::new("pkexec")
+        .args(["cat", "/etc/shadow"])
+        .output()
+        .map_err(|e| format!("cannot run pkexec: {e}"))?;
+
+    if output.status.success() {
+        let text = String::from_utf8_lossy(&output.stdout).to_string();
+        if text.contains(':') {
+            return Ok(text);
+        }
+    }
+    let err = String::from_utf8_lossy(&output.stderr).to_string();
+    Err(if err.trim().is_empty() {
+        "pkexec authentication was cancelled or failed".to_string()
+    } else {
+        err.trim().to_string()
+    })
+}
+
+/// Retrieves the contents of `/etc/shadow` via direct file read, password (sudo/su), or Polkit (`pkexec`).
+pub fn authenticate_and_read_shadow(
+    password: Option<&str>,
+    use_pkexec: bool,
+) -> Result<String, String> {
+    // 1. If /etc/shadow is already readable (e.g. running as root), return it directly
+    if let Ok(content) = std::fs::read_to_string("/etc/shadow") {
+        if content.contains(':') {
+            return Ok(content);
+        }
+    }
+
+    // 2. If password provided, try sudo first, then su
+    if let Some(pw) = password {
+        let pw = pw.trim();
+        if !pw.is_empty() {
+            match try_sudo_with_password(pw) {
+                Ok(content) => return Ok(content),
+                Err(sudo_err) => match try_su_with_password(pw) {
+                    Ok(content) => return Ok(content),
+                    Err(su_err) => {
+                        return Err(format!("sudo: {sudo_err}; su: {su_err}"));
+                    }
+                },
+            }
+        }
+    }
+
+    // 3. If pkexec requested
+    if use_pkexec {
+        return try_pkexec();
+    }
+
+    Err("no authentication method succeeded".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -231,13 +483,51 @@ bob:x:1001:
 root:*:19700:0:99999:7:::
 alice:$6$rounds=5000$saltsalt$xyz123...:19700:0:99999:7:::
 bob:!:19700:0:99999:7:::
+dave:$y$j9T$saltsalt$xyz123...:19700:0:99999:7:::
+eve:!$y$j9T$saltsalt$xyz123...:19700:0:99999:7:::
 ";
         assert_eq!(
             parse_shadow_hash(sample, "alice"),
             Some("$6$rounds=5000$saltsalt$xyz123...".into())
         );
+        assert_eq!(
+            parse_shadow_hash(sample, "dave"),
+            Some("$y$j9T$saltsalt$xyz123...".into())
+        );
+        assert_eq!(
+            parse_shadow_hash(sample, "eve"),
+            Some("$y$j9T$saltsalt$xyz123...".into())
+        );
         assert_eq!(parse_shadow_hash(sample, "root"), None);
         assert_eq!(parse_shadow_hash(sample, "bob"), None);
         assert_eq!(parse_shadow_hash(sample, "charlie"), None);
+    }
+
+    #[test]
+    fn updates_users_from_shadow_text() {
+        let shadow = "\
+root:$6$rootpasshash...:19700:0:99999:7:::
+alice:$6$alicepasshash...:19700:0:99999:7:::
+bob:$6$bobpasshash...:19700:0:99999:7:::
+";
+        let mut users = vec![
+            config::User {
+                name: "alice".into(),
+                password_hash: "old".into(),
+                groups: vec!["wheel".into()],
+                shell: "/bin/bash".into(),
+            },
+            config::User {
+                name: "charlie".into(),
+                password_hash: "old".into(),
+                groups: vec![],
+                shell: "/bin/bash".into(),
+            },
+        ];
+
+        let updated = update_users_from_shadow(&mut users, shadow);
+        assert_eq!(updated, 1);
+        assert_eq!(users.first().unwrap().password_hash, "$6$alicepasshash...");
+        assert_eq!(users[1].password_hash, "old");
     }
 }
