@@ -66,7 +66,10 @@ pub struct Module {
 impl Module {
     pub fn name(&self) -> &str {
         let n = self.name.iter().position(|&b| b == 0).unwrap_or(16);
-        core::str::from_utf8(&self.name[..n]).unwrap_or("")
+        self.name
+            .get(..n)
+            .and_then(|b| core::str::from_utf8(b).ok())
+            .unwrap_or("")
     }
 }
 
@@ -198,25 +201,48 @@ pub mod bios {
 
     /// Locates stage 2 for stage 1.
     pub fn patch_stage1(stage1: &mut [u8], stage2_off: u64, stage2_len: u32) {
-        stage1[S1_PATCH..S1_PATCH + 8].copy_from_slice(&stage2_off.to_le_bytes());
-        stage1[S1_PATCH + 8..S1_PATCH + 12].copy_from_slice(&stage2_len.to_le_bytes());
+        if let Some(slot) = stage1.get_mut(S1_PATCH..S1_PATCH + 8) {
+            slot.copy_from_slice(&stage2_off.to_le_bytes());
+        }
+        if let Some(slot) = stage1.get_mut(S1_PATCH + 8..S1_PATCH + 12) {
+            slot.copy_from_slice(&stage2_len.to_le_bytes());
+        }
     }
 
     /// Tells stage 2 what to load: `mode`, up to three `(byte offset on the boot medium, length)` extents, and a command line.
-    pub fn patch_stage2(stage2: &mut [u8], mode: u32, extents: &[(u64, u64)], cmdline: &str) -> Result<(), &'static str> {
+    pub fn patch_stage2(
+        stage2: &mut [u8],
+        mode: u32,
+        extents: &[(u64, u64)],
+        cmdline: &str,
+    ) -> Result<(), &'static str> {
         if extents.len() > 3 || cmdline.len() >= CMDLINE_MAX {
             return Err("too many extents or a command line that is too long");
         }
-        let h = &mut stage2[S2_HEADER..S2_HEADER + S2_HEADER_LEN];
-        h[0..4].copy_from_slice(&S2_MAGIC.to_le_bytes());
-        h[4..8].copy_from_slice(&mode.to_le_bytes());
-        for (i, &(off, len)) in extents.iter().enumerate() {
-            h[8 + i * 16..16 + i * 16].copy_from_slice(&off.to_le_bytes());
-            h[16 + i * 16..24 + i * 16].copy_from_slice(&len.to_le_bytes());
+        let Some(h) = stage2.get_mut(S2_HEADER..S2_HEADER + S2_HEADER_LEN) else {
+            return Err("stage 2 image too small for header");
+        };
+        if let Some(slot) = h.get_mut(0..4) {
+            slot.copy_from_slice(&S2_MAGIC.to_le_bytes());
         }
-        let c = &mut h[8 + 48..];
+        if let Some(slot) = h.get_mut(4..8) {
+            slot.copy_from_slice(&mode.to_le_bytes());
+        }
+        for (i, &(off, len)) in extents.iter().enumerate() {
+            if let Some(slot) = h.get_mut(8 + i * 16..16 + i * 16) {
+                slot.copy_from_slice(&off.to_le_bytes());
+            }
+            if let Some(slot) = h.get_mut(16 + i * 16..24 + i * 16) {
+                slot.copy_from_slice(&len.to_le_bytes());
+            }
+        }
+        let Some(c) = h.get_mut(8 + 48..) else {
+            return Err("header too small for command line");
+        };
         c.fill(0);
-        c[..cmdline.len()].copy_from_slice(cmdline.as_bytes());
+        if let Some(slot) = c.get_mut(..cmdline.len()) {
+            slot.copy_from_slice(cmdline.as_bytes());
+        }
         Ok(())
     }
 }

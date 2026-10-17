@@ -1,6 +1,9 @@
 //! Hardware abstraction traits shared by drivers and the installer logic.
 #![no_std]
 
+#[cfg(target_arch = "aarch64")]
+pub mod aarch64;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
     /// Device reported a failure.
@@ -27,6 +30,7 @@ pub fn set_idle_hook(f: fn()) {
 pub fn idle() {
     match IDLE_HOOK.load(core::sync::atomic::Ordering::Relaxed) {
         0 => core::hint::spin_loop(),
+        // SAFETY: IDLE_HOOK was stored from a valid `fn()` pointer in `set_idle_hook`.
         f => unsafe { core::mem::transmute::<usize, fn()>(f)() },
     }
 }
@@ -42,6 +46,7 @@ pub fn set_log_hook(f: fn(core::fmt::Arguments)) {
 pub fn log(args: core::fmt::Arguments) {
     match LOG_HOOK.load(core::sync::atomic::Ordering::Relaxed) {
         0 => {}
+        // SAFETY: LOG_HOOK was stored from a valid `fn(core::fmt::Arguments)` pointer in `set_log_hook`.
         f => unsafe { core::mem::transmute::<usize, fn(core::fmt::Arguments)>(f)(args) },
     }
 }

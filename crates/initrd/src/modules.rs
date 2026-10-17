@@ -12,22 +12,30 @@ pub fn normalize(name: &str) -> String {
 /// Strips directories and `.ko[.zst|.gz]` from a path and normalizes the result.
 pub fn name_from_path(path: &str) -> Option<String> {
     let file = path.rsplit('/').next()?;
-    let stem = file.strip_suffix(".zst").or_else(|| file.strip_suffix(".gz")).unwrap_or(file);
+    let stem = file
+        .strip_suffix(".zst")
+        .or_else(|| file.strip_suffix(".gz"))
+        .unwrap_or(file);
     let stem = stem.strip_suffix(".ko")?;
     Some(normalize(stem))
 }
 
 /// Returns the raw (decompressed) bytes of a module file.
 pub fn decompress(data: &[u8]) -> Result<Vec<u8>> {
-    let mut r = pkg::compress::open(data).map_err(|e| Error::Decompress(alloc::format!("{e:?}")))?;
+    let mut r =
+        pkg::compress::open(data).map_err(|e| Error::Decompress(alloc::format!("{e:?}")))?;
     let mut out = Vec::with_capacity(data.len() * 3);
     let mut buf = [0u8; 16384];
     loop {
-        let n = r.read(&mut buf).map_err(|e| Error::Decompress(alloc::format!("{e:?}")))?;
+        let n = r
+            .read(&mut buf)
+            .map_err(|e| Error::Decompress(alloc::format!("{e:?}")))?;
         if n == 0 {
             return Ok(out);
         }
-        out.extend_from_slice(&buf[..n]);
+        if let Some(chunk) = buf.get(..n) {
+            out.extend_from_slice(chunk);
+        }
     }
 }
 
@@ -61,14 +69,18 @@ pub fn depends(elf: &[u8]) -> Result<Vec<String>> {
         let (name_off, off, size) = section(i).ok_or_else(bad)?;
         let name = strtab.get(name_off..).ok_or_else(bad)?;
         let end = name.iter().position(|&c| c == 0).ok_or_else(bad)?;
-        if &name[..end] != b".modinfo" {
+        if name.get(..end) != Some(b".modinfo") {
             continue;
         }
         let info = elf.get(off..off + size).ok_or_else(bad)?;
         for entry in info.split(|&c| c == 0) {
             if let Some(v) = entry.strip_prefix(b"depends=") {
-                let v = core::str::from_utf8(v).map_err(|_| bad())?;
-                return Ok(v.split(',').filter(|s| !s.is_empty()).map(normalize).collect());
+                let v = core::str::from_utf8(v).map_err(|_e| bad())?;
+                return Ok(v
+                    .split(',')
+                    .filter(|s| !s.is_empty())
+                    .map(normalize)
+                    .collect());
             }
         }
         return Ok(Vec::new());
@@ -90,8 +102,16 @@ pub struct Resolved {
 
 /// Computes the load order for `wanted` including all dependencies. Modules listed in
 /// `builtin` are skipped; missing wanted modules are skipped only if `optional`.
-pub fn resolve(src: &mut dyn ModuleSource, wanted: &[&str], optional: &[&str], builtin: &BTreeSet<String>) -> Result<Resolved> {
-    let mut out = Resolved { order: Vec::new(), images: Vec::new() };
+pub fn resolve(
+    src: &mut dyn ModuleSource,
+    wanted: &[&str],
+    optional: &[&str],
+    builtin: &BTreeSet<String>,
+) -> Result<Resolved> {
+    let mut out = Resolved {
+        order: Vec::new(),
+        images: Vec::new(),
+    };
     let mut done: BTreeSet<String> = BTreeSet::new();
     let mut visiting: BTreeSet<String> = BTreeSet::new();
 
@@ -99,7 +119,6 @@ pub fn resolve(src: &mut dyn ModuleSource, wanted: &[&str], optional: &[&str], b
         name: &str,
         src: &mut dyn ModuleSource,
         builtin: &BTreeSet<String>,
-        optional: &[&str],
         done: &mut BTreeSet<String>,
         visiting: &mut BTreeSet<String>,
         out: &mut Resolved,
@@ -110,12 +129,16 @@ pub fn resolve(src: &mut dyn ModuleSource, wanted: &[&str], optional: &[&str], b
             return Ok(());
         }
         let Some(file) = src.find(&name) else {
-            return if required { Err(Error::Missing(name)) } else { Ok(()) };
+            return if required {
+                Err(Error::Missing(name))
+            } else {
+                Ok(())
+            };
         };
         visiting.insert(name.clone());
         let raw = decompress(&file)?;
         for dep in depends(&raw)? {
-            visit(&dep, src, builtin, optional, done, visiting, out, true)?;
+            visit(&dep, src, builtin, done, visiting, out, true)?;
         }
         visiting.remove(&name);
         done.insert(name.clone());
@@ -125,10 +148,10 @@ pub fn resolve(src: &mut dyn ModuleSource, wanted: &[&str], optional: &[&str], b
     }
 
     for w in wanted {
-        visit(w, src, builtin, optional, &mut done, &mut visiting, &mut out, true)?;
+        visit(w, src, builtin, &mut done, &mut visiting, &mut out, true)?;
     }
     for w in optional {
-        visit(w, src, builtin, optional, &mut done, &mut visiting, &mut out, false)?;
+        visit(w, src, builtin, &mut done, &mut visiting, &mut out, false)?;
     }
     Ok(out)
 }

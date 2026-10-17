@@ -35,19 +35,38 @@ impl IphoneNet {
         let Some(iface) = dev
             .interfaces
             .iter()
-            .find(|i| (i.class, i.subclass, i.protocol) == IPHETH_CLASS && dev.bulk_in(i).is_some() && dev.bulk_out(i).is_some())
+            .find(|i| {
+                (i.class, i.subclass, i.protocol) == IPHETH_CLASS
+                    && dev.bulk_in(i).is_some()
+                    && dev.bulk_out(i).is_some()
+            })
             .cloned()
         else {
             hal::info!(
                 "usb: no tethering (ff/fd/01) interface with bulk endpoints; interfaces: {:?}",
-                dev.interfaces.iter().map(|i| (i.num, i.alt, i.class, i.subclass, i.protocol, i.endpoints.len())).collect::<Vec<_>>()
+                dev.interfaces
+                    .iter()
+                    .map(|i| (
+                        i.num,
+                        i.alt,
+                        i.class,
+                        i.subclass,
+                        i.protocol,
+                        i.endpoints.len()
+                    ))
+                    .collect::<Vec<_>>()
             );
             return Err(Error::Unsupported);
         };
         let ep_in = dev.bulk_in(&iface).ok_or(Error::Unsupported)?;
         let ep_out = dev.bulk_out(&iface).ok_or(Error::Unsupported)?;
         ctrl.set_interface(&dev, iface.num, iface.alt)?;
-        let eps: Vec<usb::desc::EndpointDesc> = iface.endpoints.iter().filter(|e| e.is_bulk()).cloned().collect();
+        let eps: Vec<usb::desc::EndpointDesc> = iface
+            .endpoints
+            .iter()
+            .filter(|e| e.is_bulk())
+            .cloned()
+            .collect();
         ctrl.configure_endpoints(&dev, &eps)?;
 
         let mut buf = [0u8; 0x40];
@@ -58,7 +77,15 @@ impl IphoneNet {
         }
         let mut mac = [0u8; 6];
         mac.copy_from_slice(&buf[..6]);
-        Ok(IphoneNet { ctrl, dev, ep_in, ep_out, mac, rx: Dma::for_transfer(RX_BUF), rx_pending: false })
+        Ok(IphoneNet {
+            ctrl,
+            dev,
+            ep_in,
+            ep_out,
+            mac,
+            rx: Dma::for_transfer(RX_BUF),
+            rx_pending: false,
+        })
     }
 
     /// Whether the phone reports the hotspot link as up.
@@ -87,7 +114,9 @@ impl NetDevice for IphoneNet {
 
     fn receive(&mut self, buf: &mut [u8]) -> Option<usize> {
         if !self.rx_pending {
-            self.ctrl.bulk_in_submit(&self.dev, self.ep_in, &self.rx, RX_BUF).ok()?;
+            self.ctrl
+                .bulk_in_submit(&self.dev, self.ep_in, &self.rx, RX_BUF)
+                .ok()?;
             self.rx_pending = true;
         }
         match self.ctrl.bulk_in_poll(&self.dev, self.ep_in, RX_BUF)? {
@@ -96,9 +125,11 @@ impl NetDevice for IphoneNet {
                 if n <= RX_PAD {
                     return None;
                 }
-                let frame = &self.rx.as_slice()[RX_PAD..n];
+                let frame = self.rx.as_slice().get(RX_PAD..n)?;
                 let len = frame.len().min(buf.len());
-                buf[..len].copy_from_slice(&frame[..len]);
+                if let (Some(dst), Some(src)) = (buf.get_mut(..len), frame.get(..len)) {
+                    dst.copy_from_slice(src);
+                }
                 Some(len)
             }
             Err(_) => {

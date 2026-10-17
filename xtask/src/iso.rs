@@ -9,13 +9,25 @@ const TARGET: &str = "x86_64-unknown-none";
 const UEFI_TARGET: &str = "x86_64-unknown-uefi";
 
 fn le16(b: &[u8], at: usize) -> usize {
-    u16::from_le_bytes(b[at..at + 2].try_into().unwrap()) as usize
+    let bytes: [u8; 2] = b
+        .get(at..at + 2)
+        .and_then(|s| s.try_into().ok())
+        .unwrap_or([0; 2]);
+    u16::from_le_bytes(bytes) as usize
 }
 fn le32(b: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes(b[at..at + 4].try_into().unwrap())
+    let bytes: [u8; 4] = b
+        .get(at..at + 4)
+        .and_then(|s| s.try_into().ok())
+        .unwrap_or([0; 4]);
+    u32::from_le_bytes(bytes)
 }
 fn le64(b: &[u8], at: usize) -> u64 {
-    u64::from_le_bytes(b[at..at + 8].try_into().unwrap())
+    let bytes: [u8; 8] = b
+        .get(at..at + 8)
+        .and_then(|s| s.try_into().ok())
+        .unwrap_or([0; 8]);
+    u64::from_le_bytes(bytes)
 }
 
 /// The kernel as the loader wants it: the memory image its segments form from `KERNEL_BASE`.
@@ -35,21 +47,55 @@ fn flatten_kernel(elf: &[u8]) -> Result<KernelImage> {
     let loads: Vec<(u64, usize, usize, u64)> = (0..phnum)
         .map(|i| phoff + i * phentsize)
         .filter(|&ph| le32(elf, ph) == 1)
-        .map(|ph| (le64(elf, ph + 16), le64(elf, ph + 8) as usize, le64(elf, ph + 32) as usize, le64(elf, ph + 40)))
+        .map(|ph| {
+            (
+                le64(elf, ph + 16),
+                le64(elf, ph + 8) as usize,
+                le64(elf, ph + 32) as usize,
+                le64(elf, ph + 40),
+            )
+        })
         .collect();
-    let base = loads.iter().map(|l| l.0).min().ok_or("kernel has no loadable segments")?;
+    let base = loads
+        .iter()
+        .map(|l| l.0)
+        .min()
+        .ok_or("kernel has no loadable segments")?;
     if base != bootinfo::KERNEL_BASE {
-        return Err(format!("kernel is linked at {base:#x}, the loader expects {:#x}", bootinfo::KERNEL_BASE).into());
+        return Err(format!(
+            "kernel is linked at {base:#x}, the loader expects {:#x}",
+            bootinfo::KERNEL_BASE
+        )
+        .into());
     }
-    let mem = loads.iter().map(|l| l.0 + l.3).max().unwrap() - base;
+    let mem = loads
+        .iter()
+        .map(|l| l.0 + l.3)
+        .max()
+        .ok_or("kernel has no loadable segments")?
+        - base;
     if mem > bootinfo::KERNEL_MAX {
-        return Err(format!("kernel needs {mem} bytes of memory, the loader maps {}", bootinfo::KERNEL_MAX).into());
+        return Err(format!(
+            "kernel needs {mem} bytes of memory, the loader maps {}",
+            bootinfo::KERNEL_MAX
+        )
+        .into());
     }
-    let len = loads.iter().map(|l| (l.0 - base) as usize + l.2).max().unwrap();
+    let len = loads
+        .iter()
+        .map(|l| (l.0 - base) as usize + l.2)
+        .max()
+        .ok_or("kernel has no loadable segments")?;
     let mut image = vec![0u8; len];
     for &(vaddr, off, filesz, _) in &loads {
         let at = (vaddr - base) as usize;
-        image[at..at + filesz].copy_from_slice(&elf[off..off + filesz]);
+        let src = elf
+            .get(off..off + filesz)
+            .ok_or("kernel segment out of bounds")?;
+        let dst = image
+            .get_mut(at..at + filesz)
+            .ok_or("kernel image buffer too small")?;
+        dst.copy_from_slice(src);
     }
     Ok(KernelImage { image, entry, mem })
 }
@@ -68,58 +114,111 @@ fn make_payload(kernel: &KernelImage, modules: &[(&str, &[u8])]) -> Result<Vec<u
     entries.extend_from_slice(modules);
     let head = bootinfo::PAYLOAD_HEADER + 16 + entries.len() * bootinfo::PAYLOAD_ENTRY;
     let mut out = vec![0u8; head];
-    out[0..4].copy_from_slice(&bootinfo::PAYLOAD_MAGIC.to_le_bytes());
-    out[4..8].copy_from_slice(&(entries.len() as u32).to_le_bytes());
-    out[8..16].copy_from_slice(&kernel.entry.to_le_bytes());
-    out[16..20].copy_from_slice(&(kernel.mem as u32).to_le_bytes());
+    out.get_mut(0..4)
+        .ok_or("payload too small")?
+        .copy_from_slice(&bootinfo::PAYLOAD_MAGIC.to_le_bytes());
+    out.get_mut(4..8)
+        .ok_or("payload too small")?
+        .copy_from_slice(&(entries.len() as u32).to_le_bytes());
+    out.get_mut(8..16)
+        .ok_or("payload too small")?
+        .copy_from_slice(&kernel.entry.to_le_bytes());
+    out.get_mut(16..20)
+        .ok_or("payload too small")?
+        .copy_from_slice(&(kernel.mem as u32).to_le_bytes());
     for (i, (name, data)) in entries.iter().enumerate() {
         if name.len() > 16 {
             return Err(format!("payload entry name {name} is too long").into());
         }
         let packed = deflate(data)?;
-        let (stored, flags): (&[u8], u32) = if packed.len() < data.len() { (&packed, bootinfo::FLAG_DEFLATE) } else { (data, 0) };
+        let (stored, flags): (&[u8], u32) = if packed.len() < data.len() {
+            (&packed, bootinfo::FLAG_DEFLATE)
+        } else {
+            (data, 0)
+        };
         let at = bootinfo::PAYLOAD_HEADER + 16 + i * bootinfo::PAYLOAD_ENTRY;
-        out[at..at + name.len()].copy_from_slice(name.as_bytes());
+        out.get_mut(at..at + name.len())
+            .ok_or("payload too small for name")?
+            .copy_from_slice(name.as_bytes());
         let stored_at = out.len() as u32;
-        out[at + 16..at + 20].copy_from_slice(&stored_at.to_le_bytes());
-        out[at + 20..at + 24].copy_from_slice(&(stored.len() as u32).to_le_bytes());
-        out[at + 24..at + 28].copy_from_slice(&(data.len() as u32).to_le_bytes());
-        out[at + 28..at + 32].copy_from_slice(&flags.to_le_bytes());
+        out.get_mut(at + 16..at + 20)
+            .ok_or("payload too small")?
+            .copy_from_slice(&stored_at.to_le_bytes());
+        out.get_mut(at + 20..at + 24)
+            .ok_or("payload too small")?
+            .copy_from_slice(&(stored.len() as u32).to_le_bytes());
+        out.get_mut(at + 24..at + 28)
+            .ok_or("payload too small")?
+            .copy_from_slice(&(data.len() as u32).to_le_bytes());
+        out.get_mut(at + 28..at + 32)
+            .ok_or("payload too small")?
+            .copy_from_slice(&flags.to_le_bytes());
         out.extend_from_slice(stored);
-        println!("payload: {name:<12} {:>8} -> {:>8} bytes", data.len(), stored.len());
+        println!(
+            "payload: {name:<12} {:>8} -> {:>8} bytes",
+            data.len(),
+            stored.len()
+        );
     }
     Ok(out)
 }
 
 /// Builds the UEFI loader (`BOOTX64.EFI`).
 fn build_uefi_loader() -> Result<Vec<u8>> {
-    run(Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into())).current_dir(root()).args([
-        "build", "-p", "boot-uefi", "--target", UEFI_TARGET, "--profile", "small",
-        "-Z", "build-std=core,compiler_builtins", "-Z", "build-std-features=compiler-builtins-mem",
-    ]))?;
-    Ok(std::fs::read(target_dir().join(UEFI_TARGET).join("small/boot-uefi.efi"))?)
+    run(
+        Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+            .current_dir(root())
+            .args([
+                "build",
+                "-p",
+                "boot-uefi",
+                "--target",
+                UEFI_TARGET,
+                "--profile",
+                "small",
+                "-Z",
+                "build-std=core,compiler_builtins",
+                "-Z",
+                "build-std-features=compiler-builtins-mem",
+            ]),
+    )?;
+    Ok(std::fs::read(
+        target_dir().join(UEFI_TARGET).join("small/boot-uefi.efi"),
+    )?)
 }
 
 /// Where `needle` sits inside `hay` (sector aligned, the way `mcopy` lays out a file in a new image).
 fn find_in_image(hay: &[u8], needle: &[u8]) -> Result<usize> {
     (0..hay.len().saturating_sub(needle.len() - 1))
         .step_by(512)
-        .find(|&off| hay[off..off + needle.len()] == *needle)
+        .find(|&off| hay.get(off..off + needle.len()) == Some(needle))
         .ok_or_else(|| "payload.bin is not stored contiguously in efi.img".into())
 }
 
 /// Verbose tracing is on with `--debug`, and always for a dry-run (hardware test) config, whose whole
 /// purpose is to show what the hardware does.
-fn wants_debug(opts: &Options, loaded: &hostcfg::lua::Loaded) -> bool {
+fn wants_debug(opts: &Options, loaded: &hostcfg::toml::Loaded) -> bool {
     opts.debug || loaded.config.dry_run
 }
 
-fn build_kernel(opts: &Options, loaded: &hostcfg::lua::Loaded, profile: Profile) -> Result<PathBuf> {
+fn build_kernel(
+    opts: &Options,
+    loaded: &hostcfg::toml::Loaded,
+    profile: Profile,
+) -> Result<PathBuf> {
     let mut cmd = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
-    cmd.current_dir(root()).args(["build", "-p", "kernel", "--target", TARGET]);
+    cmd.current_dir(root())
+        .args(["build", "-p", "kernel", "--target", TARGET]);
     match profile {
         Profile::SuperSmall => {
-            cmd.args(["--profile", "small", "-Z", "build-std=core,alloc,compiler_builtins", "-Z", "build-std-features=compiler-builtins-mem"]);
+            cmd.args([
+                "--profile",
+                "small",
+                "-Z",
+                "build-std=core,alloc,compiler_builtins",
+                "-Z",
+                "build-std-features=compiler-builtins-mem",
+            ]);
         }
         Profile::Large => {
             cmd.arg("--release");
@@ -160,13 +259,32 @@ fn kernel_path(profile: Profile) -> PathBuf {
 }
 
 /// A FAT12 image (the ESP the firmware boots from the ISO) holding the UEFI loader and the payload.
-fn make_efi_image(efi: &std::path::Path, payload: &std::path::Path, out: &std::path::Path) -> Result<()> {
-    let sectors = (std::fs::metadata(efi)?.len() + std::fs::metadata(payload)?.len()).div_ceil(512) + 64;
-    let _ = std::fs::remove_file(out);
-    run(Command::new("mformat").args(["-C", "-T", &sectors.to_string(), "-v", "ESP", "-i"]).arg(out).arg("::"))?;
-    run(Command::new("mmd").arg("-i").arg(out).args(["::/EFI", "::/EFI/BOOT"]))?;
-    run(Command::new("mcopy").arg("-i").arg(out).arg(efi).arg("::/EFI/BOOT/BOOTX64.EFI"))?;
-    run(Command::new("mcopy").arg("-i").arg(out).arg(payload).arg("::/payload.bin"))?;
+fn make_efi_image(
+    efi: &std::path::Path,
+    payload: &std::path::Path,
+    out: &std::path::Path,
+) -> Result<()> {
+    let sectors =
+        (std::fs::metadata(efi)?.len() + std::fs::metadata(payload)?.len()).div_ceil(512) + 64;
+    drop(std::fs::remove_file(out));
+    run(Command::new("mformat")
+        .args(["-C", "-T", &sectors.to_string(), "-v", "ESP", "-i"])
+        .arg(out)
+        .arg("::"))?;
+    run(Command::new("mmd")
+        .arg("-i")
+        .arg(out)
+        .args(["::/EFI", "::/EFI/BOOT"]))?;
+    run(Command::new("mcopy")
+        .arg("-i")
+        .arg(out)
+        .arg(efi)
+        .arg("::/EFI/BOOT/BOOTX64.EFI"))?;
+    run(Command::new("mcopy")
+        .arg("-i")
+        .arg(out)
+        .arg(payload)
+        .arg("::/payload.bin"))?;
     Ok(())
 }
 
@@ -183,9 +301,21 @@ pub fn emit(opts: &Options, e: Event) {
 
 /// Runs one build stage, reporting its start and end.
 fn stage<T>(opts: &Options, name: &str, f: impl FnOnce() -> Result<T>) -> Result<T> {
-    emit(opts, Event::Stage { name: name.into(), state: State::Start });
+    emit(
+        opts,
+        Event::Stage {
+            name: name.into(),
+            state: State::Start,
+        },
+    );
     let r = f();
-    emit(opts, Event::Stage { name: name.into(), state: if r.is_ok() { State::Ok } else { State::Fail } });
+    emit(
+        opts,
+        Event::Stage {
+            name: name.into(),
+            state: if r.is_ok() { State::Ok } else { State::Fail },
+        },
+    );
     r
 }
 
@@ -197,46 +327,105 @@ fn workdir(opts: &Options) -> PathBuf {
 pub fn build(opts: &Options) -> Result<PathBuf> {
     let r = build_inner(opts);
     if let Err(e) = &r {
-        emit(opts, Event::Failed { message: e.to_string() });
+        emit(
+            opts,
+            Event::Failed {
+                message: e.to_string(),
+            },
+        );
     }
     r
 }
 
-fn build_inner(opts: &Options) -> Result<PathBuf> {
+pub struct Components {
+    pub bios: crate::bios::Bios,
+    pub efi: Vec<u8>,
+    pub payload: Vec<u8>,
+    pub resolved: hostcfg::host::Resolved,
+}
+
+pub fn build_components(opts: &Options) -> Result<Components> {
     let (loaded, resolved) = stage(opts, "config", || {
-        let loaded = hostcfg::lua::load(&opts.config)?;
-        let resolved = hostcfg::host::resolve_profile(opts.profile, opts.legacy_small, &loaded.host)?;
+        let loaded = hostcfg::toml::load(&opts.config)?;
+        let resolved =
+            hostcfg::host::resolve_profile(opts.profile, opts.legacy_small, &loaded.host)?;
         for w in resolved.warnings.iter().chain(&loaded.warnings) {
             eprintln!("warning: {w}");
         }
-        println!("build: config {}, profile {}", opts.config.display(), resolved.profile.name());
+        println!(
+            "build: config {}, profile {}",
+            opts.config.display(),
+            resolved.profile.name()
+        );
         for l in hostcfg::scripts::summary(&loaded.config) {
             println!("build: {l}");
         }
         Ok((loaded, resolved))
     })?;
-    let kernel = stage(opts, "kernel", || flatten_kernel(&std::fs::read(build_kernel(opts, &loaded, resolved.profile)?)?))?;
-    let config_bin = hostcfg::lua::config_bin(&loaded, &opts.extra_kernel_params)?;
+    let kernel = stage(opts, "kernel", || {
+        flatten_kernel(&std::fs::read(build_kernel(
+            opts,
+            &loaded,
+            resolved.profile,
+        )?)?)
+    })?;
+    let config_bin = hostcfg::toml::config_bin(&loaded, &opts.extra_kernel_params)?;
     let keyring_blob = stage(opts, "keyring", keyring::build)?;
     let tiny_init = stage(opts, "tiny-init", || {
-        run(Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
-            .current_dir(root())
-            .args(["build", "-p", "tiny-init", "--bin", "tiny-init", "--release", "--target", TARGET]))?;
-        Ok(std::fs::read(target_dir().join(TARGET).join("release/tiny-init"))?)
+        run(
+            Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+                .current_dir(root())
+                .args([
+                    "build",
+                    "-p",
+                    "tiny-init",
+                    "--bin",
+                    "tiny-init",
+                    "--release",
+                    "--target",
+                    TARGET,
+                ]),
+        )?;
+        Ok(std::fs::read(
+            target_dir().join(TARGET).join("release/tiny-init"),
+        )?)
     })?;
     let efi = stage(opts, "uefi-loader", build_uefi_loader)?;
     let bios = stage(opts, "bios", crate::bios::build)?;
     let mut bios_boot = bios.stage1.to_vec();
     bios_boot.extend_from_slice(&bios.stage2);
 
+    let payload = stage(opts, "payload", || {
+        make_payload(
+            &kernel,
+            &[
+                ("config.bin", &config_bin),
+                ("keyring.bin", &keyring_blob),
+                ("tiny-init", &tiny_init),
+                ("bootx64.efi", &efi),
+                ("bios-boot", &bios_boot),
+            ],
+        )
+    })?;
+    Ok(Components {
+        bios,
+        efi,
+        payload,
+        resolved,
+    })
+}
+
+fn build_inner(opts: &Options) -> Result<PathBuf> {
+    let components = build_components(opts)?;
+    let bios = components.bios;
+    let efi = components.efi;
+    let payload = components.payload;
+    let resolved = components.resolved;
+
     let work = workdir(opts);
     let tree = work.join("iso_root");
-    let (payload, payload_in_efi_img) = stage(opts, "payload", || {
-        let payload = make_payload(
-            &kernel,
-            &[("config.bin", &config_bin), ("keyring.bin", &keyring_blob), ("tiny-init", &tiny_init), ("bootx64.efi", &efi), ("bios-boot", &bios_boot)],
-        )?;
-        let _ = std::fs::remove_dir_all(&tree);
+    let payload_in_efi_img = stage(opts, "iso-tree", || {
+        drop(std::fs::remove_dir_all(&tree));
         std::fs::create_dir_all(tree.join("boot"))?;
         let (efi_file, payload_file) = (work.join("BOOTX64.EFI"), work.join("payload.bin"));
         std::fs::write(&efi_file, &efi)?;
@@ -248,7 +437,7 @@ fn build_inner(opts: &Options) -> Result<PathBuf> {
         bios_img.resize(bootinfo::bios::S2_ALIGN, 0);
         bios_img.extend_from_slice(&bios.stage2);
         std::fs::write(tree.join("boot/bios.img"), bios_img)?;
-        Ok((payload, at))
+        Ok(at)
     })?;
 
     let iso = opts.out.clone().unwrap_or_else(iso_path);
@@ -257,30 +446,57 @@ fn build_inner(opts: &Options) -> Result<PathBuf> {
             std::fs::create_dir_all(dir)?;
         }
         // libvirt may have taken ownership of a previous ISO; unlinking works, overwriting does not.
-        let _ = std::fs::remove_file(&iso);
+        drop(std::fs::remove_file(&iso));
         run(Command::new("xorriso")
             .args(["-as", "mkisofs", "-R", "-r", "-no-pad"])
-            .args(["-b", "boot/bios.img", "-no-emul-boot", "-boot-load-size", "4"])
+            .args([
+                "-b",
+                "boot/bios.img",
+                "-no-emul-boot",
+                "-boot-load-size",
+                "4",
+            ])
             .args(["--efi-boot", "boot/efi.img"])
-            .args(["-efi-boot-part", "--efi-boot-image", "--protective-msdos-label"])
+            .args([
+                "-efi-boot-part",
+                "--efi-boot-image",
+                "--protective-msdos-label",
+            ])
             .arg(&tree)
             .arg("-o")
             .arg(&iso))?;
 
         // Tell the BIOS stages where things lie in the finished image.
         let mut img = std::fs::read(&iso)?;
-        let extent = |path: &str| crate::bios::iso_extent(&img, path).ok_or_else(|| format!("{path} is not in the ISO"));
+        let extent = |path: &str| {
+            crate::bios::iso_extent(&img, path).ok_or_else(|| format!("{path} is not in the ISO"))
+        };
         let (bios_img, efi_extent) = (extent("boot/bios.img")?, extent("boot/efi.img")?);
-        crate::bios::patch_iso(&mut img, &bios, bios_img.0, efi_extent.0 + payload_in_efi_img as u64, payload.len() as u64)?;
+        crate::bios::patch_iso(
+            &mut img,
+            &bios,
+            bios_img.0,
+            efi_extent.0 + payload_in_efi_img as u64,
+            payload.len() as u64,
+        )?;
         std::fs::write(&iso, &img)?;
         Ok(())
     })?;
     let data = std::fs::read(&iso)?;
-    let sha256: String = sha2::Sha256::digest(&data).iter().map(|b| format!("{b:02x}")).collect();
+    let sha256: String = sha2::Sha256::digest(&data)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     println!("built {}", iso.display());
     emit(
         opts,
-        Event::Done { path: iso.display().to_string(), size: data.len() as u64, sha256, profile: resolved.profile.name().into(), config: opts.config.display().to_string() },
+        Event::Done {
+            path: iso.display().to_string(),
+            size: data.len() as u64,
+            sha256,
+            profile: resolved.profile.name().into(),
+            config: opts.config.display().to_string(),
+        },
     );
     Ok(iso)
 }
@@ -289,19 +505,26 @@ pub fn size(opts: &Options) -> Result<()> {
     let iso = build(opts)?;
     let tree = workdir(opts).join("iso_root");
     let mut files: Vec<(u64, String)> = Vec::new();
-    fn walk(dir: &std::path::Path, base: &std::path::Path, out: &mut Vec<(u64, String)>) -> std::io::Result<()> {
+    fn walk(
+        dir: &std::path::Path,
+        base: &std::path::Path,
+        out: &mut Vec<(u64, String)>,
+    ) -> std::io::Result<()> {
         for e in std::fs::read_dir(dir)? {
             let p = e?.path();
             if p.is_dir() {
                 walk(&p, base, out)?;
             } else {
-                out.push((std::fs::metadata(&p)?.len(), p.strip_prefix(base).unwrap().display().to_string()));
+                out.push((
+                    std::fs::metadata(&p)?.len(),
+                    p.strip_prefix(base).unwrap_or(&p).display().to_string(),
+                ));
             }
         }
         Ok(())
     }
     walk(&tree, &tree, &mut files)?;
-    files.sort_by(|a, b| b.0.cmp(&a.0));
+    files.sort_by_key(|f| std::cmp::Reverse(f.0));
     println!("{:>10}  file (ISO contents)", "bytes");
     for (n, name) in &files {
         println!("{n:>10}  {name}");
@@ -309,9 +532,16 @@ pub fn size(opts: &Options) -> Result<()> {
     let total = std::fs::metadata(&iso)?.len();
     let payload: u64 = files.iter().map(|f| f.0).sum();
     println!("{payload:>10}  payload total");
-    println!("{total:>10}  ISO ({} bytes of image overhead)", total - payload.min(total));
+    println!(
+        "{total:>10}  ISO ({} bytes of image overhead)",
+        total - payload.min(total)
+    );
     if total > opts.limit {
-        return Err(format!("ISO is {total} bytes, over the limit of {} (use --limit to change)", opts.limit).into());
+        return Err(format!(
+            "ISO is {total} bytes, over the limit of {} (use --limit to change)",
+            opts.limit
+        )
+        .into());
     }
     println!("within the limit of {} bytes", opts.limit);
     Ok(())

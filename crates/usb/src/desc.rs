@@ -53,13 +53,14 @@ impl InterfaceDesc {
     /// The CDC functional descriptor with the given subtype, if present (whole descriptor).
     pub fn cdc_functional(&self, subtype: u8) -> Option<&[u8]> {
         let mut pos = 0;
-        while pos + 3 <= self.cs.len() {
-            let len = self.cs[pos] as usize;
-            if len < 3 || pos + len > self.cs.len() {
+        while let Some(&len_byte) = self.cs.get(pos) {
+            let len = len_byte as usize;
+            if len < 3 || pos.checked_add(len)? > self.cs.len() {
                 return None;
             }
-            if self.cs[pos + 2] == subtype {
-                return Some(&self.cs[pos..pos + len]);
+            let desc = self.cs.get(pos..pos + len)?;
+            if desc.get(2).copied() == Some(subtype) {
+                return Some(desc);
             }
             pos += len;
         }
@@ -74,39 +75,47 @@ pub fn parse_config(blob: &[u8]) -> Vec<InterfaceDesc> {
     let mut pos = 0usize;
     let mut cur: Option<usize> = None;
     while pos + 2 <= blob.len() {
-        let len = blob[pos] as usize;
-        let ty = blob[pos + 1];
-        if len < 2 || pos + len > blob.len() {
+        let Some(&len_byte) = blob.get(pos) else { break };
+        let Some(&ty) = blob.get(pos + 1) else { break };
+        let len = len_byte as usize;
+        if len < 2 || pos.checked_add(len).is_none_or(|end| end > blob.len()) {
             break;
         }
+        let Some(d) = blob.get(pos..pos + len) else { break };
         match (ty, len) {
             (DT_INTERFACE, 9..) => {
-                let d = &blob[pos..pos + len];
-                out.push(InterfaceDesc {
-                    num: d[2],
-                    alt: d[3],
-                    class: d[5],
-                    subclass: d[6],
-                    protocol: d[7],
-                    endpoints: Vec::new(),
-                    cs: Vec::new(),
-                });
-                cur = Some(out.len() - 1);
+                if let [_, _, num, alt, _, class, subclass, protocol, ..] = d {
+                    out.push(InterfaceDesc {
+                        num: *num,
+                        alt: *alt,
+                        class: *class,
+                        subclass: *subclass,
+                        protocol: *protocol,
+                        endpoints: Vec::new(),
+                        cs: Vec::new(),
+                    });
+                    cur = Some(out.len() - 1);
+                }
             }
             (0x24, 3..) => {
                 if let Some(i) = cur {
-                    out[i].cs.extend_from_slice(&blob[pos..pos + len]);
+                    if let Some(last) = out.get_mut(i) {
+                        last.cs.extend_from_slice(d);
+                    }
                 }
             }
             (DT_ENDPOINT, 7..) => {
                 if let Some(i) = cur {
-                    let d = &blob[pos..pos + len];
-                    out[i].endpoints.push(EndpointDesc {
-                        addr: d[2],
-                        attrs: d[3],
-                        max_packet: u16::from_le_bytes([d[4], d[5]]) & 0x7ff,
-                        interval: d[6],
-                    });
+                    if let Some(last) = out.get_mut(i) {
+                        if let [_, _, addr, attrs, p0, p1, interval, ..] = d {
+                            last.endpoints.push(EndpointDesc {
+                                addr: *addr,
+                                attrs: *attrs,
+                                max_packet: u16::from_le_bytes([*p0, *p1]) & 0x7ff,
+                                interval: *interval,
+                            });
+                        }
+                    }
                 }
             }
             _ => {}
@@ -118,13 +127,16 @@ pub fn parse_config(blob: &[u8]) -> Vec<InterfaceDesc> {
 
 /// Decodes a USB string descriptor (UTF-16LE) into a String.
 pub fn parse_string(blob: &[u8]) -> Option<String> {
-    if blob.len() < 2 || blob[1] != DT_STRING {
+    if blob.len() < 2 || blob.get(1).copied() != Some(DT_STRING) {
         return None;
     }
-    let n = (blob[0] as usize).min(blob.len());
-    let units: Vec<u16> = (2..n & !1)
-        .step_by(2)
-        .map(|i| u16::from_le_bytes([blob[i], blob[i + 1]]))
+    let n = (*blob.first()? as usize).min(blob.len());
+    let slice = blob.get(2..n & !1)?;
+    let (pairs, _) = slice.as_chunks::<2>();
+    let units: Vec<u16> = pairs
+        .iter()
+        .map(|&pair| u16::from_le_bytes(pair))
         .collect();
     Some(alloc::string::String::from_utf16_lossy(&units))
 }
+

@@ -19,9 +19,18 @@ mod tests {
         assert!(h.starts_with("$6$"));
         assert!(super::verify("correct horse", &h));
         assert!(!super::verify("wrong", &h));
-        let mut c = crate::lua::tests_support::minimal_config();
-        c.users = vec![config::User { name: "arch".into(), password_hash: h.clone(), groups: vec![], shell: "/bin/bash".into() }];
-        assert!(c.validate().is_ok());
-        assert_ne!(h, super::hash("correct horse").unwrap(), "salt must be random");
+        let mut c = crate::toml::tests_support::minimal_config();
+        c.users = vec![config::User {
+            name: "arch".into(),
+            password_hash: h.clone(),
+            groups: vec![],
+            shell: "/bin/bash".into(),
+        }];
+        c.validate().unwrap();
+        assert_ne!(
+            h,
+            super::hash("correct horse").unwrap(),
+            "salt must be random"
+        );
     }
 }

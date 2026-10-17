@@ -29,7 +29,10 @@ pub trait Progress {
 /// Whether `scan` holds an Apple device with the usbmux interface.
 pub fn present(scan: &usb::Scan) -> bool {
     scan.devices().any(|d| {
-        d.vendor == mux::APPLE_VENDOR && d.interfaces.iter().any(|i| (i.class, i.subclass, i.protocol) == mux::MUX_CLASS)
+        d.vendor == mux::APPLE_VENDOR
+            && d.interfaces
+                .iter()
+                .any(|i| (i.class, i.subclass, i.protocol) == mux::MUX_CLASS)
     })
 }
 
@@ -71,7 +74,8 @@ pub fn tether(
             Ok(lockdown::PairReply::Paired) => break,
             Ok(lockdown::PairReply::DialogPending) => {
                 if !told_trust {
-                    progress.note("usb: tap \"Trust\" on the iPhone (and enter its passcode if asked)");
+                    progress
+                        .note("usb: tap \"Trust\" on the iPhone (and enter its passcode if asked)");
                     told_trust = true;
                 }
                 drivers::platform::delay_us(1_000_000);

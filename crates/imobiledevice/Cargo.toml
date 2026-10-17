@@ -18,3 +18,6 @@ std = ["rsa/std"]
 
 [dev-dependencies]
 imobiledevice = { path = ".", features = ["std"] }
+
+[lints]
+workspace = true

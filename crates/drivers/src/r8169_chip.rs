@@ -11,7 +11,6 @@ use crate::platform;
 pub const CONFIG1: usize = 0x52;
 pub const CONFIG2: usize = 0x53;
 pub const CONFIG3: usize = 0x54;
-pub const CONFIG4: usize = 0x55;
 pub const CONFIG5: usize = 0x56;
 pub const PHYAR: usize = 0x60;
 const CSIDR: usize = 0x64;
@@ -32,7 +31,6 @@ const MISC_1: usize = 0xf2;
 const IBCR0: usize = 0xf8;
 const IBCR2: usize = 0xf9;
 const IBISR0: usize = 0xfb;
-const COMBO_LTR_EXTEND: usize = 0xb6;
 
 const BEACON_EN: u8 = 1 << 0;
 const RDY_TO_L23: u8 = 1 << 1;
@@ -73,19 +71,19 @@ pub fn phy_read(regs: &Mmio, reg: u32) -> Option<u16> {
 
 pub fn phy_write(regs: &Mmio, reg: u32, val: u16) {
     regs.write32(PHYAR, 1 << 31 | reg << 16 | val as u32);
-    let _ = platform::wait_until(10, || regs.read32(PHYAR) & (1 << 31) == 0);
+    let _res = platform::wait_until(10, || regs.read32(PHYAR) & (1 << 31) == 0);
 }
 
 /// Extended register interface (ERI): MAC-internal registers behind ERIAR/ERIDR.
 pub fn eri_write(regs: &Mmio, addr: u32, mask: u32, val: u32) {
     regs.write32(ERIDR, val);
     regs.write32(ERIAR, 1 << 31 | mask << 12 | addr);
-    let _ = platform::wait_until(10, || regs.read32(ERIAR) & (1 << 31) == 0);
+    let _res = platform::wait_until(10, || regs.read32(ERIAR) & (1 << 31) == 0);
 }
 
 pub fn eri_read(regs: &Mmio, addr: u32, mask: u32) -> u32 {
     regs.write32(ERIAR, mask << 12 | addr);
-    let _ = platform::wait_until(10, || regs.read32(ERIAR) & (1 << 31) != 0);
+    let _res = platform::wait_until(10, || regs.read32(ERIAR) & (1 << 31) != 0);
     regs.read32(ERIDR)
 }
 
@@ -98,13 +96,13 @@ pub fn eri_update(regs: &Mmio, addr: u32, clear: u32, set: u32) {
 /// PCIe PHY (EPHY) registers.
 pub fn ephy_read(regs: &Mmio, reg: u32) -> u16 {
     regs.write32(EPHYAR, (reg & 0x1f) << 16);
-    let _ = platform::wait_until(10, || regs.read32(EPHYAR) & (1 << 31) != 0);
+    let _res = platform::wait_until(10, || regs.read32(EPHYAR) & (1 << 31) != 0);
     regs.read32(EPHYAR) as u16
 }
 
 pub fn ephy_write(regs: &Mmio, reg: u32, val: u16) {
     regs.write32(EPHYAR, 1 << 31 | (reg & 0x1f) << 16 | val as u32);
-    let _ = platform::wait_until(10, || regs.read32(EPHYAR) & (1 << 31) == 0);
+    let _res = platform::wait_until(10, || regs.read32(EPHYAR) & (1 << 31) == 0);
 }
 
 /// Applies EPHY changes: (register, bits to clear, bits to set).
@@ -133,7 +131,10 @@ fn ocp_modify(regs: &Mmio, reg: u32, mask: u16, set: u16) {
 /// CSI: access to the device's own PCI configuration space, including the extended part that the
 /// legacy port-I/O mechanism cannot reach.
 fn csi_read(c: &Ctx, addr: u32) -> u32 {
-    c.regs.write32(CSIAR, (addr & 0xfff) | (c.dev.addr.func as u32) << 16 | 0xf000);
+    c.regs.write32(
+        CSIAR,
+        (addr & 0xfff) | (c.dev.addr.func as u32) << 16 | 0xf000,
+    );
     if platform::wait_until(5, || c.regs.read32(CSIAR) & (1 << 31) != 0).is_ok() {
         c.regs.read32(CSIDR)
     } else {
@@ -143,8 +144,11 @@ fn csi_read(c: &Ctx, addr: u32) -> u32 {
 
 fn csi_write(c: &Ctx, addr: u32, val: u32) {
     c.regs.write32(CSIDR, val);
-    c.regs.write32(CSIAR, 1 << 31 | (addr & 0xfff) | 0xf000 | (c.dev.addr.func as u32) << 16);
-    let _ = platform::wait_until(5, || c.regs.read32(CSIAR) & (1 << 31) == 0);
+    c.regs.write32(
+        CSIAR,
+        1 << 31 | (addr & 0xfff) | 0xf000 | (c.dev.addr.func as u32) << 16,
+    );
+    let _res = platform::wait_until(5, || c.regs.read32(CSIAR) & (1 << 31) == 0);
 }
 
 /// L0s/L1 entrance latency (config space byte 0x70f; Realtek says so).
@@ -160,7 +164,8 @@ fn set_def_aspm_entry_latency(c: &Ctx) {
 fn clock_request(c: &Ctx, on: bool) {
     if let Some((off, _)) = c.dev.capabilities().into_iter().find(|&(_, id)| id == 0x10) {
         let v = c.dev.read32(off + 0x10);
-        c.dev.write32(off + 0x10, if on { v | (1 << 4) } else { v & !(1 << 4) });
+        c.dev
+            .write32(off + 0x10, if on { v | (1 << 4) } else { v & !(1 << 4) });
     }
 }
 
@@ -260,10 +265,11 @@ const CHIPS: &[(u32, u32, u8, &str)] = &[
 
 /// `xid` is `(TxConfig >> 20) & 0xfcf`. Returns (revision, name), revision 0 if unknown.
 pub fn identify(xid: u32) -> (u8, &'static str) {
-    CHIPS.iter().find(|&&(m, v, _, _)| xid & m == v).map_or((0, "unknown"), |&(_, _, ver, name)| (ver, name))
+    CHIPS
+        .iter()
+        .find(|&&(m, v, _, _)| xid & m == v)
+        .map_or((0, "unknown"), |&(_, _, ver, name)| (ver, name))
 }
-
-
 
 /// RTL8168evl and later (not the RTL8106e): TxConfig auto FIFO, different early-transmit size.
 pub fn evl_up(ver: u8) -> bool {
@@ -342,7 +348,10 @@ pub fn hw_start(c: &Ctx, ver: u8) {
     if ver <= 6 {
         hw_start_8169(c, ver);
     } else {
-        r.write8(MAX_TX_PACKET, if evl_up(ver) { 0x27 } else { (8064 >> 7) as u8 });
+        r.write8(
+            MAX_TX_PACKET,
+            if evl_up(ver) { 0x27 } else { (8064 >> 7) as u8 },
+        );
         hw_config(c, ver);
         r.write16(INTR_MITIGATE, 0);
     }
@@ -382,19 +391,43 @@ fn hw_config(c: &Ctx, ver: u8) {
         }
         9 => hw_8102e_2(c),
         14 => {
-            ephy_init(c.regs, &[(0x01, 0xffff, 0x6fe5), (0x03, 0xffff, 0x0599), (0x06, 0xffff, 0xaf25), (0x07, 0xffff, 0x8e68)]);
+            ephy_init(
+                c.regs,
+                &[
+                    (0x01, 0xffff, 0x6fe5),
+                    (0x03, 0xffff, 0x0599),
+                    (0x06, 0xffff, 0xaf25),
+                    (0x07, 0xffff, 0x8e68),
+                ],
+            );
             mod8(c.regs, CONFIG3, BEACON_EN, 0);
         }
         17 => mod8(c.regs, CONFIG3, BEACON_EN, 0),
         18 => {
             set_def_aspm_entry_latency(c);
-            ephy_init(c.regs, &[(0x01, 0, 0x0001), (0x02, 0x0800, 0x1000), (0x03, 0, 0x0042), (0x06, 0x0080, 0x0000), (0x07, 0, 0x2000)]);
+            ephy_init(
+                c.regs,
+                &[
+                    (0x01, 0, 0x0001),
+                    (0x02, 0x0800, 0x1000),
+                    (0x03, 0, 0x0042),
+                    (0x06, 0x0080, 0x0000),
+                    (0x07, 0, 0x2000),
+                ],
+            );
             hw_8168cp_common(c);
         }
         19 => {
             set_def_aspm_entry_latency(c);
             c.regs.write8(DBG_REG, 0x06 | FIX_NAK_1 | FIX_NAK_2);
-            ephy_init(c.regs, &[(0x02, 0x0800, 0x1000), (0x03, 0, 0x0002), (0x06, 0x0080, 0x0000)]);
+            ephy_init(
+                c.regs,
+                &[
+                    (0x02, 0x0800, 0x1000),
+                    (0x03, 0, 0x0002),
+                    (0x06, 0x0080, 0x0000),
+                ],
+            );
             hw_8168cp_common(c);
         }
         20 | 21 => {
@@ -421,7 +454,15 @@ fn hw_config(c: &Ctx, ver: u8) {
         }
         28 => {
             set_def_aspm_entry_latency(c);
-            ephy_init(c.regs, &[(0x0b, 0x0000, 0x0048), (0x19, 0x0020, 0x0050), (0x0c, 0x0100, 0x0020), (0x10, 0x0004, 0x0000)]);
+            ephy_init(
+                c.regs,
+                &[
+                    (0x0b, 0x0000, 0x0048),
+                    (0x19, 0x0020, 0x0050),
+                    (0x0c, 0x0100, 0x0020),
+                    (0x10, 0x0004, 0x0000),
+                ],
+            );
             clock_request(c, true);
         }
         29 | 30 => {
@@ -437,18 +478,45 @@ fn hw_config(c: &Ctx, ver: u8) {
         38 => {
             hw_8168f(c);
             l2l3_disable(c.regs);
-            ephy_init(c.regs, &[(0x06, 0x00c0, 0x0020), (0x0f, 0xffff, 0x5200), (0x19, 0x0000, 0x0224), (0x00, 0x0000, 0x0008), (0x0c, 0x3df0, 0x0200)]);
+            ephy_init(
+                c.regs,
+                &[
+                    (0x06, 0x00c0, 0x0020),
+                    (0x0f, 0xffff, 0x5200),
+                    (0x19, 0x0000, 0x0224),
+                    (0x00, 0x0000, 0x0008),
+                    (0x0c, 0x3df0, 0x0200),
+                ],
+            );
         }
         39 => hw_8106(c),
         40 => {
             hw_8168g(c);
-            ephy_init(c.regs, &[(0x00, 0x0008, 0x0000), (0x0c, 0x3ff0, 0x0820), (0x1e, 0x0000, 0x0001), (0x19, 0x8000, 0x0000)]);
+            ephy_init(
+                c.regs,
+                &[
+                    (0x00, 0x0008, 0x0000),
+                    (0x0c, 0x3ff0, 0x0820),
+                    (0x1e, 0x0000, 0x0001),
+                    (0x19, 0x8000, 0x0000),
+                ],
+            );
         }
         42 | 43 => {
             hw_8168g(c);
             ephy_init(
                 c.regs,
-                &[(0x00, 0x0008, 0x0000), (0x0c, 0x3ff0, 0x0820), (0x19, 0xffff, 0x7c00), (0x1e, 0xffff, 0x20eb), (0x0d, 0xffff, 0x1666), (0x00, 0xffff, 0x10a3), (0x06, 0xffff, 0xf050), (0x04, 0x0000, 0x0010), (0x1d, 0x4000, 0x0000)],
+                &[
+                    (0x00, 0x0008, 0x0000),
+                    (0x0c, 0x3ff0, 0x0820),
+                    (0x19, 0xffff, 0x7c00),
+                    (0x1e, 0xffff, 0x20eb),
+                    (0x0d, 0xffff, 0x1666),
+                    (0x00, 0xffff, 0x10a3),
+                    (0x06, 0xffff, 0xf050),
+                    (0x04, 0x0000, 0x0010),
+                    (0x1d, 0x4000, 0x0000),
+                ],
             );
         }
         44 => hw_8411_2(c),
@@ -470,13 +538,28 @@ fn hw_8102e_1(c: &Ctx) {
     set_def_aspm_entry_latency(c);
     r.write8(DBG_REG, FIX_NAK_1);
     // LEDS1 | LEDS0 | Speed_down | MEMMAP | IOMAP | VPD | PMEnable
-    r.write8(CONFIG1, 0x80 | 0x40 | SPEED_DOWN | 0x08 | 0x04 | 0x02 | 0x01);
+    r.write8(
+        CONFIG1,
+        0x80 | 0x40 | SPEED_DOWN | 0x08 | 0x04 | 0x02 | 0x01,
+    );
     mod8(r, CONFIG3, BEACON_EN, 0);
     let cfg1 = r.read8(CONFIG1);
     if cfg1 & 0x40 != 0 && cfg1 & 0x80 != 0 {
         r.write8(CONFIG1, cfg1 & !0x40);
     }
-    ephy_init(r, &[(0x01, 0, 0x6e65), (0x02, 0, 0x091f), (0x03, 0, 0xc2f9), (0x06, 0, 0xafb5), (0x07, 0, 0x0e00), (0x19, 0, 0xec80), (0x01, 0, 0x2e65), (0x01, 0, 0x6e65)]);
+    ephy_init(
+        r,
+        &[
+            (0x01, 0, 0x6e65),
+            (0x02, 0, 0x091f),
+            (0x03, 0, 0xc2f9),
+            (0x06, 0, 0xafb5),
+            (0x07, 0, 0x0e00),
+            (0x19, 0, 0xec80),
+            (0x01, 0, 0x2e65),
+            (0x01, 0, 0x6e65),
+        ],
+    );
 }
 
 fn hw_8102e_2(c: &Ctx) {
@@ -491,7 +574,19 @@ fn hw_8105e_1(c: &Ctx) {
     r.write32(MISC, r.read32(MISC) & !0x010000); // disable the early tally counter
     mod8(r, MCU, 0, EN_NDP | EN_OOB_RESET);
     mod8(r, DLLPR, 0, PFM_EN);
-    ephy_init(r, &[(0x07, 0, 0x4000), (0x19, 0, 0x0200), (0x19, 0, 0x0020), (0x1e, 0, 0x2000), (0x03, 0, 0x0001), (0x19, 0, 0x0100), (0x19, 0, 0x0004), (0x0a, 0, 0x0020)]);
+    ephy_init(
+        r,
+        &[
+            (0x07, 0, 0x4000),
+            (0x19, 0, 0x0200),
+            (0x19, 0, 0x0020),
+            (0x1e, 0, 0x2000),
+            (0x03, 0, 0x0001),
+            (0x19, 0, 0x0100),
+            (0x19, 0, 0x0004),
+            (0x0a, 0, 0x0020),
+        ],
+    );
     l2l3_disable(r);
 }
 
@@ -500,7 +595,21 @@ fn hw_8168e_1(c: &Ctx) {
     set_def_aspm_entry_latency(c);
     ephy_init(
         r,
-        &[(0x00, 0x0200, 0x0100), (0x00, 0x0000, 0x0004), (0x06, 0x0002, 0x0001), (0x06, 0x0000, 0x0030), (0x07, 0x0000, 0x2000), (0x00, 0x0000, 0x0020), (0x03, 0x5800, 0x2000), (0x03, 0x0000, 0x0001), (0x01, 0x0800, 0x1000), (0x07, 0x0000, 0x4000), (0x1e, 0x0000, 0x2000), (0x19, 0xffff, 0xfe6c), (0x0a, 0x0000, 0x0040)],
+        &[
+            (0x00, 0x0200, 0x0100),
+            (0x00, 0x0000, 0x0004),
+            (0x06, 0x0002, 0x0001),
+            (0x06, 0x0000, 0x0030),
+            (0x07, 0x0000, 0x2000),
+            (0x00, 0x0000, 0x0020),
+            (0x03, 0x5800, 0x2000),
+            (0x03, 0x0000, 0x0001),
+            (0x01, 0x0800, 0x1000),
+            (0x07, 0x0000, 0x4000),
+            (0x1e, 0x0000, 0x2000),
+            (0x19, 0xffff, 0xfe6c),
+            (0x0a, 0x0000, 0x0040),
+        ],
     );
     clock_request(c, false);
     r.write32(MISC, r.read32(MISC) | TXPLA_RST); // reset the tx FIFO pointer
@@ -511,7 +620,15 @@ fn hw_8168e_1(c: &Ctx) {
 fn hw_8168e_2(c: &Ctx) {
     let r = c.regs;
     set_def_aspm_entry_latency(c);
-    ephy_init(r, &[(0x09, 0x0000, 0x0080), (0x19, 0x0000, 0x0224), (0x00, 0x0000, 0x0004), (0x0c, 0x3df0, 0x0200)]);
+    ephy_init(
+        r,
+        &[
+            (0x09, 0x0000, 0x0080),
+            (0x19, 0x0000, 0x0224),
+            (0x00, 0x0000, 0x0004),
+            (0x0c, 0x3df0, 0x0200),
+        ],
+    );
     eri_write(r, 0xc0, 0x3, 0x0000);
     eri_write(r, 0xb8, 0xf, 0x0000);
     set_fifo_size(r, 0x10, 0x10, 0x02, 0x06);
@@ -547,7 +664,17 @@ fn hw_8168f(c: &Ctx) {
 
 fn hw_8168f_1(c: &Ctx) {
     hw_8168f(c);
-    ephy_init(c.regs, &[(0x06, 0x00c0, 0x0020), (0x08, 0x0001, 0x0002), (0x09, 0x0000, 0x0080), (0x19, 0x0000, 0x0224), (0x00, 0x0000, 0x0008), (0x0c, 0x3df0, 0x0200)]);
+    ephy_init(
+        c.regs,
+        &[
+            (0x06, 0x00c0, 0x0020),
+            (0x08, 0x0001, 0x0002),
+            (0x09, 0x0000, 0x0080),
+            (0x19, 0x0000, 0x0224),
+            (0x00, 0x0000, 0x0008),
+            (0x0c, 0x3df0, 0x0200),
+        ],
+    );
 }
 
 fn hw_8402(c: &Ctx) {
@@ -596,10 +723,16 @@ fn hw_8168g(c: &Ctx) {
 
 /// Firmware image for the MAC of the RTL8411b, loaded into the MCU's RAM at 0xf800 (Linux's `rtl8411b_fix_phy_down`).
 const FIX_PHY_DOWN: &[u16] = &[
-    0xe008, 0xe00a, 0xe00c, 0xe00e, 0xe027, 0xe04f, 0xe05e, 0xe065, 0xc602, 0xbe00, 0x0000, 0xc502, 0xbd00, 0x074c, 0xc302, 0xbb00, 0x080a, 0x6420, 0x48c2, 0x8c20, 0xc516, 0x64a4, 0x49c0, 0xf009, 0x74a2, 0x8ca5, 0x74a0, 0xc50e, 0x9ca2, 0x1c11, 0x9ca0, 0xe006, 0x74f8, 0x48c4,
-    0x8cf8, 0xc404, 0xbc00, 0xc403, 0xbc00, 0x0bf2, 0x0c0a, 0xe434, 0xd3c0, 0x49d9, 0xf01f, 0xc526, 0x64a5, 0x1400, 0xf007, 0x0c01, 0x8ca5, 0x1c15, 0xc51b, 0x9ca0, 0xe013, 0xc519, 0x74a0, 0x48c4, 0x8ca0, 0xc516, 0x74a4, 0x48c8, 0x48ca, 0x9ca4, 0xc512, 0x1b00, 0x9ba0, 0x1b1c,
-    0x483f, 0x9ba2, 0x1b04, 0xc508, 0x9ba0, 0xc505, 0xbd00, 0xc502, 0xbd00, 0x0300, 0x051e, 0xe434, 0xe018, 0xe092, 0xde20, 0xd3c0, 0xc50f, 0x76a4, 0x49e3, 0xf007, 0x49c0, 0xf103, 0xc607, 0xbe00, 0xc606, 0xbe00, 0xc602, 0xbe00, 0x0c4c, 0x0c28, 0x0c2c, 0xdc00, 0xc707, 0x1d00,
-    0x8de2, 0x48c1, 0xc502, 0xbd00, 0x00aa, 0xe0c0, 0xc502, 0xbd00, 0x0132,
+    0xe008, 0xe00a, 0xe00c, 0xe00e, 0xe027, 0xe04f, 0xe05e, 0xe065, 0xc602, 0xbe00, 0x0000, 0xc502,
+    0xbd00, 0x074c, 0xc302, 0xbb00, 0x080a, 0x6420, 0x48c2, 0x8c20, 0xc516, 0x64a4, 0x49c0, 0xf009,
+    0x74a2, 0x8ca5, 0x74a0, 0xc50e, 0x9ca2, 0x1c11, 0x9ca0, 0xe006, 0x74f8, 0x48c4, 0x8cf8, 0xc404,
+    0xbc00, 0xc403, 0xbc00, 0x0bf2, 0x0c0a, 0xe434, 0xd3c0, 0x49d9, 0xf01f, 0xc526, 0x64a5, 0x1400,
+    0xf007, 0x0c01, 0x8ca5, 0x1c15, 0xc51b, 0x9ca0, 0xe013, 0xc519, 0x74a0, 0x48c4, 0x8ca0, 0xc516,
+    0x74a4, 0x48c8, 0x48ca, 0x9ca4, 0xc512, 0x1b00, 0x9ba0, 0x1b1c, 0x483f, 0x9ba2, 0x1b04, 0xc508,
+    0x9ba0, 0xc505, 0xbd00, 0xc502, 0xbd00, 0x0300, 0x051e, 0xe434, 0xe018, 0xe092, 0xde20, 0xd3c0,
+    0xc50f, 0x76a4, 0x49e3, 0xf007, 0x49c0, 0xf103, 0xc607, 0xbe00, 0xc606, 0xbe00, 0xc602, 0xbe00,
+    0x0c4c, 0x0c28, 0x0c2c, 0xdc00, 0xc707, 0x1d00, 0x8de2, 0x48c1, 0xc502, 0xbd00, 0x00aa, 0xe0c0,
+    0xc502, 0xbd00, 0x0132,
 ];
 
 fn hw_8411_2(c: &Ctx) {
@@ -607,10 +740,23 @@ fn hw_8411_2(c: &Ctx) {
     hw_8168g(c);
     ephy_init(
         r,
-        &[(0x00, 0x0008, 0x0000), (0x0c, 0x37d0, 0x0820), (0x1e, 0x0000, 0x0001), (0x19, 0x8021, 0x0000), (0x1e, 0x0000, 0x2000), (0x0d, 0x0100, 0x0200), (0x00, 0x0000, 0x0080), (0x06, 0x0000, 0x0010), (0x04, 0x0000, 0x0010), (0x1d, 0x0000, 0x4000)],
+        &[
+            (0x00, 0x0008, 0x0000),
+            (0x0c, 0x37d0, 0x0820),
+            (0x1e, 0x0000, 0x0001),
+            (0x19, 0x8021, 0x0000),
+            (0x1e, 0x0000, 0x2000),
+            (0x0d, 0x0100, 0x0200),
+            (0x00, 0x0000, 0x0080),
+            (0x06, 0x0000, 0x0010),
+            (0x04, 0x0000, 0x0010),
+            (0x1d, 0x0000, 0x4000),
+        ],
     );
     // Realtek's fix for an RX unit that gets confused after the PHY was powered down.
-    for reg in [0xfc28, 0xfc2a, 0xfc2c, 0xfc2e, 0xfc30, 0xfc32, 0xfc34, 0xfc36] {
+    for reg in [
+        0xfc28, 0xfc2a, 0xfc2c, 0xfc2e, 0xfc30, 0xfc32, 0xfc34, 0xfc36,
+    ] {
         ocp_write(r, reg, 0);
     }
     platform::delay_us(3000);
@@ -619,7 +765,15 @@ fn hw_8411_2(c: &Ctx) {
         ocp_write(r, 0xf800 + 2 * i as u32, *w as u32);
     }
     ocp_write(r, 0xfc26, 0x8000);
-    for (reg, v) in [(0xfc2a, 0x0743), (0xfc2c, 0x0801), (0xfc2e, 0x0be9), (0xfc30, 0x02fd), (0xfc32, 0x0c25), (0xfc34, 0x00a9), (0xfc36, 0x012d)] {
+    for (reg, v) in [
+        (0xfc2a, 0x0743),
+        (0xfc2c, 0x0801),
+        (0xfc2e, 0x0be9),
+        (0xfc30, 0x02fd),
+        (0xfc32, 0x0c25),
+        (0xfc34, 0x00a9),
+        (0xfc36, 0x012d),
+    ] {
         ocp_write(r, reg, v);
     }
 }
@@ -628,7 +782,11 @@ fn hw_8411_2(c: &Ctx) {
 fn hw_8168h_tail(c: &Ctx, extra_eri_d4: bool) {
     let r = c.regs;
     set_fifo_size(r, 0x08, 0x10, 0x02, 0x06);
-    pause_thresholds(r, if extra_eri_d4 { 0x2f } else { 0x38 }, if extra_eri_d4 { 0x5f } else { 0x48 });
+    pause_thresholds(
+        r,
+        if extra_eri_d4 { 0x2f } else { 0x38 },
+        if extra_eri_d4 { 0x5f } else { 0x48 },
+    );
     set_def_aspm_entry_latency(c);
     reset_packet_filter(r);
     if extra_eri_d4 {
@@ -646,14 +804,24 @@ fn hw_8168h_tail(c: &Ctx, extra_eri_d4: bool) {
     eri_update(r, 0x1b0, 1 << 12, 0);
     l2l3_disable(r);
     let saw = (phy_read_paged(r, 0x0c42, 0x13) & 0x3fff) as u32;
-    if saw > 0 {
-        ocp_modify(r, 0xd412, 0x0fff, ((16_000_000 / saw) & 0x0fff) as u16);
+    if let Some(div) = 16_000_000u32.checked_div(saw) {
+        ocp_modify(r, 0xd412, 0x0fff, (div & 0x0fff) as u16);
     }
 }
 
 fn hw_8168h_1(c: &Ctx) {
     let r = c.regs;
-    ephy_init(r, &[(0x1e, 0x0800, 0x0001), (0x1d, 0x0000, 0x0800), (0x05, 0xffff, 0x2089), (0x06, 0xffff, 0x5881), (0x04, 0xffff, 0x854a), (0x01, 0xffff, 0x068b)]);
+    ephy_init(
+        r,
+        &[
+            (0x1e, 0x0800, 0x0001),
+            (0x1d, 0x0000, 0x0800),
+            (0x05, 0xffff, 0x2089),
+            (0x06, 0xffff, 0x5881),
+            (0x04, 0xffff, 0x854a),
+            (0x01, 0xffff, 0x068b),
+        ],
+    );
     hw_8168h_tail(c, false);
     ocp_modify(r, 0xe056, 0x00f0, 0x0000);
     ocp_modify(r, 0xe052, 0x6000, 0x8008);
@@ -667,7 +835,7 @@ fn hw_8168h_1(c: &Ctx) {
 
 fn stop_cmac(r: &Mmio) {
     mod8(r, IBCR2, 0x01, 0);
-    let _ = platform::wait_until(50, || r.read8(IBISR0) & 0x02 != 0);
+    let _res = platform::wait_until(50, || r.read8(IBISR0) & 0x02 != 0);
     mod8(r, IBISR0, 0, 0x20);
     mod8(r, IBCR0, 0x01, 0);
 }
@@ -691,7 +859,15 @@ fn hw_8168ep(c: &Ctx) {
 
 fn hw_8168ep_3(c: &Ctx) {
     let r = c.regs;
-    ephy_init(r, &[(0x00, 0x0000, 0x0080), (0x0d, 0x0100, 0x0200), (0x19, 0x8021, 0x0000), (0x1e, 0x0000, 0x2000)]);
+    ephy_init(
+        r,
+        &[
+            (0x00, 0x0000, 0x0080),
+            (0x0d, 0x0100, 0x0200),
+            (0x19, 0x8021, 0x0000),
+            (0x1e, 0x0000, 0x2000),
+        ],
+    );
     hw_8168ep(c);
     mod8(r, DLLPR, PFM_EN, 0);
     mod8(r, MISC_1, PFM_D3COLD_EN, 0);
@@ -714,10 +890,6 @@ fn hw_8117(c: &Ctx) {
     ocp_write(r, 0xc094, 0x0000);
     ocp_write(r, 0xc09e, 0x0000);
 }
-
-/// Silences "unused" for registers kept for completeness of the table above.
-#[allow(dead_code)]
-const _UNUSED: (usize, usize, usize) = (CONFIG4, COMBO_LTR_EXTEND, PHYAR);
 
 #[cfg(test)]
 mod tests {

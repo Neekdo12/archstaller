@@ -8,14 +8,15 @@ fn dir() -> PathBuf {
 }
 
 fn keyring() -> Keyring {
-    let blob = std::fs::read(dir().join("../../target/keyring.bin")).expect("run `cargo xtask keyring` first");
+    let blob = std::fs::read(dir().join("../../target/keyring.bin"))
+        .expect("run `cargo xtask keyring` first");
     Keyring::from_bytes(&blob).expect("keyring blob parses")
 }
 
 fn check(pkg: &str, mutate: impl FnOnce(&mut Vec<u8>), ring: &Keyring) -> Result<[u8; 20], Error> {
     let fx = dir().join("tests/fixtures");
-    let mut data = std::fs::read(fx.join(pkg)).unwrap();
-    let sig = std::fs::read(fx.join(format!("{pkg}.sig"))).unwrap();
+    let mut data = std::fs::read(fx.join(pkg)).map_err(|_e| Error::Malformed)?;
+    let sig = std::fs::read(fx.join(format!("{pkg}.sig"))).map_err(|_e| Error::Malformed)?;
     mutate(&mut data);
     let mut v = Verifier::from_packet(&sig)?;
     for chunk in data.chunks(1000) {
@@ -64,5 +65,5 @@ fn expired_key_is_rejected() {
 fn base64_roundtrip() {
     assert_eq!(pgp_lite::base64_decode("aGVsbG8=").unwrap(), b"hello");
     assert_eq!(pgp_lite::base64_decode("aGVs\nbG8h").unwrap(), b"hello!");
-    assert!(pgp_lite::base64_decode("a$b").is_err());
+    pgp_lite::base64_decode("a$b").unwrap_err();
 }

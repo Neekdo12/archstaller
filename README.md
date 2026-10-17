@@ -28,8 +28,9 @@ No clicking through 47 questions. No "are you sure?" No babysitting.
 
 The default presets use:
 
-```lua
-disk.auto_largest = true
+```toml
+[install.disk]
+auto_largest = true
 ```
 
 That means **the largest disk is erased automatically.**
@@ -118,7 +119,7 @@ cargo xtask run --uefi --headless
 Build from your own config:
 
 ```sh
-cargo xtask build --config path/to/my.lua --out my.iso
+cargo xtask build --config path/to/my.toml --out my.iso
 ```
 
 The GUI is available too:
@@ -132,24 +133,26 @@ and an `archstaller` command that runs these commands without a checkout:
 
 ```sh
 paru -S archstaller-git
-archstaller build --config my.lua --out my.iso
+archstaller build --config my.toml --out my.iso
 ```
 
 ---
 
 ## Configuration
 
-Installations are defined using Lua:
+Installations are defined using standard TOML:
 
-```lua
-return {
-    as = as
-}
+```toml
+schema = 1
+
+[system]
+hostname = "archbox"
+# ...
 ```
 
 You can configure the hostname, disk, packages, users, services, kernel parameters, first-boot scripts, mirrors, drivers, USB tethering and more.
 
-For the full configuration reference, see [`docs/lua-config.md`](docs/lua-config.md).
+For the full configuration reference, see [`docs/toml-config.md`](docs/toml-config.md).
 
 The build system validates the configuration before putting it into the ISO, so typos don't silently become mystery installer behavior.
 
@@ -239,8 +242,8 @@ If you want to know whether your particular machine is going to work, **read the
 
 More detailed stuff lives here:
 
-* [`docs/lua-config.md`](docs/lua-config.md): complete Lua configuration reference
-* [`docs/editor-setup.md`](docs/editor-setup.md): config files, Lua Language Server setup for VS Code and Neovim
+* [`docs/toml-config.md`](docs/toml-config.md): complete TOML configuration reference
+* [`docs/editor-setup.md`](docs/editor-setup.md): config files, TOML Language Server / Taplo setup for VS Code and Neovim
 * [`docs/presets.md`](docs/presets.md): what each preset installs, default user, the Hyprland config download, the hardware tester
 * [`docs/building-and-running.md`](docs/building-and-running.md): build prerequisites, commands, QEMU, test suites
 * [`docs/gui-app.md`](docs/gui-app.md): the GTK desktop app (building, features, ISO build, Ventoy copy, USB flashing)
@@ -248,7 +251,7 @@ More detailed stuff lives here:
 * [`docs/architecture.md`](docs/architecture.md): how the installer works, trust model, repository layout
 * [`docs/status.md`](docs/status.md): what was verified in QEMU and on real hardware
 * [`plans-implement/aur.md`](plans-implement/aur.md): AUR support
-* [`plans-implement/`](plans-implement/): implementation plans and specs (AUR, GTK GUI, raw USB flashing, Sway preset, Wi-Fi, network driver coverage, Omarchy, typed Lua config)
+* [`plans-implement/`](plans-implement/): implementation plans and specs (AUR, GTK GUI, raw USB flashing, Sway preset, Wi-Fi, network driver coverage, Omarchy, TOML config migration)
 * [`PLAN.md`](PLAN.md): original design notes and future plans
 
 The README is intentionally short.

@@ -38,10 +38,12 @@ pub fn get<S: Stream>(
         if n == 0 {
             return Err(Error::Closed);
         }
-        buf.extend_from_slice(&tmp[..n]);
+        let slice = tmp.get(..n).unwrap_or(&[]);
+        buf.extend_from_slice(slice);
     };
     // Only ASCII headers are read; a stray non-UTF-8 byte in another one (a Latin-1 file name) must not fail the download.
-    let head = String::from_utf8_lossy(&buf[..head_end]).into_owned();
+    let head_bytes = buf.get(..head_end).unwrap_or(&[]);
+    let head = String::from_utf8_lossy(head_bytes).into_owned();
     let mut lines = head.split("\r\n");
     let status_line = lines.next().ok_or(Error::Http("no status line"))?;
     let status: u16 = status_line
@@ -49,10 +51,16 @@ pub fn get<S: Stream>(
         .nth(1)
         .and_then(|c| c.parse().ok())
         .ok_or(Error::Http("bad status line"))?;
-    let mut resp = Response { status, content_length: None, location: None };
+    let mut resp = Response {
+        status,
+        content_length: None,
+        location: None,
+    };
     let mut chunked = false;
     for l in lines {
-        let Some((k, v)) = l.split_once(':') else { continue };
+        let Some((k, v)) = l.split_once(':') else {
+            continue;
+        };
         let v = v.trim();
         if k.eq_ignore_ascii_case("content-length") {
             resp.content_length = v.parse().ok();
@@ -63,7 +71,7 @@ pub fn get<S: Stream>(
         }
     }
     let body_start = head_end + 4;
-    let leftover: Vec<u8> = buf[body_start..].to_vec();
+    let leftover: Vec<u8> = buf.get(body_start..).unwrap_or_default().to_vec();
     drop(buf);
     if !(200..300).contains(&status) {
         return Ok(resp);
@@ -75,7 +83,10 @@ pub fn get<S: Stream>(
         let mut remaining = resp.content_length;
         let mut deliver = |data: &[u8], remaining: &mut Option<u64>| -> Result<()> {
             let data = match remaining {
-                Some(r) => &data[..data.len().min(*r as usize)],
+                Some(r) => {
+                    let end = data.len().min(*r as usize);
+                    data.get(..end).unwrap_or(data)
+                }
                 None => data,
             };
             if let Some(r) = remaining {
@@ -95,7 +106,9 @@ pub fn get<S: Stream>(
                 }
                 break;
             }
-            deliver(&tmp[..n], &mut remaining)?;
+            if let Some(chunk) = tmp.get(..n) {
+                deliver(chunk, &mut remaining)?;
+            }
         }
     }
     Ok(resp)
@@ -116,7 +129,8 @@ fn read_chunked<S: Stream>(
         if n == 0 {
             return Err(Error::Closed);
         }
-        pending.extend_from_slice(&tmp[..n]);
+        let slice = tmp.get(..n).unwrap_or(&[]);
+        pending.extend_from_slice(slice);
         Ok(())
     };
     loop {
@@ -127,9 +141,12 @@ fn read_chunked<S: Stream>(
             }
             fill(&mut pending, s)?;
         };
-        let size_str = core::str::from_utf8(&pending[..line_end]).map_err(|_| Error::Http("bad chunk"))?;
+        let line_bytes = pending.get(..line_end).ok_or(Error::Http("bad chunk"))?;
+        let size_str =
+            core::str::from_utf8(line_bytes).map_err(|_e| Error::Http("bad chunk"))?;
         let size_str = size_str.split(';').next().unwrap_or("").trim();
-        let size = usize::from_str_radix(size_str, 16).map_err(|_| Error::Http("bad chunk size"))?;
+        let size =
+            usize::from_str_radix(size_str, 16).map_err(|_e| Error::Http("bad chunk size"))?;
         pending.drain(..line_end + 2);
         if size == 0 {
             return Ok(());
@@ -140,7 +157,8 @@ fn read_chunked<S: Stream>(
                 fill(&mut pending, s)?;
             }
             let n = pending.len().min(left);
-            sink(&pending[..n])?;
+            let chunk = pending.get(..n).ok_or(Error::Http("bad chunk"))?;
+            sink(chunk)?;
             pending.drain(..n);
             left -= n;
         }
@@ -178,7 +196,12 @@ mod tests {
     }
 
     fn fetch(response: &[u8], step: usize) -> (Result<Response>, Vec<u8>) {
-        let mut s = Canned { data: response.to_vec(), pos: 0, step, sent: Vec::new() };
+        let mut s = Canned {
+            data: response.to_vec(),
+            pos: 0,
+            step,
+            sent: Vec::new(),
+        };
         let mut body = Vec::new();
         let r = get(&mut s, "mirror.example", "/core.db", &mut |d| {
             body.extend_from_slice(d);
@@ -190,7 +213,10 @@ mod tests {
     #[test]
     fn content_length_body() {
         for step in [1, 3, 4096] {
-            let (r, body) = fetch(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello and more", step);
+            let (r, body) = fetch(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello and more",
+                step,
+            );
             assert_eq!(r.unwrap().content_length, Some(5));
             assert_eq!(body, b"hello", "step {step}");
         }
@@ -220,9 +246,15 @@ mod tests {
     fn redirects_and_errors_deliver_no_body() {
         let (r, body) = fetch(b"HTTP/1.1 302 Found\r\nLocation: https://other.example/core.db\r\nContent-Length: 3\r\n\r\nabc", 4096);
         let r = r.unwrap();
-        assert_eq!((r.status, r.location.as_deref()), (302, Some("https://other.example/core.db")));
+        assert_eq!(
+            (r.status, r.location.as_deref()),
+            (302, Some("https://other.example/core.db"))
+        );
         assert!(body.is_empty());
-        let (r, body) = fetch(b"HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nnot found", 4096);
+        let (r, body) = fetch(
+            b"HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nnot found",
+            4096,
+        );
         assert_eq!(r.unwrap().status, 404);
         assert!(body.is_empty());
     }

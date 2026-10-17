@@ -2,7 +2,11 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use spinning_top::RawSpinlock;
 use talc::{source::Manual, TalcLock};
 
+#[cfg(target_os = "none")]
 #[global_allocator]
+static TALC: TalcLock<RawSpinlock, Manual> = TalcLock::new(Manual);
+
+#[cfg(not(target_os = "none"))]
 static TALC: TalcLock<RawSpinlock, Manual> = TalcLock::new(Manual);
 
 /// Heap size cap; the rest of usable RAM stays untouched.
@@ -39,7 +43,8 @@ pub fn init(hhdm: u64, memmap: &[bootinfo::MemEntry]) {
         largest.len >> 20,
         largest.base
     );
-    unsafe { TALC.lock().claim((hhdm + base) as *mut u8, size as usize) }.expect("heap claim failed");
+    unsafe { TALC.lock().claim((hhdm + base) as *mut u8, size as usize) }
+        .expect("heap claim failed");
     HEAP_BYTES.store(size, Ordering::Relaxed);
 }
 

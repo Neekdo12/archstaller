@@ -8,11 +8,14 @@ description = "Host side of AUR support: search, review, pin and plan (std only;
 config = { path = "../../config", features = ["std"] }
 pkg = { path = "../pkg" }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", optional = true }
 sha2 = "0.10"
 flate2 = "1"
 ureq = { version = "3", optional = true }
 
 [features]
 # Talking to aur.archlinux.org (the GUI and xtask turn it on; the tests of the pure parts do not need it).
-net = ["dep:ureq"]
+net = ["dep:ureq", "dep:serde_json"]
+
+[lints]
+workspace = true

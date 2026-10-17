@@ -1,7 +1,10 @@
 //! Hardware test mode (`dry_run = true` in the config). Probes and reads, prints a PASS/FAIL report,
 //! waits a minute and reboots. It never writes to a disk: every block device is wrapped so that
 //! `write` and `flush` are refused, and nothing in this module calls the installer's write paths.
-use crate::install::{bring_up_network, expand, fetch_optional, fetch_to_vec, now_ms, REPOS, USER_ARCHIVE_MAX, USER_FILE_MAX};
+use crate::install::{
+    bring_up_network, expand, fetch_optional, fetch_to_vec, now_ms, REPOS, USER_ARCHIVE_MAX,
+    USER_FILE_MAX,
+};
 use crate::{println, time};
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
@@ -78,13 +81,25 @@ pub fn run(cfg: &Config, devs: Devices, keyring: Option<&Keyring>) {
     let mut r = Report::default();
     println!("\n=============== archstaller hardware test (READ-ONLY, no disk is written) ===============");
     test(cfg, devs, keyring, &mut r);
-    println!("=========================================================================================");
-    println!("RESULT: {}   ({} ok, {} warnings, {} failed)", if r.fail == 0 { "PASS" } else { "FAIL" }, r.pass, r.warn, r.fail);
+    println!(
+        "========================================================================================="
+    );
+    println!(
+        "RESULT: {}   ({} ok, {} warnings, {} failed)",
+        if r.fail == 0 { "PASS" } else { "FAIL" },
+        r.pass,
+        r.warn,
+        r.fail
+    );
     println!("archstaller-hwtest: done");
     println!("--- driver and device log (repeated here so it stays on screen) ---");
     crate::digest::print_all();
     // After a failure stay up longer, so the screen can be read or photographed.
-    let wait = if r.fail > 0 { FAIL_WAIT_SECONDS } else { WAIT_SECONDS };
+    let wait = if r.fail > 0 {
+        FAIL_WAIT_SECONDS
+    } else {
+        WAIT_SECONDS
+    };
     let end = now_ms() + wait * 1000;
     let mut shown = u64::MAX;
     loop {
@@ -92,7 +107,7 @@ pub fn run(cfg: &Config, devs: Devices, keyring: Option<&Keyring>) {
         if left == 0 {
             break;
         }
-        if left != shown && (left % if wait > 60 { 60 } else { 10 } == 0 || left <= 5) {
+        if left != shown && (left.is_multiple_of(if wait > 60 { 60 } else { 10 }) || left <= 5) {
             println!("rebooting in {left}s...");
         }
         shown = left;
@@ -110,10 +125,16 @@ fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Repo
     } else {
         r.bad("no RDRAND and the timing-jitter fallback failed its self-check");
     }
-    r.check(time::tsc_hz() > 100_000_000, &format!("TSC calibrated: {} MHz", time::tsc_hz() / 1_000_000));
+    r.check(
+        time::tsc_hz() > 100_000_000,
+        &format!("TSC calibrated: {} MHz", time::tsc_hz() / 1_000_000),
+    );
     // 2024-01-01; a clock before that means the firmware gave no date.
     if time::unix_time() > 1_704_067_200 {
-        r.ok(&format!("boot time from firmware: unix {}", time::unix_time()));
+        r.ok(&format!(
+            "boot time from firmware: unix {}",
+            time::unix_time()
+        ));
     } else {
         r.bad("firmware clock is wrong (TLS certificate checks will fail)");
     }
@@ -126,37 +147,54 @@ fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Repo
         ));
     }
     for d in &pci {
-        println!("  {:02x}:{:02x}.{} {:04x}:{:04x} class {:02x}{:02x}", d.addr.bus, d.addr.dev, d.addr.func, d.vendor, d.device, d.class, d.subclass);
+        println!(
+            "  {:02x}:{:02x}.{} {:04x}:{:04x} class {:02x}{:02x}",
+            d.addr.bus, d.addr.dev, d.addr.func, d.vendor, d.device, d.class, d.subclass
+        );
     }
 
     println!("--- disks (read only) ---");
     if devs.block.is_empty() {
         r.warn("no supported disk found (NVMe, AHCI, IDE-mode ATA and virtio only)");
     }
-    let disks: Vec<Box<dyn BlockDevice>> = devs.block.drain(..).map(|d| Box::new(ReadOnly(d)) as Box<dyn BlockDevice>).collect();
-    let largest_disk = disks.iter().map(|d| d.sector_count() * d.sector_size() as u64).max().unwrap_or(0);
+    let disks: Vec<Box<dyn BlockDevice>> = devs
+        .block
+        .drain(..)
+        .map(|d| Box::new(ReadOnly(d)) as Box<dyn BlockDevice>)
+        .collect();
+    let largest_disk = disks
+        .iter()
+        .map(|d| d.sector_count() * d.sector_size() as u64)
+        .max()
+        .unwrap_or(0);
     for mut d in disks {
         let ss = d.sector_size() as usize;
-        let mib = d.sector_count() * ss as u64 >> 20;
+        let mib = (d.sector_count() * ss as u64) >> 20;
         let name = format!("{} serial '{}' {} MiB", d.model(), d.serial(), mib);
         let mut first = alloc::vec![0u8; ss * 2];
         let mut last = alloc::vec![0u8; ss];
         let head = d.read(0, &mut first);
         let tail = d.read(d.sector_count() - 1, &mut last);
         if head.is_ok() && tail.is_ok() {
-            let table = if &first[ss..ss + 8] == b"EFI PART" {
+            let table = if first.get(ss..ss + 8) == Some(b"EFI PART") {
                 "GPT"
-            } else if first[510] == 0x55 && first[511] == 0xaa {
+            } else if first.get(510) == Some(&0x55) && first.get(511) == Some(&0xaa) {
                 "MBR"
             } else {
                 "no partition table"
             };
             r.ok(&format!("{name}: first/last sector read, {table}"));
         } else {
-            r.bad(&format!("{name}: read failed (first {head:?}, last {tail:?})"));
+            r.bad(&format!(
+                "{name}: read failed (first {head:?}, last {tail:?})"
+            ));
         }
         // Writes must be refused; this proves the guard, and touches nothing.
-        r.check(d.write(0, &first[..ss]).is_err(), "  write guard refuses writes");
+        let write_slice = first.get(..ss).unwrap_or(&[]);
+        r.check(
+            d.write(0, write_slice).is_err(),
+            "  write guard refuses writes",
+        );
     }
 
     println!("--- network ---");
@@ -168,8 +206,23 @@ fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Repo
     for n in devs.net.iter_mut() {
         let m = n.mac();
         let up = n.link_up();
-        crate::digest::push(format!("network device {} mac {:02x?} link {}", n.name(), m, if up { "up" } else { "down" }));
-        println!("  {} mac {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} link {}", n.name(), m[0], m[1], m[2], m[3], m[4], m[5], if up { "up" } else { "down" });
+        crate::digest::push(format!(
+            "network device {} mac {:02x?} link {}",
+            n.name(),
+            m,
+            if up { "up" } else { "down" }
+        ));
+        println!(
+            "  {} mac {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} link {}",
+            n.name(),
+            m[0],
+            m[1],
+            m[2],
+            m[3],
+            m[4],
+            m[5],
+            if up { "up" } else { "down" }
+        );
     }
     let mut stack = match bring_up_network(&mut devs) {
         Ok(s) => {
@@ -194,8 +247,14 @@ fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Repo
     targets.push(("public 1.1.1.1", [1, 1, 1, 1]));
     for (what, ip) in targets {
         match stack.ping(ip, 2000) {
-            Some(ms) => r.ok(&format!("ping {what} {}.{}.{}.{}: {ms} ms", ip[0], ip[1], ip[2], ip[3])),
-            None => r.warn(&format!("ping {what} {}.{}.{}.{}: no reply (may just be filtered)", ip[0], ip[1], ip[2], ip[3])),
+            Some(ms) => r.ok(&format!(
+                "ping {what} {}.{}.{}.{}: {ms} ms",
+                ip[0], ip[1], ip[2], ip[3]
+            )),
+            None => r.warn(&format!(
+                "ping {what} {}.{}.{}.{}: no reply (may just be filtered)",
+                ip[0], ip[1], ip[2], ip[3]
+            )),
         }
     }
     match stack.connect([1, 1, 1, 1], 443, 6000) {
@@ -212,7 +271,7 @@ fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Repo
         Some(k) => r.ok(&format!("keyring: {} signing keys", k.keys.len())),
         None => r.bad("keyring.bin missing or invalid"),
     }
-    let client = Client::new(|| time::unix_time());
+    let client = Client::new(time::unix_time);
     let mut dbs = Vec::new();
     for repo in REPOS {
         match fetch_to_vec(&client, &mut stack, cfg, &format!("{repo}.db"), repo) {
@@ -233,17 +292,27 @@ fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Repo
     let mut speed_target: Option<String> = None;
     if dbs.len() == REPOS.len() {
         let providers: BTreeMap<String, String> = cfg.providers.iter().cloned().collect();
-        match pkg::resolve::Resolver::new(&dbs, &providers).resolve(&crate::install::wanted_packages(cfg)) {
+        match pkg::resolve::Resolver::new(&dbs, &providers)
+            .resolve(&crate::install::wanted_packages(cfg))
+        {
             Ok(res) => {
                 let total: u64 = res.packages.iter().map(|s| s.pkg.csize).sum();
-                r.ok(&format!("resolved {} packages, {} MiB", res.packages.len(), total >> 20));
+                r.ok(&format!(
+                    "resolved {} packages, {} MiB",
+                    res.packages.len(),
+                    total >> 20
+                ));
                 // The install refuses a disk that cannot hold them (see `install::space_needed`).
                 let need = crate::install::space_needed(&res) + ((cfg.disk.esp_mib as u64) << 20);
                 if largest_disk != 0 && largest_disk < need {
                     r.warn(&format!("the largest disk ({} MiB) is too small for these packages (about {} MiB with the ESP)", largest_disk >> 20, need >> 20));
                 }
-                if let (Some(big), Some(m)) = (res.packages.iter().max_by_key(|s| s.pkg.csize), cfg.mirrors.first()) {
-                    speed_target = Some(format!("{}/{}", expand(m, &big.pkg.repo), big.pkg.filename));
+                if let (Some(big), Some(m)) = (
+                    res.packages.iter().max_by_key(|s| s.pkg.csize),
+                    cfg.mirrors.first(),
+                ) {
+                    speed_target =
+                        Some(format!("{}/{}", expand(m, &big.pkg.repo), big.pkg.filename));
                 }
             }
             Err(e) => r.bad(&format!("dependency resolution: {e:?}")),
@@ -257,7 +326,9 @@ fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Repo
     }
     for a in &cfg.user_archives {
         match fetch_optional(&client, &mut stack, &a.url, USER_ARCHIVE_MAX) {
-            Ok(d) if d.starts_with(b"PK\x03\x04") => r.ok(&format!("user archive {}: {} bytes", a.url, d.len())),
+            Ok(d) if d.starts_with(b"PK\x03\x04") => {
+                r.ok(&format!("user archive {}: {} bytes", a.url, d.len()))
+            }
             Ok(_) => r.warn(&format!("user archive {}: not a zip", a.url)),
             Err(e) => r.warn(&format!("user archive {}: {e}", a.url)),
         }
@@ -273,10 +344,16 @@ fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Repo
 /// Downloads up to `CAP` bytes of `url` (without storing them) and reports the throughput.
 fn speedtest(client: &Client, stack: &mut net::Stack, url: &str, r: &mut Report) {
     const CAP: u64 = 24 << 20;
-    println!("--- speed test (up to {} MiB from the mirror) ---", CAP >> 20);
+    println!(
+        "--- speed test (up to {} MiB from the mirror) ---",
+        CAP >> 20
+    );
     let got = core::cell::Cell::new(0u64);
     use core::sync::atomic::Ordering::Relaxed;
-    let (crypto0, io0) = (net::tls::CRYPTO_TSC.load(Relaxed), net::tls::IO_TSC.load(Relaxed));
+    let (crypto0, io0) = (
+        net::tls::CRYPTO_TSC.load(Relaxed),
+        net::tls::IO_TSC.load(Relaxed),
+    );
     let start = now_ms();
     let res = client.get(stack, url, &mut |d| {
         got.set(got.get() + d.len() as u64);
@@ -299,12 +376,11 @@ fn speedtest(client: &Client, stack: &mut net::Stack, url: &str, r: &mut Report)
     let crypto_ms = to_ms(net::tls::CRYPTO_TSC.load(Relaxed) - crypto0);
     let io_ms = to_ms(net::tls::IO_TSC.load(Relaxed) - io0);
     println!("  of {ms} ms: {crypto_ms} ms TLS record processing (decryption), {io_ms} ms waiting for / reading bytes");
-    let kbit_per_s = bytes * 8 / ms; // bits per millisecond = kbit/s
-    let mib_per_s_x10 = bytes * 10_000 / ms / (1 << 20); // MiB/s * 10
+    let (kbit_per_s, mib_per_s_x10) = calculate_speed(bytes, ms);
     r.ok(&format!(
         "speed test: {}.{} MiB in {}.{:02} s = {}.{} MiB/s ({}.{} Mbit/s)",
         bytes >> 20,
-        (bytes % (1 << 20)) * 10 >> 20,
+        ((bytes % (1 << 20)) * 10) >> 20,
         ms / 1000,
         ms % 1000 / 10,
         mib_per_s_x10 / 10,
@@ -312,4 +388,33 @@ fn speedtest(client: &Client, stack: &mut net::Stack, url: &str, r: &mut Report)
         kbit_per_s / 1000,
         kbit_per_s % 1000 / 100
     ));
+}
+
+/// Computes (kbit/s, mib_per_s_x10) for a given byte count and elapsed milliseconds.
+pub fn calculate_speed(bytes: u64, ms: u64) -> (u64, u64) {
+    let ms = ms.max(1);
+    let kbit_per_s = bytes * 8 / ms;
+    let mib_per_s_x10 = bytes * 10_000 / ms / (1 << 20);
+    (kbit_per_s, mib_per_s_x10)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn calculates_speed_accurately() {
+        let bytes = 1024 * 1024;
+        let ms = 1000;
+        let (kbit_per_s, mib_per_s_x10) = calculate_speed(bytes, ms);
+        assert_eq!(mib_per_s_x10, 10); // 1.0 MiB/s (* 10)
+        assert_eq!(kbit_per_s, 8388);
+    }
+
+    #[test]
+    fn avoids_divide_by_zero_on_zero_ms() {
+        let (kbit_per_s, mib_per_s_x10) = calculate_speed(1000, 0);
+        assert_eq!(kbit_per_s, 8000);
+        assert_eq!(mib_per_s_x10, 9);
+    }
 }

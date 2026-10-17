@@ -34,7 +34,9 @@ pub fn parse(text: &str) -> Result<SrcInfo> {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let (k, v) = line.split_once('=').ok_or_else(|| format!(".SRCINFO line {}: no '='", n + 1))?;
+        let (k, v) = line
+            .split_once('=')
+            .ok_or_else(|| format!(".SRCINFO line {}: no '='", n + 1))?;
         let (k, v) = (k.trim(), v.trim());
         match k {
             "pkgbase" => {
@@ -49,7 +51,10 @@ pub fn parse(text: &str) -> Result<SrcInfo> {
                 if !seen_base {
                     return Err(format!(".SRCINFO line {}: pkgname before pkgbase", n + 1));
                 }
-                info.packages.push(Section { name: v.to_string(), keys: BTreeMap::new() });
+                info.packages.push(Section {
+                    name: v.to_string(),
+                    keys: BTreeMap::new(),
+                });
                 cur = Some(info.packages.len() - 1);
             }
             _ => {
@@ -58,9 +63,15 @@ pub fn parse(text: &str) -> Result<SrcInfo> {
                 }
                 let sec = match cur {
                     None => &mut info.base,
-                    Some(i) => &mut info.packages[i],
+                    Some(i) => info
+                        .packages
+                        .get_mut(i)
+                        .ok_or_else(|| format!(".SRCINFO line {}: invalid package index", n + 1))?,
                 };
-                sec.keys.entry(k.to_string()).or_default().push(v.to_string());
+                sec.keys
+                    .entry(k.to_string())
+                    .or_default()
+                    .push(v.to_string());
             }
         }
     }
@@ -90,13 +101,20 @@ impl SrcInfo {
 
     /// Whether the recipe builds for x86_64 (`arch` lists it or `any`).
     pub fn arch_ok(&self) -> bool {
-        self.base.get("arch").iter().any(|a| a == "x86_64" || a == "any")
+        self.base
+            .get("arch")
+            .iter()
+            .any(|a| a == "x86_64" || a == "any")
     }
 
     /// Runtime dependencies of `name`: its own `depends` if it has any, else the pkgbase's (as makepkg does).
     pub fn depends(&self, name: &str) -> Vec<String> {
         let own = self.package(name).map(|p| p.get("depends")).unwrap_or(&[]);
-        let list = if own.is_empty() { self.base.get("depends") } else { own };
+        let list = if own.is_empty() {
+            self.base.get("depends")
+        } else {
+            own
+        };
         let mut v: Vec<String> = list.to_vec();
         v.extend(self.base.get("depends_x86_64").iter().cloned());
         v
@@ -124,7 +142,16 @@ impl SrcInfo {
 
     /// How many checksum entries are `SKIP` for sources that are not VCS ones.
     pub fn skipped_checksums(&self) -> usize {
-        let sums = ["sha256sums", "sha512sums", "sha384sums", "sha224sums", "sha1sums", "md5sums", "b2sums", "cksums"];
+        let sums = [
+            "sha256sums",
+            "sha512sums",
+            "sha384sums",
+            "sha224sums",
+            "sha1sums",
+            "md5sums",
+            "b2sums",
+            "cksums",
+        ];
         let mut n = 0;
         for arch in ["", "_x86_64"] {
             let src = self.base.get(&format!("source{arch}"));
@@ -152,13 +179,16 @@ impl SrcInfo {
 pub fn dep_name(dep: &str) -> &str {
     let end = dep.find(['<', '>', '=']).unwrap_or(dep.len());
     // `name: description` is the optdepends form; it never reaches here, but be tolerant.
-    dep[..end].split(':').next().unwrap_or("").trim()
+    let prefix = dep.get(..end).unwrap_or(dep);
+    prefix.split(':').next().unwrap_or("").trim()
 }
 
 fn is_vcs(source: &str) -> bool {
     // `name::git+https://...` or `git+https://...`
     let url = source.rsplit_once("::").map(|(_, u)| u).unwrap_or(source);
-    ["git+", "svn+", "hg+", "bzr+", "fossil+"].iter().any(|p| url.starts_with(p))
+    ["git+", "svn+", "hg+", "bzr+", "fossil+"]
+        .iter()
+        .any(|p| url.starts_with(p))
 }
 
 #[cfg(test)]
@@ -177,16 +207,20 @@ mod tests {
         assert_eq!(i.depends("foo-extra"), ["bar"]);
         assert_eq!(i.makedepends(), ["go>=1.24"]);
         assert_eq!(i.vcs_sources(), ["git+https://e.org/r.git"]);
-        assert_eq!(i.skipped_checksums(), 1, "the SKIP of the archive counts, the VCS one does not");
+        assert_eq!(
+            i.skipped_checksums(),
+            1,
+            "the SKIP of the archive counts, the VCS one does not"
+        );
     }
 
     #[test]
     fn rejects_broken_input() {
-        assert!(parse("").is_err());
-        assert!(parse("pkgname = x\n").is_err());
-        assert!(parse("pkgbase = x\n").is_err());
-        assert!(parse("pkgbase = x\npkgbase = y\npkgname = x\n").is_err());
-        assert!(parse("pkgbase = x\nnonsense\npkgname = x\n").is_err());
+        parse("").unwrap_err();
+        parse("pkgname = x\n").unwrap_err();
+        parse("pkgbase = x\n").unwrap_err();
+        parse("pkgbase = x\npkgbase = y\npkgname = x\n").unwrap_err();
+        parse("pkgbase = x\nnonsense\npkgname = x\n").unwrap_err();
     }
 
     #[test]

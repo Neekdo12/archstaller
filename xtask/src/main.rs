@@ -1,13 +1,15 @@
 mod aur;
 mod bios;
+mod config;
+mod coverage;
 mod e2e;
+mod floppy;
 mod iso;
 mod keyring;
-mod coverage;
-mod presets;
 mod linux_test;
-mod lua;
+mod presets;
 mod qemu;
+mod rpi;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -15,7 +17,10 @@ use std::process::Command;
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 pub fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf()
 }
 
 /// Cargo's build directory: `CARGO_TARGET_DIR` (relative to the root, where every cargo run here starts),
@@ -39,7 +44,9 @@ fn arg_path(s: &str) -> PathBuf {
 
 pub fn run(cmd: &mut Command) -> Result<()> {
     // A missing tool (mtools, xorriso, ...) otherwise shows up as a bare "No such file or directory".
-    let status = cmd.status().map_err(|e| format!("cannot run {}: {e}", cmd.get_program().to_string_lossy()))?;
+    let status = cmd
+        .status()
+        .map_err(|e| format!("cannot run {}: {e}", cmd.get_program().to_string_lossy()))?;
     if !status.success() {
         return Err(format!("{cmd:?} failed: {status}").into());
     }
@@ -72,7 +79,7 @@ pub struct Options {
     /// Build with the usb-tethering kernel feature (iPhone Personal Hotspot over USB; needs a real iPhone).
     pub tethering: bool,
     /// Build with the debug kernel feature: verbose driver and network tracing. Always on for a
-    /// dry-run (hardware test) config such as configs/tester.lua.
+    /// dry-run (hardware test) config such as configs/tester.toml.
     pub debug: bool,
     /// `--progress json`: print structured build events (`hostcfg::progress`) on stdout.
     pub progress: bool,
@@ -84,7 +91,7 @@ pub struct Options {
 
 fn parse(args: &[String]) -> Result<Options> {
     let mut o = Options {
-        config: root().join("configs/config.lua"),
+        config: root().join("configs/config.toml"),
         fault_test: false,
         selftest: false,
         profile: None,
@@ -110,7 +117,11 @@ fn parse(args: &[String]) -> Result<Options> {
             "--fault-test" => o.fault_test = true,
             "--selftest" => o.selftest = true,
             "--out" => o.out = Some(arg_path(it.next().ok_or("--out needs a path")?)),
-            "--profile" => o.profile = Some(hostcfg::host::Profile::parse(it.next().ok_or("--profile needs super-small or large")?)?),
+            "--profile" => {
+                o.profile = Some(hostcfg::host::Profile::parse(
+                    it.next().ok_or("--profile needs super-small or large")?,
+                )?)
+            }
             "--small" | "--super-small" => o.legacy_small = true,
             "--limit" => o.limit = it.next().ok_or("--limit needs bytes")?.parse()?,
             "--uefi" => o.uefi = true,
@@ -121,6 +132,7 @@ fn parse(args: &[String]) -> Result<Options> {
             "--usb" => o.usb = true,
             "--tethering" => o.tethering = true,
             "--no-tethering" => {} // handled by the presets command
+            "--release" => {}
             "--debug" => o.debug = true,
             "--progress" => match it.next().map(String::as_str) {
                 Some("json") => o.progress = true,
@@ -134,13 +146,19 @@ fn parse(args: &[String]) -> Result<Options> {
     Ok(o)
 }
 
-/// Writes `configs/archstaller.lua` (LuaLS types) from the Rust schema; with `--check` only compares.
-fn luals(check: bool) -> Result<()> {
-    let path = root().join(hostcfg::configs::DIR).join("archstaller.lua");
-    let text = hostcfg::luals::annotations(&hostcfg::asconfig::json_schema());
+/// Writes `configs/archstaller.schema.json` from the Rust schema; with `--check` only compares.
+fn schema(check: bool) -> Result<()> {
+    let path = root()
+        .join(hostcfg::configs::DIR)
+        .join("archstaller.schema.json");
+    let text = hostcfg::schema::generate();
     if check {
         if std::fs::read_to_string(&path).map_or(true, |t| t != text) {
-            return Err(format!("{} is out of date; run `cargo xtask gen-luals`", path.display()).into());
+            return Err(format!(
+                "{} is out of date; run `cargo xtask gen-schema`",
+                path.display()
+            )
+            .into());
         }
         println!("{} is up to date", path.display());
     } else {
@@ -152,15 +170,45 @@ fn luals(check: bool) -> Result<()> {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|linux-test|check-presets|gen-luals|coverage|aur-pin|keyring|update-keyring> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme|ide] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--profile super-small|large] [--progress json] [--workdir DIR] [--disk-gib N (e2e)] [--limit BYTES]")?;
+    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|test|linux-test|check-presets|gen-schema|coverage|aur-pin|keyring|update-keyring|rpi-build|rpi-run|rpi-test|floppy|floppy-run|floppy-test> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme|ide] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--profile super-small|large] [--progress json] [--workdir DIR] [--disk-gib N (e2e)] [--limit BYTES] [--qemu|--all (test)]")?;
     if cmd == "aur-pin" {
         return aur::pin(rest);
     }
     if cmd == "coverage" {
         return coverage::run(rest);
     }
-    if cmd == "gen-luals" {
-        return luals(rest.iter().any(|a| a == "--check"));
+    if cmd == "gen-schema" {
+        return schema(rest.iter().any(|a| a == "--check"));
+    }
+    if cmd == "rpi-build" {
+        let opts = parse(rest)?;
+        rpi::build_image(&opts)?;
+        return Ok(());
+    }
+    if cmd == "rpi-run" {
+        let board = rest.first().map(|s| s.as_str()).unwrap_or("raspi3b");
+        return rpi::run(board);
+    }
+    if cmd == "rpi-test" {
+        let board = rest.first().map(|s| s.as_str()).unwrap_or("raspi3b");
+        return rpi::test(board);
+    }
+    if cmd == "test" {
+        let mut c = Command::new("cargo");
+        c.arg("test").arg("--workspace");
+        run(&mut c)?;
+        if rest.iter().any(|a| a == "--all" || a == "--qemu") {
+            let filtered_rest: Vec<String> = rest
+                .iter()
+                .filter(|a| a.as_str() != "--all" && a.as_str() != "--qemu")
+                .cloned()
+                .collect();
+            let opts = parse(&filtered_rest)?;
+            linux_test::run_test()?;
+            floppy::test(&opts)?;
+            rpi::test("raspi3b")?;
+        }
+        return Ok(());
     }
     let opts = parse(rest)?;
     match cmd.as_str() {
@@ -170,6 +218,15 @@ fn main() -> Result<()> {
         "run" => {
             let iso = iso::build(&opts)?;
             qemu::run_iso(&iso, &opts)?;
+        }
+        "floppy" => {
+            floppy::build(&opts)?;
+        }
+        "floppy-run" => {
+            floppy::run(&opts)?;
+        }
+        "floppy-test" => {
+            floppy::test(&opts)?;
         }
         // Preset ISOs are for real hardware, so they include USB tethering unless --no-tethering is given.
         "presets" => {

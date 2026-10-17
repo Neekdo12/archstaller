@@ -1,3 +1,4 @@
+#![expect(clippy::missing_safety_doc, reason = "low-level x86 I/O port access primitives")]
 use core::arch::asm;
 
 #[inline]

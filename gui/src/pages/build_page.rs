@@ -12,7 +12,11 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     ui::heading(content, "Build & drivers", "How the installer ISO itself is built. These settings are not part of the installed system.");
 
     let c = ui::card(content, Some("Build profile"));
-    let current = host.build.profile.clone().unwrap_or_else(|| "super-small".into());
+    let current = host
+        .build
+        .profile
+        .clone()
+        .unwrap_or_else(|| "super-small".into());
     let small = ui::check_button("super-small");
     let large = ui::check_button("large");
     large.set_group(Some(&small));
@@ -27,13 +31,23 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         });
     }
     c.append(&small);
-    ui::hint(&c, "Size-optimized installer (the default), about 0.7 MiB. A crash shows no panic message.");
+    ui::hint(
+        &c,
+        "Size-optimized installer (the default), about 0.7 MiB. A crash shows no panic message.",
+    );
     c.append(&large);
-    ui::hint(&c, "The regular release build, about 0.8 MiB, with panic messages kept for debugging.");
+    ui::hint(
+        &c,
+        "The regular release build, about 0.8 MiB, with panic messages kept for debugging.",
+    );
 
     let c = ui::card(content, Some("USB tethering"));
     let a = app.clone();
-    c.append(&ui::check("Include USB tethering (iPhone, Android, USB Ethernet)", tethering, move |on| a.edit(move |m| m.host.build.tethering = on)));
+    c.append(&ui::check(
+        "Include USB tethering (iPhone, Android, USB Ethernet)",
+        tethering,
+        move |on| a.edit(move |m| m.host.build.tethering = on),
+    ));
     ui::hint(&c, "Adds about 100 KiB. Lets the installer use a phone's hotspot when no wired network has a link.");
 
     let c = ui::card(content, Some("Installer drivers"));
@@ -41,11 +55,20 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     let all = host.installer_drivers.is_none();
     let a = app.clone();
     c.append(&ui::check("All drivers", all, move |on| {
-        a.edit(move |m| m.host.installer_drivers = if on { None } else { Some(DRIVERS.iter().map(|d| d.id.to_string()).collect()) });
+        a.edit(move |m| {
+            m.host.installer_drivers = if on {
+                None
+            } else {
+                Some(DRIVERS.iter().map(|d| d.id.to_string()).collect())
+            }
+        });
         a.rebuild(Page::Build);
     }));
     if let Some(list) = host.installer_drivers.clone() {
-        for (class, title) in [(DriverClass::Storage, "Storage"), (DriverClass::Network, "Network")] {
+        for (class, title) in [
+            (DriverClass::Storage, "Storage"),
+            (DriverClass::Network, "Network"),
+        ] {
             c.append(&ui::strong(title));
             for d in DRIVERS.iter().filter(|d| d.class == class) {
                 let r = ui::hbox(12);
@@ -66,7 +89,12 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
                 });
                 cb.set_width_request(130);
                 r.append(&cb);
-                let desc = gtk::Label::builder().label(d.description).xalign(0.0).hexpand(true).wrap(true).build();
+                let desc = gtk::Label::builder()
+                    .label(d.description)
+                    .xalign(0.0)
+                    .hexpand(true)
+                    .wrap(true)
+                    .build();
                 r.append(&desc);
                 r.append(&ui::dim(d.status));
                 c.append(&r);

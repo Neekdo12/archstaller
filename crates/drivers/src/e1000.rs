@@ -121,7 +121,14 @@ impl E1000 {
 
         let ral = regs.read32(RAL0);
         let rah = regs.read32(RAH0);
-        let mac = [ral as u8, (ral >> 8) as u8, (ral >> 16) as u8, (ral >> 24) as u8, rah as u8, (rah >> 8) as u8];
+        let mac = [
+            ral as u8,
+            (ral >> 8) as u8,
+            (ral >> 16) as u8,
+            (ral >> 24) as u8,
+            rah as u8,
+            (rah >> 8) as u8,
+        ];
         if mac == [0; 6] {
             return Err(Error::Unsupported);
         }
@@ -151,14 +158,24 @@ impl E1000 {
         if e1000e {
             regs.write32(RXDCTL, regs.read32(RXDCTL) | 1 << 25);
             regs.write32(TXDCTL, regs.read32(TXDCTL) | 1 << 25);
-            let _ = platform::wait_until(100, || regs.read32(RXDCTL) & (1 << 25) != 0);
+            let _res = platform::wait_until(100, || regs.read32(RXDCTL) & (1 << 25) != 0);
         }
         regs.write32(TIPG, 0x0060_200a);
         regs.write32(TCTL, TCTL_EN | TCTL_PSP | (0x0f << 4) | (0x40 << 12));
         regs.write32(RCTL, RCTL_EN | RCTL_BAM | RCTL_SECRC);
         regs.write32(RDT, (RING - 1) as u32);
 
-        Ok(E1000 { regs, rx_ring, tx_ring, rx_bufs, tx_buf, rx_next: 0, tx_next: 0, mac, e1000e })
+        Ok(E1000 {
+            regs,
+            rx_ring,
+            tx_ring,
+            rx_bufs,
+            tx_buf,
+            rx_next: 0,
+            tx_next: 0,
+            mac,
+            e1000e,
+        })
     }
 }
 
@@ -183,8 +200,11 @@ impl NetDevice for E1000 {
         if frame.len() > BUF || frame.is_empty() {
             return Err(Error::InvalidArgument);
         }
+        let Some(dest) = self.tx_buf.as_mut_slice().get_mut(..frame.len()) else {
+            return Err(Error::InvalidArgument);
+        };
+        dest.copy_from_slice(frame);
         let d = Mmio::new(self.tx_ring.as_ptr()).offset(16 * self.tx_next);
-        self.tx_buf.as_mut_slice()[..frame.len()].copy_from_slice(frame);
         d.write64(0, self.tx_buf.phys());
         d.write16(8, frame.len() as u16);
         d.write8(10, 0);
@@ -205,7 +225,13 @@ impl NetDevice for E1000 {
         let len = d.read16(8) as usize;
         let n = len.min(buf.len());
         let off = self.rx_next * BUF;
-        buf[..n].copy_from_slice(&self.rx_bufs.as_slice()[off..off + n]);
+        let (Some(dest), Some(src)) = (
+            buf.get_mut(..n),
+            self.rx_bufs.as_slice().get(off..off + n),
+        ) else {
+            return None;
+        };
+        dest.copy_from_slice(src);
         d.write8(12, 0);
         self.regs.write32(RDT, self.rx_next as u32);
         self.rx_next = (self.rx_next + 1) % RING;

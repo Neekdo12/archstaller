@@ -20,11 +20,24 @@ fn dialog(title: &str, filter_name: Option<(&str, &str)>) -> gtk::FileDialog {
     d
 }
 
-pub async fn open_file(win: &gtk::Window, title: &str, kind: Option<(&str, &str)>) -> Option<PathBuf> {
-    dialog(title, kind).open_future(Some(win)).await.ok().and_then(|f| f.path())
+pub async fn open_file(
+    win: &gtk::Window,
+    title: &str,
+    kind: Option<(&str, &str)>,
+) -> Option<PathBuf> {
+    dialog(title, kind)
+        .open_future(Some(win))
+        .await
+        .ok()
+        .and_then(|f| f.path())
 }
 
-pub async fn save_file(win: &gtk::Window, title: &str, name: &str, kind: Option<(&str, &str)>) -> Option<PathBuf> {
+pub async fn save_file(
+    win: &gtk::Window,
+    title: &str,
+    name: &str,
+    kind: Option<(&str, &str)>,
+) -> Option<PathBuf> {
     let d = dialog(title, kind);
     d.set_initial_name(Some(name));
     d.save_future(Some(win)).await.ok().and_then(|f| f.path())
@@ -35,19 +48,34 @@ pub async fn open_folder(win: &gtk::Window, title: &str, start: Option<&Path>) -
     if let Some(s) = start {
         d.set_initial_folder(Some(&gtk::gio::File::for_path(s)));
     }
-    d.select_folder_future(Some(win)).await.ok().and_then(|f| f.path())
+    d.select_folder_future(Some(win))
+        .await
+        .ok()
+        .and_then(|f| f.path())
 }
 
 /// Asks a question with a destructive or irreversible flavour; `true` only when the user picks `yes`.
 pub async fn confirm(win: &gtk::Window, message: &str, detail: &str, yes: &str) -> bool {
-    let d = gtk::AlertDialog::builder().modal(true).message(message).detail(detail).buttons([yes, "Cancel"]).cancel_button(1).default_button(1).build();
+    let d = gtk::AlertDialog::builder()
+        .modal(true)
+        .message(message)
+        .detail(detail)
+        .buttons([yes, "Cancel"])
+        .cancel_button(1)
+        .default_button(1)
+        .build();
     matches!(d.choose_future(Some(win)).await, Ok(0))
 }
 
 pub fn notice(win: &gtk::Window, message: &str, detail: &str) {
-    let d = gtk::AlertDialog::builder().modal(true).message(message).detail(detail).buttons(["OK"]).build();
+    let d = gtk::AlertDialog::builder()
+        .modal(true)
+        .message(message)
+        .detail(detail)
+        .buttons(["OK"])
+        .build();
     let w = win.clone();
     gtk::glib::spawn_future_local(async move {
-        let _ = d.choose_future(Some(&w)).await;
+        drop(d.choose_future(Some(&w)).await);
     });
 }

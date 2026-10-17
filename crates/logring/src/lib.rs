@@ -29,7 +29,10 @@ impl<const CAP: usize> Default for Ring<CAP> {
 
 impl<const CAP: usize> Ring<CAP> {
     pub const fn new() -> Self {
-        Self { buf: [0; CAP], written: 0 }
+        Self {
+            buf: [0; CAP],
+            written: 0,
+        }
     }
 
     /// Write position: where the next byte goes.
@@ -46,7 +49,9 @@ impl<const CAP: usize> Ring<CAP> {
     pub fn push(&mut self, bytes: &[u8]) {
         for &b in bytes {
             let h = self.head();
-            self.buf[h] = b;
+            if let Some(slot) = self.buf.get_mut(h) {
+                *slot = b;
+            }
             self.written = self.written.wrapping_add(1);
         }
     }
@@ -125,7 +130,10 @@ mod tests {
         assert_eq!(r.len(), 8);
         let s = r.snapshot();
         let text = core::str::from_utf8(&s).unwrap();
-        assert!(text.starts_with("[log truncated: 2 bytes dropped]\n"), "got {text:?}");
+        assert!(
+            text.starts_with("[log truncated: 2 bytes dropped]\n"),
+            "got {text:?}"
+        );
         assert!(text.ends_with("23456789"), "got {text:?}");
     }
 

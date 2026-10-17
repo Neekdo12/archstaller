@@ -1,6 +1,6 @@
 #!/bin/sh
 # archstaller COMMAND [OPTIONS]: `cargo xtask` for the source tree the Arch package installs in
-# /usr/share/archstaller, for example `archstaller build --config my.lua --out my.iso`. The commands and
+# /usr/share/archstaller, for example `archstaller build --config my.toml --out my.iso`. The commands and
 # options are those of docs/building-and-running.md. Every ISO build compiles the installer kernel for its
 # config, so the first one also compiles xtask and takes a few minutes.
 set -eu

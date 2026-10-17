@@ -8,11 +8,13 @@ pub struct Dma {
     layout: Layout,
 }
 
+// SAFETY: Dma owns a physically contiguous heap buffer with unique ownership that can safely be moved across threads.
 unsafe impl Send for Dma {}
 
 impl Dma {
     pub fn new(size: usize, align: usize) -> Dma {
-        let layout = Layout::from_size_align(size.max(1), align.max(1)).unwrap();
+        let layout = Layout::from_size_align(size.max(1), align.max(1)).expect("valid DMA layout");
+        // SAFETY: The layout has non-zero size, and alloc_zeroed returns a valid block or null.
         let ptr = unsafe { alloc_zeroed(layout) };
         assert!(!ptr.is_null(), "DMA allocation failed");
         Dma { ptr, layout }
@@ -41,17 +43,24 @@ impl Dma {
         self.layout.size()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.layout.size() == 0
+    }
+
     pub fn as_slice(&self) -> &[u8] {
+        // SAFETY: `self.ptr` is valid for reads of `self.layout.size()` bytes as allocated.
         unsafe { core::slice::from_raw_parts(self.ptr, self.layout.size()) }
     }
 
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
+        // SAFETY: `self.ptr` is valid for reads and writes of `self.layout.size()` bytes and uniquely owned.
         unsafe { core::slice::from_raw_parts_mut(self.ptr, self.layout.size()) }
     }
 }
 
 impl Drop for Dma {
     fn drop(&mut self) {
+        // SAFETY: `self.ptr` was allocated with `self.layout` using `alloc_zeroed`.
         unsafe { dealloc(self.ptr, self.layout) };
     }
 }

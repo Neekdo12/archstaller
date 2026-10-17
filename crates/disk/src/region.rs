@@ -25,6 +25,10 @@ impl<'a> Region<'a> {
         self.len
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
     pub fn sector_size(&self) -> u32 {
         self.dev.sector_size()
     }
@@ -34,7 +38,10 @@ impl<'a> Region<'a> {
             let ss = dev.sector_size() as usize;
             let mut tmp = vec![0u8; sectors * ss];
             dev.read(lba, &mut tmp)?;
-            buf[part.0..part.1].copy_from_slice(&tmp[skip..skip + part.1 - part.0]);
+            let n = part.1 - part.0;
+            if let (Some(dst), Some(src)) = (buf.get_mut(part.0..part.1), tmp.get(skip..skip + n)) {
+                dst.copy_from_slice(src);
+            }
             Ok(())
         })
     }
@@ -45,11 +52,14 @@ impl<'a> Region<'a> {
             let n = part.1 - part.0;
             if skip == 0 && n == sectors * ss {
                 // Whole sectors: write straight from the caller's buffer.
-                dev.write(lba, &data[part.0..part.1])?;
+                let slice = data.get(part.0..part.1).ok_or(Error::Size("buffer range out of bounds"))?;
+                dev.write(lba, slice)?;
             } else {
                 let mut tmp = vec![0u8; sectors * ss];
                 dev.read(lba, &mut tmp)?;
-                tmp[skip..skip + n].copy_from_slice(&data[part.0..part.1]);
+                if let (Some(dst), Some(src)) = (tmp.get_mut(skip..skip + n), data.get(part.0..part.1)) {
+                    dst.copy_from_slice(src);
+                }
                 dev.write(lba, &tmp)?;
             }
             Ok(())
@@ -68,7 +78,7 @@ impl<'a> Region<'a> {
         len: usize,
         mut f: impl FnMut(&mut dyn BlockDevice, u64, usize, usize, (usize, usize)) -> Result<()>,
     ) -> Result<()> {
-        if off.checked_add(len as u64).map_or(true, |e| e > self.len) {
+        if off.checked_add(len as u64).is_none_or(|e| e > self.len) {
             return Err(Error::Size("access beyond region"));
         }
         let ss = self.dev.sector_size() as u64;

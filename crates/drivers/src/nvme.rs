@@ -115,7 +115,9 @@ fn cmd(opcode: u8, nsid: u32) -> [u32; 16] {
 }
 
 fn trimmed(b: &[u8]) -> String {
-    String::from_utf8_lossy(b).trim_matches(|c: char| c == ' ' || c == '\0').into()
+    String::from_utf8_lossy(b)
+        .trim_matches(|c: char| c == ' ' || c == '\0')
+        .into()
 }
 
 impl Nvme {
@@ -159,8 +161,8 @@ impl Nvme {
         c[7] = (id.phys() >> 32) as u32;
         c[10] = 1; // CNS: controller
         self.admin.exec(&self.regs, c)?;
-        self.serial = trimmed(&id.as_slice()[4..24]);
-        self.model = trimmed(&id.as_slice()[24..64]);
+        self.serial = trimmed(id.as_slice().get(4..24).unwrap_or(&[]));
+        self.model = trimmed(id.as_slice().get(24..64).unwrap_or(&[]));
 
         let mut c = cmd(0x06, 1);
         c[6] = id.phys() as u32;
@@ -168,9 +170,18 @@ impl Nvme {
         c[10] = 0; // CNS: namespace
         self.admin.exec(&self.regs, c)?;
         let ns = id.as_slice();
-        self.lbas = u64::from_le_bytes(ns[0..8].try_into().unwrap());
-        let fmt = (ns[26] & 0xf) as usize;
-        let lbaf = u32::from_le_bytes(ns[128 + 4 * fmt..132 + 4 * fmt].try_into().unwrap());
+        self.lbas = u64::from_le_bytes(
+            *ns.get(0..8)
+                .and_then(|s| s.first_chunk::<8>())
+                .ok_or(Error::Io)?,
+        );
+        let fmt = (*ns.get(26).ok_or(Error::Io)? & 0xf) as usize;
+        let lbaf_off = 128 + 4 * fmt;
+        let lbaf = u32::from_le_bytes(
+            *ns.get(lbaf_off..lbaf_off + 4)
+                .and_then(|s| s.first_chunk::<4>())
+                .ok_or(Error::Io)?,
+        );
         let shift = (lbaf >> 16) & 0xff;
         if shift != 9 && shift != 12 {
             return Err(Error::Unsupported);
@@ -223,7 +234,11 @@ impl Nvme {
 
     fn check(&self, lba: u64, len: usize) -> Result<()> {
         let ss = self.lba_size as usize;
-        if len % ss != 0 || lba.checked_add((len / ss) as u64).map_or(true, |e| e > self.lbas) {
+        if !len.is_multiple_of(ss)
+            || lba
+                .checked_add((len / ss) as u64)
+                .is_none_or(|e| e > self.lbas)
+        {
             return Err(Error::InvalidArgument);
         }
         Ok(())
@@ -249,7 +264,10 @@ impl BlockDevice for Nvme {
         let ss = self.lba_size as usize;
         for (i, chunk) in buf.chunks_mut(CHUNK).enumerate() {
             self.rw(false, lba + (i * CHUNK / ss) as u64, chunk.len())?;
-            chunk.copy_from_slice(&self.data.as_slice()[..chunk.len()]);
+            let Some(src) = self.data.as_slice().get(..chunk.len()) else {
+                return Err(Error::Io);
+            };
+            chunk.copy_from_slice(src);
         }
         Ok(())
     }
@@ -258,7 +276,10 @@ impl BlockDevice for Nvme {
         self.check(lba, buf.len())?;
         let ss = self.lba_size as usize;
         for (i, chunk) in buf.chunks(CHUNK).enumerate() {
-            self.data.as_mut_slice()[..chunk.len()].copy_from_slice(chunk);
+            let Some(dest) = self.data.as_mut_slice().get_mut(..chunk.len()) else {
+                return Err(Error::Io);
+            };
+            dest.copy_from_slice(chunk);
             self.rw(true, lba + (i * CHUNK / ss) as u64, chunk.len())?;
         }
         Ok(())

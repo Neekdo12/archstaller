@@ -25,12 +25,26 @@ pub struct Dep {
 impl Dep {
     pub fn parse(s: &str) -> Dep {
         // Two-character operators first.
-        for (tok, op) in [(">=", Op::Ge), ("<=", Op::Le), ("=", Op::Eq), (">", Op::Gt), ("<", Op::Lt)] {
-            if let Some(i) = s.find(tok) {
-                return Dep { name: s[..i].into(), op, version: s[i + tok.len()..].into() };
+        for (tok, op) in [
+            (">=", Op::Ge),
+            ("<=", Op::Le),
+            ("=", Op::Eq),
+            (">", Op::Gt),
+            ("<", Op::Lt),
+        ] {
+            if let Some((name, version)) = s.split_once(tok) {
+                return Dep {
+                    name: name.into(),
+                    op,
+                    version: version.into(),
+                };
             }
         }
-        Dep { name: s.into(), op: Op::Any, version: String::new() }
+        Dep {
+            name: s.into(),
+            op: Op::Any,
+            version: String::new(),
+        }
     }
 
     /// Whether `have` satisfies this constraint.
@@ -78,7 +92,10 @@ pub struct Package {
 
 impl Package {
     pub fn parse(repo: &str, desc: &str) -> Result<Package> {
-        let mut p = Package { repo: repo.into(), ..Default::default() };
+        let mut p = Package {
+            repo: repo.into(),
+            ..Default::default()
+        };
         let mut section = "";
         let mut lines: Vec<&str> = Vec::new();
         let flush = |p: &mut Package, section: &str, lines: &mut Vec<&str>| {
@@ -140,7 +157,10 @@ mod tests {
     #[test]
     fn field_reads_the_first_line_of_a_section() {
         let d = "%NAME%\nfirefox\n\n%DESC%\nFast, Private & Safe Web Browser — ünïcode\n\n%ISIZE%\n1\n\n%EMPTY%\n\n";
-        assert_eq!(field(d, "DESC"), Some("Fast, Private & Safe Web Browser — ünïcode"));
+        assert_eq!(
+            field(d, "DESC"),
+            Some("Fast, Private & Safe Web Browser — ünïcode")
+        );
         assert_eq!(field(d, "NAME"), Some("firefox"));
         assert_eq!(field(d, "EMPTY"), None);
         assert_eq!(field(d, "URL"), None);

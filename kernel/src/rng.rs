@@ -56,7 +56,10 @@ fn jitter_fill(buf: &mut [u8]) {
         let mut h = Sha256::new();
         h.update(b"archstaller jitter seed");
         gather_jitter(&mut h, 4096);
-        Drbg { state: h.finalize().into(), counter: 0 }
+        Drbg {
+            state: h.finalize().into(),
+            counter: 0,
+        }
     });
     for chunk in buf.chunks_mut(32) {
         // Fresh jitter on every block as well, so the output is not a function of the seed alone.
@@ -70,7 +73,9 @@ fn jitter_fill(buf: &mut [u8]) {
         next.update(b"ratchet");
         next.update(block);
         d.state = next.finalize().into();
-        chunk.copy_from_slice(&block[..chunk.len()]);
+        if let Some(src) = block.get(..chunk.len()) {
+            chunk.copy_from_slice(src);
+        }
     }
 }
 
@@ -81,7 +86,10 @@ pub fn fill(buf: &mut [u8]) -> Result<(), getrandom::Error> {
     }
     for chunk in buf.chunks_mut(8) {
         let v = unsafe { rdrand() }.ok_or(getrandom::Error::UNEXPECTED)?;
-        chunk.copy_from_slice(&v.to_le_bytes()[..chunk.len()]);
+        let bytes = v.to_le_bytes();
+        if let Some(src) = bytes.get(..chunk.len()) {
+            chunk.copy_from_slice(src);
+        }
     }
     Ok(())
 }

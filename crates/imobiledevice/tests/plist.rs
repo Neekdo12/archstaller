@@ -14,7 +14,10 @@ fn sample() -> Value {
             "Nested",
             Value::dict(vec![
                 ("Inner", Value::Int(42)),
-                ("List", Value::Array(vec![Value::str("a"), Value::Int(0x1_0000)])),
+                (
+                    "List",
+                    Value::Array(vec![Value::str("a"), Value::Int(0x1_0000)]),
+                ),
             ]),
         ),
         ("Long", Value::str(&"x".repeat(40))), // forces the 0x0f long-form length
@@ -51,7 +54,10 @@ fn parses_python_plistlib_bplist() {
     let d = v.get("D").unwrap();
     assert_eq!(d.dict_get_str("k"), Some("v"));
     let tags = v.get("Tags").unwrap();
-    assert_eq!(tags, &Value::Array(vec![Value::Int(1), Value::Int(2), Value::Int(300)]));
+    assert_eq!(
+        tags,
+        &Value::Array(vec![Value::Int(1), Value::Int(2), Value::Int(300)])
+    );
 }
 
 #[test]
@@ -78,24 +84,37 @@ fn mux_version_packet_uses_the_short_header() {
     let mut vh = [0u8; 12];
     vh[3] = 2; // major 2, minor 0, padding 0
     let p = encode_packet(0, 0, 0, 0xffff, &vh);
-    assert_eq!(p, [0, 0, 0, 0, 0, 0, 0, 20, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(
+        p,
+        [0, 0, 0, 0, 0, 0, 0, 20, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0]
+    );
 }
 
 #[test]
 fn mux_setup_packet_uses_the_long_header() {
     use imobiledevice::mux::{encode_packet, parse_packet};
     let p = encode_packet(2, 2, 0, 0xffff, &[7]);
-    assert_eq!(p, [0, 0, 0, 2, 0, 0, 0, 17, 0xfe, 0xed, 0xfa, 0xce, 0, 0, 0xff, 0xff, 7]);
+    assert_eq!(
+        p,
+        [0, 0, 0, 2, 0, 0, 0, 17, 0xfe, 0xed, 0xfa, 0xce, 0, 0, 0xff, 0xff, 7]
+    );
     let (proto, rx_seq, payload) = parse_packet(2, &p).unwrap();
     assert_eq!((proto, rx_seq, payload), (2, 0xffff, &[7u8][..]));
     // Length must match the transfer exactly.
-    assert!(parse_packet(2, &p[..16]).is_err());
+    parse_packet(2, &p[..16]).unwrap_err();
 }
 
 #[test]
 fn mux_tcp_header_round_trip() {
     use imobiledevice::mux::{encode_tcp, parse_tcp, Tcp};
-    let t = Tcp { sport: 1, dport: 62078, seq: 1, ack: 1, flags: 0x10, win: 512 };
+    let t = Tcp {
+        sport: 1,
+        dport: 62078,
+        seq: 1,
+        ack: 1,
+        flags: 0x10,
+        win: 512,
+    };
     let p = encode_tcp(&t, b"hello");
     assert_eq!(p.len(), 25);
     assert_eq!(p[12], 0x50, "data offset is 5 words");
@@ -103,12 +122,16 @@ fn mux_tcp_header_round_trip() {
     let (back, data) = parse_tcp(&p).unwrap();
     assert_eq!(back, t);
     assert_eq!(data, b"hello");
-    assert!(parse_tcp(&p[..19]).is_err());
+    parse_tcp(&p[..19]).unwrap_err();
 }
 
 #[test]
 fn cert_chain_verified_by_openssl() {
-    if std::process::Command::new("openssl").arg("version").output().is_err() {
+    if std::process::Command::new("openssl")
+        .arg("version")
+        .output()
+        .is_err()
+    {
         return;
     }
     // A stand-in "device" key as PKCS#1 PEM, like lockdownd's DevicePublicKey value.

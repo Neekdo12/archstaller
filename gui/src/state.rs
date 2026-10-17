@@ -9,9 +9,9 @@ use crate::official::OfficialState;
 use hostcfg::progress::State as StageState;
 use hostcfg::resolve::Resolution;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Receiver;
-use std::rc::Rc;
 use std::sync::Arc;
 
 /// Suggestion lists, read once at start.
@@ -114,6 +114,8 @@ pub struct State {
     pub aur_focused_commit: Option<String>,
     /// A package was just pinned: put the keyboard focus back on the AUR search box for the next one.
     pub aur_focus_search: bool,
+    /// Result message from importing services from the host.
+    pub services_import_report: Option<String>,
 }
 
 impl State {
@@ -129,11 +131,14 @@ impl State {
             build: BuildState::default(),
             media: MediaState::default(),
             next_build: 0,
-            presets: crate::build::find_root().map(|r| crate::model::presets(&r)).unwrap_or_default(),
+            presets: crate::build::find_root()
+                .map(|r| crate::model::presets(&r))
+                .unwrap_or_default(),
             ui_dirty: false,
             aur_auto_review: false,
             aur_focused_commit: None,
             aur_focus_search: false,
+            services_import_report: None,
         };
         s.media.volumes = crate::media::volumes();
         s

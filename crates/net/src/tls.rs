@@ -16,11 +16,15 @@ pub static CRYPTO_TSC: core::sync::atomic::AtomicU64 = core::sync::atomic::Atomi
 pub static IO_TSC: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 
 fn tsc() -> u64 {
+    // SAFETY: Reading the Time Stamp Counter with `_rdtsc` is always safe on x86_64.
     unsafe { core::arch::x86_64::_rdtsc() }
 }
 
 fn add(counter: &core::sync::atomic::AtomicU64, since: u64) {
-    counter.fetch_add(tsc().wrapping_sub(since), core::sync::atomic::Ordering::Relaxed);
+    counter.fetch_add(
+        tsc().wrapping_sub(since),
+        core::sync::atomic::Ordering::Relaxed,
+    );
 }
 
 #[derive(Debug)]
@@ -36,12 +40,17 @@ impl TimeProvider for WallClock {
 /// for certificate validity checks.
 pub fn client_config(unix_time: fn() -> u64) -> Arc<ClientConfig> {
     let mut roots = RootCertStore::empty();
-    roots.roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    let cfg = ClientConfig::builder_with_details(Arc::new(rustls_rustcrypto::provider()), Arc::new(WallClock(unix_time)))
-        .with_safe_default_protocol_versions()
-        .expect("provider supports default TLS versions")
-        .with_root_certificates(roots)
-        .with_no_client_auth();
+    roots
+        .roots
+        .extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let cfg = ClientConfig::builder_with_details(
+        Arc::new(rustls_rustcrypto::provider()),
+        Arc::new(WallClock(unix_time)),
+    )
+    .with_safe_default_protocol_versions()
+    .expect("provider supports default TLS versions")
+    .with_root_certificates(roots)
+    .with_no_client_auth();
     Arc::new(cfg)
 }
 
@@ -70,8 +79,10 @@ const MAX_RECORD: usize = 16 * 1024;
 impl<S: Stream> TlsStream<S> {
     /// Connects and completes the handshake.
     pub fn connect(inner: S, config: Arc<ClientConfig>, server_name: &str) -> Result<Self> {
-        let name = ServerName::try_from(String::from(server_name)).map_err(|_| Error::Http("bad server name"))?;
-        let conn = UnbufferedClientConnection::new(config, name).map_err(|_| Error::Http("tls setup"))?;
+        let name = ServerName::try_from(String::from(server_name))
+            .map_err(|_e| Error::Http("bad server name"))?;
+        let conn =
+            UnbufferedClientConnection::new(config, name).map_err(|_e| Error::Http("tls setup"))?;
         let mut t = TlsStream {
             inner,
             conn,
@@ -102,7 +113,8 @@ impl<S: Stream> TlsStream<S> {
         if n == 0 {
             self.eof = true;
         }
-        self.incoming.extend_from_slice(&tmp[..n]);
+        let slice = tmp.get(..n).unwrap_or(&[]);
+        self.incoming.extend_from_slice(slice);
         Ok(())
     }
 
@@ -110,7 +122,7 @@ impl<S: Stream> TlsStream<S> {
     fn step(&mut self, handshaking: bool) -> Result<Step> {
         let t0 = tsc();
         let UnbufferedStatus { discard, state } = self.conn.process_tls_records(&mut self.incoming);
-        let state = state.map_err(|_| Error::Http("tls error"))?;
+        let state = state.map_err(|_e| Error::Http("tls error"))?;
         let mut to_send = 0usize;
         let mut plain: Vec<u8> = Vec::new();
         let mut extra_discard = 0usize;
@@ -144,7 +156,7 @@ impl<S: Stream> TlsStream<S> {
             }
             ConnectionState::ReadTraffic(mut r) => {
                 while let Some(rec) = r.next_record() {
-                    let rec = rec.map_err(|_| Error::Http("tls record"))?;
+                    let rec = rec.map_err(|_e| Error::Http("tls record"))?;
                     plain.extend_from_slice(rec.payload);
                     extra_discard += rec.discard;
                 }
@@ -155,9 +167,12 @@ impl<S: Stream> TlsStream<S> {
         };
         add(&CRYPTO_TSC, t0);
         let total_discard = discard + extra_discard;
-        self.incoming.drain(..total_discard.min(self.incoming.len()));
+        self.incoming
+            .drain(..total_discard.min(self.incoming.len()));
         if to_send > 0 {
-            self.inner.write_all(&self.outgoing[..to_send])?;
+            if let Some(slice) = self.outgoing.get(..to_send) {
+                self.inner.write_all(slice)?;
+            }
         }
         if !plain.is_empty() {
             self.plaintext.extend_from_slice(&plain);
@@ -171,7 +186,12 @@ impl<S: Stream> Stream for TlsStream<S> {
         loop {
             if self.plain_pos < self.plaintext.len() {
                 let n = (self.plaintext.len() - self.plain_pos).min(buf.len());
-                buf[..n].copy_from_slice(&self.plaintext[self.plain_pos..self.plain_pos + n]);
+                if let (Some(dst), Some(src)) = (
+                    buf.get_mut(..n),
+                    self.plaintext.get(self.plain_pos..self.plain_pos + n),
+                ) {
+                    dst.copy_from_slice(src);
+                }
                 self.plain_pos += n;
                 if self.plain_pos == self.plaintext.len() {
                     self.plaintext.clear();
@@ -196,21 +216,31 @@ impl<S: Stream> Stream for TlsStream<S> {
         for chunk in buf.chunks(MAX_RECORD) {
             let n = loop {
                 let UnbufferedStatus { state, .. } = self.conn.process_tls_records(&mut []);
-                match state.map_err(|_| Error::Http("tls error"))? {
-                    ConnectionState::WriteTraffic(mut w) => match w.encrypt(chunk, &mut self.outgoing) {
-                        Ok(n) => break n,
-                        Err(EncryptError::InsufficientSize(s)) => self.outgoing.resize(s.required_size, 0),
-                        Err(_) => return Err(Error::Http("tls encrypt")),
-                    },
+                match state.map_err(|_e| Error::Http("tls error"))? {
+                    ConnectionState::WriteTraffic(mut w) => {
+                        match w.encrypt(chunk, &mut self.outgoing) {
+                            Ok(n) => break n,
+                            Err(EncryptError::InsufficientSize(s)) => {
+                                self.outgoing.resize(s.required_size, 0)
+                            }
+                            Err(_) => return Err(Error::Http("tls encrypt")),
+                        }
+                    }
                     ConnectionState::EncodeTlsData(mut e) => {
-                        let n = e.encode(&mut self.outgoing).map_err(|_| Error::Http("tls encode"))?;
-                        self.inner.write_all(&self.outgoing[..n])?;
+                        let n = e
+                            .encode(&mut self.outgoing)
+                            .map_err(|_e| Error::Http("tls encode"))?;
+                        if let Some(slice) = self.outgoing.get(..n) {
+                            self.inner.write_all(slice)?;
+                        }
                     }
                     ConnectionState::TransmitTlsData(t) => t.done(),
                     _ => return Err(Error::Closed),
                 }
             };
-            self.inner.write_all(&self.outgoing[..n])?;
+            if let Some(slice) = self.outgoing.get(..n) {
+                self.inner.write_all(slice)?;
+            }
         }
         Ok(())
     }

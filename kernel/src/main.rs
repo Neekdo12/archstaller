@@ -1,17 +1,32 @@
-#![no_std]
-#![no_main]
+#![cfg_attr(target_os = "none", no_std)]
+#![cfg_attr(target_os = "none", no_main)]
 #![feature(abi_x86_interrupt)]
+#![cfg_attr(
+    not(target_os = "none"),
+    expect(
+        dead_code,
+        reason = "items only called by kernel entry in bare-metal target"
+    )
+)]
+#![expect(
+    clippy::multiple_unsafe_ops_per_block,
+    reason = "bare-metal kernel requires MMIO, port I/O and raw pointer dereferencing"
+)]
+#![expect(
+    clippy::undocumented_unsafe_blocks,
+    reason = "bare-metal kernel requires MMIO, port I/O and raw pointer dereferencing"
+)]
 
 extern crate alloc;
 
 mod banner;
 mod console;
+mod digest;
 mod fb;
 mod heap;
-mod digest;
+mod hwtest;
 mod idle;
 mod idt;
-mod hwtest;
 mod install;
 mod logbuf;
 mod logdump;
@@ -22,10 +37,13 @@ mod rng;
 mod serial;
 mod time;
 
+#[cfg(target_os = "none")]
 use alloc::{boxed::Box, vec::Vec};
+use bootinfo::BootInfo;
+#[cfg(target_os = "none")]
+use bootinfo::MEM_USABLE;
 use core::arch::asm;
 use core::sync::atomic::{AtomicPtr, Ordering};
-use bootinfo::{BootInfo, MEM_USABLE};
 
 /// The `BootInfo` the loader handed over. Kept so `logdump` can read `boot_medium` long after `_start`
 /// has moved on. Written once, before any other thread exists, and only read afterwards.
@@ -34,7 +52,11 @@ static BOOT_INFO: AtomicPtr<BootInfo> = AtomicPtr::new(core::ptr::null_mut());
 /// The boot info, or `None` before `_start` has stored it (never in practice once the flow runs).
 pub fn boot_info() -> Option<&'static BootInfo> {
     let p = BOOT_INFO.load(Ordering::Acquire);
-    if p.is_null() { None } else { Some(unsafe { &*p }) }
+    if p.is_null() {
+        None
+    } else {
+        Some(unsafe { &*p })
+    }
 }
 
 pub fn halt() -> ! {
@@ -75,6 +97,7 @@ fn settle() {
     }
 }
 
+#[cfg(target_os = "none")]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     // Break both locks: the console's and the log-capture ring's. A panic can arrive while either is
@@ -88,6 +111,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     halt()
 }
 
+#[cfg(target_os = "none")]
 #[no_mangle]
 extern "C" fn _start(info: &'static BootInfo) -> ! {
     console::init_serial();
@@ -115,28 +139,52 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
 
     let memmap = unsafe { info.memory() };
     let modules = unsafe { info.modules() };
-    let module = |name: &str| modules.iter().find(|m| m.name() == name).map(|m| unsafe { core::slice::from_raw_parts(m.addr as *const u8, m.len as usize) });
+    let module = |name: &str| {
+        modules
+            .iter()
+            .find(|m| m.name() == name)
+            .map(|m| unsafe { core::slice::from_raw_parts(m.addr as *const u8, m.len as usize) })
+    };
     heap::init(hhdm, memmap);
 
-    let usable: u64 = memmap.iter().filter(|e| e.kind == MEM_USABLE).map(|e| e.len).sum();
+    let usable: u64 = memmap
+        .iter()
+        .filter(|e| e.kind == MEM_USABLE)
+        .map(|e| e.len)
+        .sum();
     let fw = match info.firmware {
         bootinfo::FIRMWARE_BIOS => "BIOS",
         bootinfo::FIRMWARE_UEFI => "UEFI",
         _ => "unknown",
     };
     println!("firmware: {fw}");
-    println!("usable memory: {} MiB in {} entries", usable >> 20, memmap.len());
+    println!(
+        "usable memory: {} MiB in {} entries",
+        usable >> 20,
+        memmap.len()
+    );
     println!("heap: {} MiB", heap::size() >> 20);
 
     let mut v: Vec<u64> = (0..1000).collect();
     v.reverse();
     let b = Box::new(v.iter().sum::<u64>());
-    println!("heap test: {}", if *b == 499_500 && v[0] == 999 { "OK" } else { "FAILED" });
+    println!(
+        "heap test: {}",
+        if *b == 499_500 && v.first() == Some(&999) {
+            "OK"
+        } else {
+            "FAILED"
+        }
+    );
 
     println!("calibrating clock...");
     time::init(time::rtc_unix_time());
     idle::init(hhdm);
-    println!("tsc: {} MHz, unix time {}", time::tsc_hz() / 1_000_000, time::unix_time());
+    println!(
+        "tsc: {} MHz, unix time {}",
+        time::tsc_hz() / 1_000_000,
+        time::unix_time()
+    );
     // 2024-01-01, as in the hardware test: an earlier clock fails every HTTPS certificate check later,
     // which otherwise only shows up as a bare "tls error" on the first download.
     if time::unix_time() < 1_704_067_200 {
@@ -170,8 +218,14 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
     drivers::platform::init(Box::leak(Box::new(platform::KernelPlatform { hhdm })));
     let mut devs = drivers::probe_all();
     // Without this a machine whose disk or NIC is not supported shows nothing to go on.
-    for d in drivers::pci::enumerate().iter().filter(|d| matches!(d.class, 0x01 | 0x02)) {
-        println!("pci {:02x}:{:02x}.{} {:04x}:{:04x} class {:02x}{:02x}{:02x}", d.addr.bus, d.addr.dev, d.addr.func, d.vendor, d.device, d.class, d.subclass, d.prog_if);
+    for d in drivers::pci::enumerate()
+        .iter()
+        .filter(|d| matches!(d.class, 0x01 | 0x02))
+    {
+        println!(
+            "pci {:02x}:{:02x}.{} {:04x}:{:04x} class {:02x}{:02x}{:02x}",
+            d.addr.bus, d.addr.dev, d.addr.func, d.vendor, d.device, d.class, d.subclass, d.prog_if
+        );
     }
     println!("block devices: {}", devs.block.len());
     for (i, d) in devs.block.iter_mut().enumerate() {
@@ -184,7 +238,11 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
         );
         let mut buf = alloc::vec![0u8; d.sector_size() as usize];
         match d.read(0, &mut buf) {
-            Ok(()) => println!("  blk{i}: LBA0 read OK, sig {:02x}{:02x}", buf[510], buf[511]),
+            Ok(()) => println!(
+                "  blk{i}: LBA0 read OK, sig {:02x}{:02x}",
+                buf.get(510).copied().unwrap_or(0),
+                buf.get(511).copied().unwrap_or(0)
+            ),
             Err(e) => println!("  blk{i}: LBA0 read failed: {e:?}"),
         }
         #[cfg(feature = "disk-selftest")]
@@ -194,8 +252,12 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
             let lba = d.sector_count() - 300;
             let pat: Vec<u8> = (0..ss * 200).map(|x| (x * 7 + 3) as u8).collect();
             let mut back = alloc::vec![0u8; pat.len()];
-            let ok = d.write(lba, &pat).is_ok() && d.flush().is_ok() && d.read(lba, &mut back).is_ok();
-            println!("  blk{i}: write/read {}", if ok && back == pat { "OK" } else { "FAILED" });
+            let ok =
+                d.write(lba, &pat).is_ok() && d.flush().is_ok() && d.read(lba, &mut back).is_ok();
+            println!(
+                "  blk{i}: write/read {}",
+                if ok && back == pat { "OK" } else { "FAILED" }
+            );
         }
     }
     println!("net devices: {}", devs.net.len());
@@ -216,7 +278,10 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
         #[cfg(feature = "net-selftest")]
         {
             let ok = net_selftest(d.as_mut(), m);
-            println!("  net{i}: ARP round trip {}", if ok { "OK" } else { "FAILED" });
+            println!(
+                "  net{i}: ARP round trip {}",
+                if ok { "OK" } else { "FAILED" }
+            );
         }
     }
 
@@ -260,13 +325,31 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
         core::hint::black_box(&held);
     }
 
-    #[cfg(not(any(feature = "disk-selftest", feature = "net-selftest", feature = "usb-selftest")))]
+    #[cfg(not(any(
+        feature = "disk-selftest",
+        feature = "net-selftest",
+        feature = "usb-selftest"
+    )))]
     {
-        hal::log!("boot files: bootx64.efi {} bytes, bios-boot {} bytes", module("bootx64.efi").map_or(0, |e| e.len()), module("bios-boot").map_or(0, |e| e.len()));
-        match (cfg, keyring, module("tiny-init"), module("bootx64.efi"), module("bios-boot")) {
+        hal::log!(
+            "boot files: bootx64.efi {} bytes, bios-boot {} bytes",
+            module("bootx64.efi").map_or(0, |e| e.len()),
+            module("bios-boot").map_or(0, |e| e.len())
+        );
+        match (
+            cfg,
+            keyring,
+            module("tiny-init"),
+            module("bootx64.efi"),
+            module("bios-boot"),
+        ) {
             (Some(cfg), keyring, ..) if cfg.dry_run => hwtest::run(&cfg, devs, keyring.as_ref()),
             (Some(cfg), Some(keyring), Some(tiny_init), Some(efi), Some(bios)) => {
-                let boot = install::BootFiles { tiny_init, bootx64_efi: efi, bios_boot: bios };
+                let boot = install::BootFiles {
+                    tiny_init,
+                    bootx64_efi: efi,
+                    bios_boot: bios,
+                };
                 // The log dump runs at the very end of the flow, on success and on failure, right before
                 // the reboot. It only writes when the boot medium is a Ventoy stick whose data partition
                 // is exFAT; otherwise it prints one line and touches nothing.
@@ -287,12 +370,18 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
                     }
                 }
             }
-            _ => println!("INSTALLATION FAILED: config, keyring or boot files missing from the ISO"),
+            _ => {
+                println!("INSTALLATION FAILED: config, keyring or boot files missing from the ISO")
+            }
         }
     }
 
     println!("halting; power the machine off");
-    #[cfg(any(feature = "disk-selftest", feature = "net-selftest", feature = "usb-selftest"))]
+    #[cfg(any(
+        feature = "disk-selftest",
+        feature = "net-selftest",
+        feature = "usb-selftest"
+    ))]
     unsafe {
         // QEMU isa-debug-exit
         port::outb(0xf4, 0);
@@ -318,7 +407,11 @@ fn net_selftest(d: &mut dyn hal::NetDevice, mac: [u8; 6]) -> bool {
     let mut buf = [0u8; 2048];
     while time::uptime_ns() < deadline {
         if let Some(n) = d.receive(&mut buf) {
-            if n >= 42 && buf[12..14] == [0x08, 0x06] && buf[20..22] == [0, 2] && buf[28..32] == [10, 0, 2, 2] {
+            if n >= 42
+                && buf[12..14] == [0x08, 0x06]
+                && buf[20..22] == [0, 2]
+                && buf[28..32] == [10, 0, 2, 2]
+            {
                 return true;
             }
         }
@@ -336,7 +429,10 @@ fn stack_selftest(nic: Box<dyn hal::NetDevice>) {
     let seed = unsafe { core::arch::x86_64::_rdtsc() };
     let mut stack = net::Stack::new(nic, now_ms, seed);
     match stack.dhcp(10_000) {
-        Ok(l) => println!("dhcp: {:?}/{} router {:?} dns {:?}", l.address, l.prefix, l.router, l.dns),
+        Ok(l) => println!(
+            "dhcp: {:?}/{} router {:?} dns {:?}",
+            l.address, l.prefix, l.router, l.dns
+        ),
         Err(e) => {
             println!("dhcp failed: {e:?}");
             return;
@@ -369,7 +465,11 @@ fn stack_selftest(nic: Box<dyn hal::NetDevice>) {
                 "http {path}: status {} body {} bytes {} in {} ms",
                 resp.status,
                 total,
-                if !bad && total == 1_000_000 { "OK" } else { "FAILED" },
+                if !bad && total == 1_000_000 {
+                    "OK"
+                } else {
+                    "FAILED"
+                },
                 (time::uptime_ns() - t0) / 1_000_000
             ),
             Err(e) => println!("http {path}: error {e:?}"),
@@ -409,7 +509,10 @@ fn tls_selftest(stack: &mut net::Stack) {
         Ok(())
     });
     match r {
-        Ok(resp) => println!("https core.db: status {} body {} bytes loc {:?}", resp.status, total, resp.location),
+        Ok(resp) => println!(
+            "https core.db: status {} body {} bytes loc {:?}",
+            resp.status, total, resp.location
+        ),
         Err(e) => println!("https core.db: error {e:?}"),
     }
 }
@@ -451,7 +554,10 @@ fn usb_tether(devs: &mut drivers::Devices) {
     }
     fn add(devs: &mut drivers::Devices, what: &str, dev: Box<dyn hal::NetDevice>) {
         let m = dev.mac();
-        println!("usb: {what} tethering up, mac {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", m[0], m[1], m[2], m[3], m[4], m[5]);
+        println!(
+            "usb: {what} tethering up, mac {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            m[0], m[1], m[2], m[3], m[4], m[5]
+        );
         devs.net.push(dev);
     }
     const ATTEMPTS: u32 = 6;
@@ -459,9 +565,11 @@ fn usb_tether(devs: &mut drivers::Devices) {
         let mut scan = usb::Scan::new();
         // Worth waiting for only if something that could be a phone (not just storage, a hub, an
         // input device, audio, video or Bluetooth) is attached, such as an Android in file-transfer mode.
-        let phone_like = scan
-            .devices()
-            .any(|d| d.interfaces.iter().any(|i| !matches!(i.class, 0x01 | 0x03 | 0x08 | 0x09 | 0x0e | 0xe0)));
+        let phone_like = scan.devices().any(|d| {
+            d.interfaces
+                .iter()
+                .any(|i| !matches!(i.class, 0x01 | 0x03 | 0x08 | 0x09 | 0x0e | 0xe0))
+        });
         if imobiledevice::present(&scan) {
             match imobiledevice::tether(&mut scan, time::unix_time, 120_000, &mut Log) {
                 Ok(dev) => add(devs, "iPhone", Box::new(dev)),
@@ -575,8 +683,16 @@ fn msc_selftest(c: &mut usb::Controller, d: &mut usb::Device, i: &usb::desc::Int
         let status = csw[12] == 0;
         let vendor = core::str::from_utf8(&data[8..16]).unwrap_or("?").trim();
         let product = core::str::from_utf8(&data[16..32]).unwrap_or("?").trim();
-        println!("usb: msc INQUIRY '{vendor}' '{product}', csw sig={sig} tag={tag} status={status}");
+        println!(
+            "usb: msc INQUIRY '{vendor}' '{product}', csw sig={sig} tag={tag} status={status}"
+        );
         Some(sig && tag && status)
     })();
-    println!("usb-selftest: BOT INQUIRY {}", if ok == Some(true) { "OK" } else { "FAILED" });
+    println!(
+        "usb-selftest: BOT INQUIRY {}",
+        if ok == Some(true) { "OK" } else { "FAILED" }
+    );
 }
+
+#[cfg(not(target_os = "none"))]
+fn main() {}

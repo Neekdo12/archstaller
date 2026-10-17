@@ -1,9 +1,6 @@
 # Typed Lua config API
 
-**Status: implemented.** The `as` loader (`crates/hostcfg/src/asconfig.rs`, `lua.rs`), the writer, the flat
-`configs/` directory with first-line markers (`crates/hostcfg/src/configs.rs`), the generated LuaLS types
-(`configs/archstaller.lua`, `cargo xtask gen-luals [--check]`) and `.luarc.json` exist, and every repository
-config uses the new layout. Decisions the text below left open:
+**Status: superseded by TOML migration.** Configurations have migrated to standard TOML (`configs/*.toml`) without Lua or the `as` namespace wrapper. See `docs/toml-config.md`. (Historical reference below).
 
 - The open question is settled as recommended: the legacy flat layout still loads with a warning
   (`hostcfg::lua::LEGACY_WARNING`); the writer emits only `as`; mixing both in one file is an error.

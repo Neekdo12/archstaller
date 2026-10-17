@@ -1,0 +1,15 @@
+[package]
+name = "kernel-rpi"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "kernel8"
+path = "src/main.rs"
+test = false
+
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+hal = { path = "../crates/hal" }
+
+[lints]
+workspace = true

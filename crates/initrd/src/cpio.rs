@@ -19,7 +19,10 @@ impl Default for Writer {
 
 impl Writer {
     pub fn new() -> Writer {
-        Writer { out: Vec::new(), next_ino: 1 }
+        Writer {
+            out: Vec::new(),
+            next_ino: 1,
+        }
     }
 
     fn entry(&mut self, path: &str, mode: u32, rdev: (u32, u32), data: &[u8]) {
@@ -44,7 +47,8 @@ impl Writer {
         self.next_ino += 1;
         self.out.extend_from_slice(b"070701");
         for f in fields {
-            self.out.extend_from_slice(alloc::format!("{f:08X}").as_bytes());
+            self.out
+                .extend_from_slice(alloc::format!("{f:08X}").as_bytes());
         }
         self.out.extend_from_slice(name.as_bytes());
         self.out.push(0);
@@ -54,7 +58,7 @@ impl Writer {
     }
 
     fn pad(&mut self) {
-        while self.out.len() % 4 != 0 {
+        while !self.out.len().is_multiple_of(4) {
             self.out.push(0);
         }
     }
@@ -78,7 +82,7 @@ impl Writer {
     pub fn finish(mut self) -> Vec<u8> {
         self.entry("TRAILER!!!", 0, (0, 0), &[]);
         // Pad to a 512-byte boundary like cpio does.
-        while self.out.len() % 512 != 0 {
+        while !self.out.len().is_multiple_of(512) {
             self.out.push(0);
         }
         self.out

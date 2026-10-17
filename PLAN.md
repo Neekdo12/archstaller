@@ -1,14 +1,14 @@
 # archstaller – an Arch installer in Rust without the Linux kernel
 
 A hybrid ISO (BIOS + UEFI) with Limine that starts our own `no_std` mini-kernel in Rust (one core, polling drivers).
-It installs Arch from a mirror onto ext4 according to a pre-built Lua config. Everything that needs a running Linux
+It installs Arch from a mirror onto ext4 according to a pre-built TOML config. Everything that needs a running Linux
 (pacman scriptlets, alpm hooks, mkinitcpio) is deferred to the first boot of the installed system.
 
 ## Decisions
 
 - Packages: online from a mirror (the official Arch ISO is not used)
 - Platform: x86_64, BIOS + UEFI through Limine, own drivers
-- Config: `config.lua` is evaluated when the ISO is built (mlua on the host) → `config.bin` (postcard) as a Limine module
+- Config: `config.toml` is evaluated when the ISO is built (host TOML loader) → `config.bin` (postcard) as a Limine module
 - Root FS: ext4
 - Hooks/scriptlets: at the first boot (`pacman -U` from the cache)
 - Secure Boot: not supported (neither the ISO nor the target); it must be off
@@ -18,7 +18,7 @@ It installs Arch from a mirror onto ext4 according to a pre-built Lua config. Ev
 
 | Path | Description |
 |---|---|
-| `xtask/` | host: Lua evaluation, kernel + tiny-init build, keyring + CA blob, Limine (pinned + sha256), xorriso, QEMU run/test, size report |
+| `xtask/` | host: TOML evaluation, kernel + tiny-init build, keyring + CA blob, Limine (pinned + sha256), xorriso, QEMU run/test, size report |
 | `kernel/` | `x86_64-unknown-none`, the `limine` crate, heap (`talc`), IDT for exceptions only, TSC timer, framebuffer + serial console |
 | `config/` | shared serde config types (xtask + kernel) |
 | `crates/hal` | the traits `BlockDevice`, `NetDevice`, `Clock`, `Rng` |
@@ -30,12 +30,12 @@ It installs Arch from a mirror onto ext4 according to a pre-built Lua config. Ev
 | `crates/disk` | GPT + protective MBR, FAT32 (`fatfs`), a port of `limine bios-install` |
 | `crates/initrd` | cpio newc, module dependencies from the ELF `.modinfo`, `.ko.zst` decompression |
 | `tiny-init/` | `no_std` static init: `finit_module`, mount root, `switch_root` |
-| `examples/config.lua` | a sample config |
+| `configs/config.toml` | a sample config |
 
 ## Phases
 
 ### 1. Skeleton and build
-1. Cargo workspace, `xtask`: Lua → `config.bin`, Limine, `xorriso` + `limine bios-install`, `xtask run` (QEMU SeaBIOS and OVMF).
+1. Cargo workspace, `xtask`: TOML → `config.bin`, Limine, `xorriso` + `limine bios-install`, `xtask run` (QEMU SeaBIOS and OVMF).
 2. Kernel: heap, IDT for exceptions, TSC calibrated through the PIT, framebuffer + COM1, time from the Limine boot-time request.
 
 ### 2. Drivers (depends on 1)
@@ -73,7 +73,7 @@ It installs Arch from a mirror onto ext4 according to a pre-built Lua config. Ev
     `locale-gen`, `useradd` with the password hashes from the config, enable services, `tune2fs -j`, `mkinitcpio -P`,
     `efibootmgr`, rewrite `limine.conf`, reboot.
 
-## Config (`config.lua`)
+## Config (`config.toml`)
 
 Disk selector + `confirm_serial`, mirrors, packages, provider choices, hostname, timezone, locale, keymap,
 users with `password_hash` (SHA-512 crypt, never plaintext), root hash, services, kernel parameters.

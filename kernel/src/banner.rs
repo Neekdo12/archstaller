@@ -26,7 +26,7 @@ pub fn render(word: &str) -> String {
     let mut out = String::new();
     for row in 0..5 {
         for c in word.bytes() {
-            out.push_str(glyph(c)[row]);
+            out.push_str(glyph(c).get(row).copied().unwrap_or(""));
             out.push_str("  ");
         }
         out.push('\n');
@@ -39,7 +39,7 @@ pub fn show(word: &str) {
     println!();
     for row in 0..5 {
         for c in word.bytes() {
-            crate::print!("{}  ", glyph(c)[row]);
+            crate::print!("{}  ", glyph(c).get(row).copied().unwrap_or(""));
         }
         println!();
     }
@@ -92,4 +92,29 @@ pub fn dur(word: &str) -> alloc::vec::Vec<u8> {
     gz.extend_from_slice(&disk::crc32::crc32(data).to_le_bytes());
     gz.extend_from_slice(&(data.len() as u32).to_le_bytes());
     gz
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec::Vec;
+
+    #[test]
+    fn renders_five_rows_per_glyph() {
+        let text = render("ARCHSTALLER");
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 5);
+        for line in lines {
+            assert!(!line.is_empty());
+        }
+    }
+
+    #[test]
+    fn dur_movie_creates_valid_gzip_envelope() {
+        let gz = dur("ARCHSTALLER");
+        assert!(gz.len() > 10);
+        assert_eq!(gz[0], 0x1f);
+        assert_eq!(gz[1], 0x8b);
+        assert_eq!(gz[2], 8); // Deflate
+    }
 }

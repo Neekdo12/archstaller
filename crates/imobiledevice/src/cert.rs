@@ -59,11 +59,15 @@ fn boolean(v: bool) -> Vec<u8> {
 fn integer(bytes: &[u8]) -> Vec<u8> {
     // strip leading zeros, keep a leading 0x00 if the top bit would be set
     let mut b = bytes;
-    while b.len() > 1 && b[0] == 0 {
-        b = &b[1..];
+    while b.len() > 1 && b.first() == Some(&0) {
+        if let Some(rest) = b.get(1..) {
+            b = rest;
+        } else {
+            break;
+        }
     }
     let mut c = Vec::with_capacity(b.len() + 1);
-    if b[0] & 0x80 != 0 {
+    if b.first().is_some_and(|byte| byte & 0x80 != 0) {
         c.push(0);
     }
     c.extend_from_slice(b);
@@ -146,6 +150,8 @@ pub fn spki_from_rsa(key: &rsa::RsaPublicKey) -> Result<Vec<u8>> {
 // Certificates
 // ---------------------------------------------------------------------------
 
+pub type CivilTime = (u32, u32, u32, u32, u32, u32);
+
 /// Builds and signs a certificate: `subject_cn` with `subject_spki`, issued by
 /// `issuer_cn`/`issuer_key`. `ca` sets the basicConstraints CA flag.
 pub fn build_cert(
@@ -155,22 +161,27 @@ pub fn build_cert(
     subject_spki: &[u8],
     ca: bool,
     serial: &[u8; 8],
-    not_before: (u32, u32, u32, u32, u32, u32),
-    not_after: (u32, u32, u32, u32, u32, u32),
+    validity: (CivilTime, CivilTime),
 ) -> Result<Vec<u8>> {
-    let (y0, mo0, d0, h0, mi0, s0) = not_before;
-    let (y1, mo1, d1, h1, mi1, s1) = not_after;
-    let validity = seq(&[&utc_time(y0, mo0, d0, h0, mi0, s0), &utc_time(y1, mo1, d1, h1, mi1, s1)]);
+    let ((y0, mo0, d0, h0, mi0, s0), (y1, mo1, d1, h1, mi1, s1)) = validity;
+    let validity_seq = seq(&[
+        &utc_time(y0, mo0, d0, h0, mi0, s0),
+        &utc_time(y1, mo1, d1, h1, mi1, s1),
+    ]);
     // basicConstraints { cA }
     let bc = seq(&[&boolean(ca)]);
-    let ext = seq(&[&oid(OID_BASIC_CONSTRAINTS), &boolean(true), &octet_string(&bc)]);
+    let ext = seq(&[
+        &oid(OID_BASIC_CONSTRAINTS),
+        &boolean(true),
+        &octet_string(&bc),
+    ]);
     let exts = explicit(3, seq(&[&ext]));
     let tbs = seq(&[
         &explicit(0, integer(&[2])), // v3
         &integer(serial),
         &signature_algorithm(),
         &name(issuer_cn),
-        &validity,
+        &validity_seq,
         &name(subject_cn),
         subject_spki,
         &exts,
@@ -179,7 +190,9 @@ pub fn build_cert(
     use sha2::Digest as _;
     let digest = sha2::Sha256::digest(&tbs);
     let padding = rsa::Pkcs1v15Sign::new::<sha2::Sha256>();
-    let sig = issuer_key.sign(padding, &digest).map_err(|_| Error::Crypto)?;
+    let sig = issuer_key
+        .sign(padding, &digest)
+        .map_err(|_e| Error::Crypto)?;
 
     Ok(seq(&[&tbs, &signature_algorithm(), &bit_string(&sig)]))
 }
@@ -198,14 +211,15 @@ pub fn pem(label: &str, der: &[u8]) -> Vec<u8> {
 
 /// Strips PEM armor; returns `(label, der)`.
 pub fn unpem(text: &[u8]) -> Result<(alloc::string::String, Vec<u8>)> {
-    let s = core::str::from_utf8(text).map_err(|_| Error::Malformed)?;
+    let s = core::str::from_utf8(text).map_err(|_e| Error::Malformed)?;
     let s = s.trim_start();
     let rest = s.strip_prefix("-----BEGIN ").ok_or(Error::Malformed)?;
     let end = rest.find("-----").ok_or(Error::Malformed)?;
-    let label = alloc::string::String::from(&rest[..end]);
+    let label = alloc::string::String::from(rest.get(..end).ok_or(Error::Malformed)?);
     let body_start = end + 5 + 1; // skip "-----\n"
     let body_end = rest.find("-----END").ok_or(Error::Malformed)?;
-    let der = pgp_lite::base64_decode(&rest[body_start..body_end]).map_err(|_| Error::Malformed)?;
+    let body_str = rest.get(body_start..body_end).ok_or(Error::Malformed)?;
+    let der = pgp_lite::base64_decode(body_str).map_err(|_e| Error::Malformed)?;
     Ok((label, der))
 }
 
@@ -234,8 +248,15 @@ pub fn civil_from_unix(t: u64) -> (u32, u32, u32, u32, u32, u32) {
     let y = yoe + era * 400;
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
     let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    let y = (y + if m <= 2 { 1 } else { 0 }) as u32;
-    (y, m, d, (secs / 3600) as u32, (secs % 3600 / 60) as u32, (secs % 60) as u32)
+    let d = u32::try_from(doy - (153 * mp + 2) / 5 + 1).unwrap_or(0);
+    let m = u32::try_from(if mp < 10 { mp + 3 } else { mp - 9 }).unwrap_or(0);
+    let y = u32::try_from(y + if m <= 2 { 1 } else { 0 }).unwrap_or(0);
+    (
+        y,
+        m,
+        d,
+        (secs / 3600) as u32,
+        (secs % 3600 / 60) as u32,
+        (secs % 60) as u32,
+    )
 }

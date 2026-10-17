@@ -19,7 +19,12 @@ impl<R: Read> Read for Peeked<R> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         if self.pos < self.len {
             let n = (self.len - self.pos).min(buf.len());
-            buf[..n].copy_from_slice(&self.head[self.pos..self.pos + n]);
+            if let (Some(dst), Some(src)) = (
+                buf.get_mut(..n),
+                self.head.get(self.pos..self.pos + n),
+            ) {
+                dst.copy_from_slice(src);
+            }
             self.pos += n;
             return Ok(n);
         }
@@ -37,7 +42,9 @@ pub struct ZAdapter<R>(R);
 
 impl<R: Read> ruzstd::io::Read for ZAdapter<R> {
     fn read(&mut self, buf: &mut [u8]) -> core::result::Result<usize, ruzstd::io::Error> {
-        self.0.read(buf).map_err(|_| ruzstd::io::Error::from(ruzstd::io::ErrorKind::Other))
+        self.0
+            .read(buf)
+            .map_err(|_e| ruzstd::io::Error::from(ruzstd::io::ErrorKind::Other))
     }
 }
 
@@ -106,7 +113,13 @@ impl<R: Read> Read for Gzip<R> {
             }
             let eof = self.in_len == 0;
             let flush = if eof { MZFlush::Finish } else { MZFlush::None };
-            let r = inflate(&mut self.state, &self.inbuf[self.in_pos..self.in_len], out, flush);
+            let input = self.inbuf.get(self.in_pos..self.in_len).unwrap_or(&[]);
+            let r = inflate(
+                &mut self.state,
+                input,
+                out,
+                flush,
+            );
             self.in_pos += r.bytes_consumed;
             match r.status {
                 Ok(MZStatus::StreamEnd) => self.done = true,
@@ -125,7 +138,8 @@ impl<R: Read> Read for Gzip<R> {
     }
 }
 
-type ZstdReader<R> = ruzstd::decoding::StreamingDecoder<ZAdapter<Peeked<R>>, ruzstd::decoding::FrameDecoder>;
+type ZstdReader<R> =
+    ruzstd::decoding::StreamingDecoder<ZAdapter<Peeked<R>>, ruzstd::decoding::FrameDecoder>;
 
 pub enum Decompressor<R: Read> {
     Plain(Peeked<R>),
@@ -138,17 +152,29 @@ pub fn open<R: Read>(mut src: R) -> Result<Decompressor<R>> {
     let mut head = [0u8; 4];
     let mut len = 0;
     while len < 4 {
-        let n = src.read(&mut head[len..])?;
+        let Some(dest) = head.get_mut(len..) else {
+            break;
+        };
+        let n = src.read(dest)?;
         if n == 0 {
             break;
         }
         len += n;
     }
-    let peeked = Peeked { head, pos: 0, len, inner: src };
+    let peeked = Peeked {
+        head,
+        pos: 0,
+        len,
+        inner: src,
+    };
     if head[..2] == [0x1f, 0x8b] {
         Ok(Decompressor::Gzip(Gzip::new(peeked)?))
     } else if head == [0x28, 0xb5, 0x2f, 0xfd] {
-        let d = ruzstd::decoding::StreamingDecoder::new_with_max_window_size(ZAdapter(peeked), ZSTD_MAX_WINDOW).map_err(|_| Error::Format("bad zstd frame"))?;
+        let d = ruzstd::decoding::StreamingDecoder::new_with_max_window_size(
+            ZAdapter(peeked),
+            ZSTD_MAX_WINDOW,
+        )
+        .map_err(|_e| Error::Format("bad zstd frame"))?;
         Ok(Decompressor::Zstd(Box::new(d)))
     } else if head == [0xfd, b'7', b'z', b'X'] {
         Err(Error::Unsupported("xz"))
@@ -162,7 +188,8 @@ impl<R: Read> Read for Decompressor<R> {
         match self {
             Decompressor::Plain(r) => r.read(buf),
             Decompressor::Gzip(r) => r.read(buf),
-            Decompressor::Zstd(r) => ruzstd::io::Read::read(&mut **r, buf).map_err(|_| Error::Format("corrupt zstd stream")),
+            Decompressor::Zstd(r) => ruzstd::io::Read::read(&mut **r, buf)
+                .map_err(|_e| Error::Format("corrupt zstd stream")),
         }
     }
 }
@@ -204,6 +231,9 @@ mod tests {
     #[test]
     fn a_window_larger_than_128_mib_is_refused() {
         // exponent 18 -> 256 MiB
-        assert!(matches!(decode(&frame(0x90)), Err(Error::Format("bad zstd frame"))));
+        assert!(matches!(
+            decode(&frame(0x90)),
+            Err(Error::Format("bad zstd frame"))
+        ));
     }
 }

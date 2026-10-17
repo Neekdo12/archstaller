@@ -31,6 +31,7 @@ s2_real:
     call a20_enable
     call e820_read
     call vbe_init
+    call disk_init
     call read_items
     call probe_boot_medium
     jmp enter_long
@@ -455,6 +456,47 @@ read_items:
     popa
     ret
 
+# Checks if drive supports INT 13h extensions; if not (e.g. floppy DL=00h), probes CHS geometry via AH=08h.
+disk_init:
+    pusha
+    mov byte ptr [has_ext], 0
+    mov byte ptr [spt], 18
+    mov byte ptr [heads], 2
+
+    # If drive < 0x80 (floppy), don't try extensions
+    test byte ptr [drive], 0x80
+    jz 2f
+
+    # INT 13h extensions present?
+    mov ah, 0x41
+    mov bx, 0x55aa
+    mov dl, byte ptr [drive]
+    int 0x13
+    jc 2f
+    cmp bx, 0xaa55
+    jne 2f
+    mov byte ptr [has_ext], 1
+    popa
+    ret
+
+2:
+    # CHS mode: probe geometry via AH=08h
+    mov ah, 0x08
+    mov dl, byte ptr [drive]
+    xor di, di
+    mov es, di
+    int 0x13
+    jc 3f
+    and cl, 0x3f
+    test cl, cl
+    jz 3f
+    mov byte ptr [spt], cl
+    inc dh
+    mov byte ptr [heads], dh
+3:
+    popa
+    ret
+
 # Probes the boot medium: reads LBA0 and the total sector count of the drive the firmware loaded us
 # from, into low memory for the 64-bit side to fingerprint (see bootinfo::BootMedium). Never fatal: a
 # BIOS that cannot answer leaves the medium unknown and the log dump skips.
@@ -538,6 +580,11 @@ read_one:
     xor edx, edx
     div dword ptr [sector_size]
     mov ecx, eax
+
+    cmp byte ptr [has_ext], 0
+    jz read_chs
+
+    # LBA path:
     mov eax, 0x8000                     # at most 32 KiB per call (some BIOSes refuse more than 127 sectors)
     xor edx, edx
     div dword ptr [sector_size]
@@ -562,6 +609,59 @@ read_one:
     int 0x13
     dec byte ptr [rd_tries]
     jnz 3b
+    mov si, offset msg_disk
+    jmp fail
+
+read_chs:
+    # Convert rd_lba to CHS
+    mov eax, dword ptr [rd_lba]
+    xor edx, edx
+    movzx ebx, byte ptr [spt]
+    div ebx                             # eax = temp, edx = sector - 1
+    inc dl                              # dl = sector (1..spt)
+    mov byte ptr [chs_s], dl
+
+    # Convert temp to Cylinder and Head BEFORE clobbering eax:
+    xor edx, edx
+    movzx ebx, byte ptr [heads]
+    div ebx                             # eax = cyl, edx = head
+    mov byte ptr [chs_h], dl
+    mov byte ptr [chs_c], al
+    shl ah, 6
+    or byte ptr [chs_s], ah             # sector | (cyl_hi << 6)
+
+    # sectors left on track = spt - sector + 1
+    mov al, byte ptr [spt]
+    mov dl, byte ptr [chs_s]
+    and dl, 0x3f                        # extract sector (1..spt)
+    sub al, dl
+    inc al
+    movzx edx, al                       # edx = sectors on track
+    cmp ecx, edx
+    jbe 4f
+    mov ecx, edx                        # ecx = min(sectors_needed, sectors_on_track)
+4:
+    mov word ptr [rd_dap + 2], cx
+    mov byte ptr [chs_cnt], cl
+
+    mov byte ptr [rd_tries], 3
+33:
+    mov ax, 0x6000
+    mov es, ax
+    xor bx, bx                          # es:bx = 0x6000:0000
+    mov ah, 0x02
+    mov al, byte ptr [chs_cnt]
+    mov ch, byte ptr [chs_c]
+    mov cl, byte ptr [chs_s]
+    mov dh, byte ptr [chs_h]
+    mov dl, byte ptr [drive]
+    int 0x13
+    jnc 5f
+    xor ax, ax
+    mov dl, byte ptr [drive]
+    int 0x13                            # reset drive
+    dec byte ptr [rd_tries]
+    jnz 33b
     mov si, offset msg_disk
     jmp fail
 5:
@@ -761,6 +861,13 @@ rd_left:     .long 0
 rd_dest:     .long 0
 rd_take:     .long 0
 rd_tries:    .byte 0
+has_ext:     .byte 1
+spt:         .byte 18
+heads:       .byte 2
+chs_c:       .byte 0
+chs_h:       .byte 0
+chs_s:       .byte 0
+chs_cnt:     .byte 0
     .balign 4
 rd_dap:
     .byte 0x10, 0

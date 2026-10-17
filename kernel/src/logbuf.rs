@@ -31,7 +31,9 @@ static DROPPED: AtomicBool = AtomicBool::new(false);
 pub fn write(args: core::fmt::Arguments) {
     match RING.try_lock() {
         Some(mut ring) => {
-            let _ = ring.write_fmt(args);
+            match ring.write_fmt(args) {
+                Ok(()) | Err(_) => {}
+            }
         }
         None => DROPPED.store(true, Ordering::Release),
     }
@@ -59,11 +61,12 @@ pub fn hold_for_fault_test() -> spinning_top::guard::SpinlockGuard<'static, logr
 /// Allocates the result on the heap; used by the log writer in `logdump.rs`, so it runs only after the
 /// heap is up. A truncation marker is prefixed if the ring wrapped, and a note is added if any
 /// fragment was dropped while the ring was busy.
-#[allow(dead_code)]
 pub fn snapshot() -> alloc::vec::Vec<u8> {
     let mut out = alloc::vec::Vec::new();
     if dropped() {
-        out.extend_from_slice(b"[note: some printed lines were dropped while the log ring was busy]\n");
+        out.extend_from_slice(
+            b"[note: some printed lines were dropped while the log ring was busy]\n",
+        );
     }
     RING.lock().write_snapshot(&mut out);
     out

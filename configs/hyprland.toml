@@ -1,0 +1,105 @@
+# archstaller: kind=preset
+# Hyprland (Wayland) with NetworkManager, PipeWire and Firefox; ly starts the session.
+# Needs a GPU with working KMS; in a VM enable 3D acceleration (virtio-gpu with virgl). 15 GiB+ disk.
+schema = 1
+
+[system]
+hostname = "hyprland"
+timezone = "Europe/Prague"
+locale = "en_US.UTF-8"
+keymap = "us"
+
+[install]
+mirrors = ["https://geo.mirror.pkgbuild.com/$repo/os/$arch"]
+
+[install.disk]
+auto_largest = true
+esp_mib = 1024
+
+[packages]
+explicit = [
+  "base",
+  "linux",
+  "mkinitcpio",
+  "grub",
+  "efibootmgr",
+  "sudo",
+  "nano",
+  "ly",
+  "linux-firmware",
+  # session
+  "hyprland",
+  "hyprlock",
+  "hypridle",
+  "xdg-desktop-portal-hyprland",
+  "polkit",
+  "mesa",
+  "networkmanager",
+  "pipewire",
+  "pipewire-pulse",
+  "wireplumber",
+  "qt6ct",
+  # terminal, launcher, bar, shell, wallpaper
+  "kitty",
+  "rofi",
+  "rofi-calc",
+  "wofi",
+  "waybar",
+  "quickshell",
+  "awww",
+  # clipboard, notifications, on-screen display, screenshots, media keys (used by the key bindings)
+  "wl-clipboard",
+  "wtype",
+  "cliphist",
+  "swaync",
+  "swayosd",
+  "hyprshot",
+  "hyprshutdown",
+  "satty",
+  "playerctl",
+  "brightnessctl",
+  "jq",
+  "yazi",
+  # Neovim (LazyVim) and what it needs to install plugins and parsers
+  "neovim",
+  "git",
+  "ripgrep",
+  "fd",
+  "gcc",
+  "tree-sitter-cli",
+  "nodejs",
+  "npm",
+  "unzip",
+  # fonts named in the config: FantasqueSansM, JetBrains Mono, Iosevka (all Nerd Font builds)
+  "ttf-fantasque-nerd",
+  "ttf-jetbrains-mono-nerd",
+  "ttf-iosevka-nerd",
+  "ttf-dejavu",
+  "noto-fonts",
+  "firefox",
+]
+
+[packages.providers]
+initramfs = "mkinitcpio"
+jack = "pipewire-jack"
+
+[[users]]
+name = "passwd_is_passwd"
+password_hash = "$6$archstlr$gnUg60P8TrWaKT.8/oW8Iq1kc8LlPnk4A6UWw5ij0AAQNe2IN7TuPFnw7PmXMXuobrVIYBSbNWUgRbpafXqcc."
+groups = ["wheel"]
+shell = "/bin/bash"
+
+[first_boot]
+services = [
+  "systemd-timesyncd.service",
+  "ly@tty2.service",
+  "NetworkManager.service",
+]
+
+# A friend's Hyprland config: a zip with the config laid out relative to the home directory
+# (.config/hypr/hyprland.conf, .config/hypr/modules/..., and so on). The installer downloads it and
+# the first boot extracts it into every user's home, owned by that user.
+# If the server is unreachable at install time, or the answer is not a zip, the archive is skipped
+# with a warning and the installation carries on with Hyprland's defaults.
+[[first_boot.user_archives]]
+url = "https://arch.laidiota.party/config_extended.zip"

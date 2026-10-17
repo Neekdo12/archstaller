@@ -30,7 +30,11 @@ pub fn tree_digest(files: &Files) -> String {
 }
 
 fn octal(field: &[u8]) -> Option<u64> {
-    let s: String = field.iter().take_while(|b| **b != 0 && **b != b' ').map(|b| *b as char).collect();
+    let s: String = field
+        .iter()
+        .take_while(|b| **b != 0 && **b != b' ')
+        .map(|b| *b as char)
+        .collect();
     if s.is_empty() {
         return Some(0);
     }
@@ -38,7 +42,9 @@ fn octal(field: &[u8]) -> Option<u64> {
 }
 
 fn cstr(field: &[u8]) -> String {
-    String::from_utf8_lossy(&field[..field.iter().position(|b| *b == 0).unwrap_or(field.len())]).into_owned()
+    let end = field.iter().position(|b| *b == 0).unwrap_or(field.len());
+    let slice = field.get(..end).unwrap_or(field);
+    String::from_utf8_lossy(slice).into_owned()
 }
 
 /// Reads the regular files of a ustar/pax tar. The first path component (the snapshot's top directory)
@@ -49,15 +55,20 @@ pub fn read_tar(data: &[u8]) -> Result<Files> {
     let mut next_path: Option<String> = None;
     let mut next_size: Option<u64> = None;
     while pos + 512 <= data.len() {
-        let h = &data[pos..pos + 512];
+        let Some(h) = data.get(pos..pos + 512) else {
+            break;
+        };
         if h.iter().all(|b| *b == 0) {
             break;
         }
-        let mut size = octal(&h[124..136]).ok_or("tar: bad size field")?;
-        let flag = h[156];
-        let mut name = cstr(&h[0..100]);
-        if &h[257..262] == b"ustar" {
-            let prefix = cstr(&h[345..500]);
+        let size_field = h.get(124..136).ok_or("tar: bad header")?;
+        let mut size = octal(size_field).ok_or("tar: bad size field")?;
+        let flag = h.get(156).copied().unwrap_or(0);
+        let name_field = h.get(0..100).unwrap_or(&[]);
+        let mut name = cstr(name_field);
+        if h.get(257..262) == Some(b"ustar") {
+            let prefix_field = h.get(345..500).unwrap_or(&[]);
+            let prefix = cstr(prefix_field);
             if !prefix.is_empty() {
                 name = format!("{prefix}/{name}");
             }
@@ -69,8 +80,11 @@ pub fn read_tar(data: &[u8]) -> Result<Files> {
             size = s;
         }
         let start = pos + 512;
-        let end = start.checked_add(size as usize).filter(|e| *e <= data.len()).ok_or("tar: truncated")?;
-        let body = &data[start..end];
+        let end = start
+            .checked_add(size as usize)
+            .filter(|e| *e <= data.len())
+            .ok_or("tar: truncated")?;
+        let body = data.get(start..end).ok_or("tar: truncated")?;
         pos = start + (size as usize).div_ceil(512) * 512;
         match flag {
             b'0' | 0 => {
@@ -78,7 +92,10 @@ pub fn read_tar(data: &[u8]) -> Result<Files> {
                 if rel.is_empty() || rel.ends_with('/') {
                     continue;
                 }
-                if rel.split('/').any(|c| c.is_empty() || c == "." || c == "..") {
+                if rel
+                    .split('/')
+                    .any(|c| c.is_empty() || c == "." || c == "..")
+                {
                     return Err(format!("tar: unsafe path {rel:?}"));
                 }
                 files.insert(rel.to_string(), body.to_vec());
@@ -87,18 +104,28 @@ pub fn read_tar(data: &[u8]) -> Result<Files> {
                 // pax records: "<len> key=value\n"
                 let mut rest = body;
                 while !rest.is_empty() {
-                    let sp = rest.iter().position(|b| *b == b' ').ok_or("tar: bad pax record")?;
-                    let len: usize = std::str::from_utf8(&rest[..sp]).ok().and_then(|s| s.parse().ok()).ok_or("tar: bad pax length")?;
+                    let sp = rest
+                        .iter()
+                        .position(|b| *b == b' ')
+                        .ok_or("tar: bad pax record")?;
+                    let len_bytes = rest.get(..sp).ok_or("tar: bad pax length")?;
+                    let len: usize = std::str::from_utf8(len_bytes)
+                        .ok()
+                        .and_then(|s| s.parse().ok())
+                        .ok_or("tar: bad pax length")?;
                     if len == 0 || len > rest.len() {
                         return Err("tar: bad pax record".into());
                     }
-                    let rec = String::from_utf8_lossy(&rest[sp + 1..len]).trim_end_matches('\n').to_string();
+                    let rec_bytes = rest.get(sp + 1..len).ok_or("tar: bad pax record")?;
+                    let rec = String::from_utf8_lossy(rec_bytes)
+                        .trim_end_matches('\n')
+                        .to_string();
                     if let Some(p) = rec.strip_prefix("path=") {
                         next_path = Some(p.to_string());
                     } else if let Some(s) = rec.strip_prefix("size=") {
                         next_size = s.parse().ok();
                     }
-                    rest = &rest[len..];
+                    rest = rest.get(len..).unwrap_or(&[]);
                 }
             }
             b'L' => next_path = Some(cstr(body)),
@@ -111,7 +138,10 @@ pub fn read_tar(data: &[u8]) -> Result<Files> {
 /// Reads a `.tar.gz` snapshot (at most 64 MiB unpacked) into its files.
 pub fn read_snapshot(gz: &[u8]) -> Result<Files> {
     let mut raw = Vec::new();
-    GzDecoder::new(gz).take(64 << 20).read_to_end(&mut raw).map_err(|e| format!("snapshot: {e}"))?;
+    GzDecoder::new(gz)
+        .take(64 << 20)
+        .read_to_end(&mut raw)
+        .map_err(|e| format!("snapshot: {e}"))?;
     read_tar(&raw)
 }
 
@@ -141,9 +171,18 @@ mod tests {
 
     #[test]
     fn reads_files_and_skips_the_rest() {
-        let t = tar(&[entry("pkg/", b'5', b""), entry("pkg/PKGBUILD", b'0', b"abc"), entry("pkg/.SRCINFO", 0, b"x"), entry("pkg/link", b'2', b""), entry("pkg/sub/p.patch", b'0', &[7u8; 700])]);
+        let t = tar(&[
+            entry("pkg/", b'5', b""),
+            entry("pkg/PKGBUILD", b'0', b"abc"),
+            entry("pkg/.SRCINFO", 0, b"x"),
+            entry("pkg/link", b'2', b""),
+            entry("pkg/sub/p.patch", b'0', &[7u8; 700]),
+        ]);
         let f = read_tar(&t).unwrap();
-        assert_eq!(f.keys().collect::<Vec<_>>(), [".SRCINFO", "PKGBUILD", "sub/p.patch"]);
+        assert_eq!(
+            f.keys().collect::<Vec<_>>(),
+            [".SRCINFO", "PKGBUILD", "sub/p.patch"]
+        );
         assert_eq!(f["sub/p.patch"].len(), 700);
     }
 
@@ -157,17 +196,25 @@ mod tests {
             }
             format!("{len}{body}")
         };
-        let t = tar(&[entry("pax_global_header", b'g', rec("comment", "0123").as_bytes()), entry("PaxHeader/x", b'x', rec("path", "pkg/a/long.txt").as_bytes()), entry("pkg/short", b'0', b"data")]);
+        let t = tar(&[
+            entry("pax_global_header", b'g', rec("comment", "0123").as_bytes()),
+            entry(
+                "PaxHeader/x",
+                b'x',
+                rec("path", "pkg/a/long.txt").as_bytes(),
+            ),
+            entry("pkg/short", b'0', b"data"),
+        ]);
         let f = read_tar(&t).unwrap();
         assert_eq!(f.keys().collect::<Vec<_>>(), ["a/long.txt"]);
     }
 
     #[test]
     fn refuses_unsafe_and_truncated_input() {
-        assert!(read_tar(&tar(&[entry("pkg/../etc/x", b'0', b"a")])).is_err());
+        read_tar(&tar(&[entry("pkg/../etc/x", b'0', b"a")])).unwrap_err();
         let mut t = tar(&[entry("pkg/f", b'0', &[1u8; 600])]);
         t.truncate(700);
-        assert!(read_tar(&t).is_err());
+        read_tar(&t).unwrap_err();
     }
 
     #[test]
@@ -189,22 +236,50 @@ mod tests {
     #[test]
     fn matches_the_shell_implementation() {
         let dir = std::env::temp_dir().join(format!("aurbuild-digest-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
         std::fs::create_dir_all(dir.join("sub")).unwrap();
         std::fs::create_dir_all(dir.join(".git")).unwrap();
         std::fs::write(dir.join(".git/config"), b"ignored").unwrap();
         let mut f = Files::new();
-        for (p, c) in [("PKGBUILD", "pkgname=a\n"), (".SRCINFO", "pkgbase = a\n"), ("sub/fix.patch", "--- a\n"), ("B", "upper"), ("a-b", "x"), ("a.b", "y")] {
+        for (p, c) in [
+            ("PKGBUILD", "pkgname=a\n"),
+            (".SRCINFO", "pkgbase = a\n"),
+            ("sub/fix.patch", "--- a\n"),
+            ("B", "upper"),
+            ("a-b", "x"),
+            ("a.b", "y"),
+        ] {
             std::fs::write(dir.join(p), c).unwrap();
             f.insert(p.to_string(), c.as_bytes().to_vec());
         }
-        let script = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../firstboot/archstaller-aur.sh")).unwrap();
-        let func = script.split("tree_digest() {").nth(1).unwrap().split("\n}\n").next().unwrap();
-        let sh = format!("tree_digest() {{{func}\n}}\ntree_digest \"{}\"", dir.display());
-        let out = std::process::Command::new("bash").arg("-c").arg(sh).output();
-        let _ = std::fs::remove_dir_all(&dir);
+        let script = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../firstboot/archstaller-aur.sh"
+        ))
+        .unwrap();
+        let func = script
+            .split("tree_digest() {")
+            .nth(1)
+            .unwrap()
+            .split("\n}\n")
+            .next()
+            .unwrap();
+        let sh = format!(
+            "tree_digest() {{{func}\n}}\ntree_digest \"{}\"",
+            dir.display()
+        );
+        let out = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(sh)
+            .output();
+        drop(std::fs::remove_dir_all(&dir));
         if let Ok(o) = out {
-            assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), tree_digest(&f), "stderr: {}", String::from_utf8_lossy(&o.stderr));
+            assert_eq!(
+                String::from_utf8_lossy(&o.stdout).trim(),
+                tree_digest(&f),
+                "stderr: {}",
+                String::from_utf8_lossy(&o.stderr)
+            );
         }
     }
 }

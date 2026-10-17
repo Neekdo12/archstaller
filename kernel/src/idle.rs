@@ -55,7 +55,14 @@ pub fn init(hhdm: u64) {
         }
     }
     if hal::DEBUG {
-        crate::println!("idle: timer tick {}", if TICK_OK.load(Ordering::Relaxed) { "ok, halting when idle" } else { "unavailable, spinning when idle" });
+        crate::println!(
+            "idle: timer tick {}",
+            if TICK_OK.load(Ordering::Relaxed) {
+                "ok, halting when idle"
+            } else {
+                "unavailable, spinning when idle"
+            }
+        );
     }
 }
 

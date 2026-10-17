@@ -1,13 +1,18 @@
-//! Preset configs in configs/ (files marked `-- archstaller: kind=preset`): dependency check and one ISO per preset.
-use crate::{iso, lua, root, target_dir, Options, Result};
+//! Preset configs in configs/ (files marked `# archstaller: kind=preset`): dependency check and one ISO per preset.
+use crate::{config, iso, root, target_dir, Options, Result};
 use std::path::PathBuf;
 
 fn preset_files() -> Result<Vec<PathBuf>> {
-    Ok(hostcfg::configs::presets(&root().join(hostcfg::configs::DIR)).into_iter().map(|p| p.path).collect())
+    Ok(
+        hostcfg::configs::presets(&root().join(hostcfg::configs::DIR))
+            .into_iter()
+            .map(|p| p.path)
+            .collect(),
+    )
 }
 
 fn stem(p: &std::path::Path) -> String {
-    p.file_stem().unwrap().to_string_lossy().into_owned()
+    p.file_stem().unwrap_or(p.as_os_str()).to_string_lossy().into_owned()
 }
 
 /// Resolves every preset against the host's sync databases and reports what would be installed.
@@ -15,12 +20,23 @@ pub fn check() -> Result<()> {
     let dbs = hostcfg::resolve::local_dbs()?;
     let mut failed = false;
     for f in preset_files()? {
-        let cfg = lua::load_config(&f)?;
+        let cfg = config::load_config(&f)?;
         match hostcfg::resolve::resolve(&cfg, &dbs) {
             Ok(r) => {
-                println!("{:<10} {:>4} packages, {:>5} MiB to download, {} providers configured", stem(&f), r.packages.len(), r.download_bytes() >> 20, cfg.providers.len());
+                println!(
+                    "{:<10} {:>4} packages, {:>5} MiB to download, {} providers configured",
+                    stem(&f),
+                    r.packages.len(),
+                    r.download_bytes() >> 20,
+                    cfg.providers.len()
+                );
                 for a in &r.ambiguities {
-                    println!("             ambiguous {} -> {} (of {})", a.dep, a.chosen, a.candidates.join(", "));
+                    println!(
+                        "             ambiguous {} -> {} (of {})",
+                        a.dep,
+                        a.chosen,
+                        a.candidates.join(", ")
+                    );
                 }
             }
             Err(e) => {
@@ -61,7 +77,11 @@ pub fn build_all(opts: &Options) -> Result<()> {
             disk_gib: opts.disk_gib,
         };
         let iso = iso::build(&o)?;
-        println!("{name}: {} ({} bytes)", iso.display(), std::fs::metadata(&iso)?.len());
+        println!(
+            "{name}: {} ({} bytes)",
+            iso.display(),
+            std::fs::metadata(&iso)?.len()
+        );
     }
     Ok(())
 }

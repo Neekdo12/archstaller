@@ -1,6 +1,6 @@
 use initrd::modules::*;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn kernel_dir() -> Option<PathBuf> {
@@ -12,9 +12,13 @@ fn kernel_dir() -> Option<PathBuf> {
 struct DirSource(BTreeMap<String, PathBuf>);
 
 impl DirSource {
-    fn scan(dir: &PathBuf) -> DirSource {
+    fn scan(dir: &Path) -> DirSource {
         let mut map = BTreeMap::new();
-        let out = Command::new("find").arg(dir.join("kernel")).args(["-name", "*.ko*"]).output().unwrap();
+        let out = Command::new("find")
+            .arg(dir.join("kernel"))
+            .args(["-name", "*.ko*"])
+            .output()
+            .expect("find kernel modules");
         for line in String::from_utf8_lossy(&out.stdout).lines() {
             if let Some(n) = name_from_path(line) {
                 map.insert(n, PathBuf::from(line));
@@ -38,8 +42,17 @@ fn depends_match_modinfo() {
     for (name, path) in src.0.iter().step_by(src.0.len() / 60 + 1) {
         let raw = decompress(&std::fs::read(path).unwrap()).unwrap();
         let got = depends(&raw).unwrap();
-        let out = Command::new("modinfo").args(["-F", "depends"]).arg(path).output().unwrap();
-        let want: Vec<String> = String::from_utf8_lossy(&out.stdout).trim().split(',').filter(|s| !s.is_empty()).map(normalize).collect();
+        let out = Command::new("modinfo")
+            .args(["-F", "depends"])
+            .arg(path)
+            .output()
+            .unwrap();
+        let want: Vec<String> = String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(normalize)
+            .collect();
         assert_eq!(got, want, "{name}");
         checked += 1;
     }
@@ -53,7 +66,12 @@ fn resolution_orders_dependencies_first() {
     // A module with a dependency chain that is not built in on any config: snd_hda_intel.
     let r = resolve(&mut src, &["snd_hda_intel"], &[], &BTreeSet::new()).unwrap();
     assert!(r.order.len() > 3, "{:?}", r.order);
-    let pos: BTreeMap<_, _> = r.order.iter().enumerate().map(|(i, n)| (n.clone(), i)).collect();
+    let pos: BTreeMap<_, _> = r
+        .order
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.clone(), i))
+        .collect();
     for (name, image) in r.order.iter().zip(&r.images) {
         for dep in depends(image).unwrap() {
             assert!(pos[&dep] < pos[name], "{dep} must load before {name}");
@@ -65,7 +83,12 @@ fn resolution_orders_dependencies_first() {
     let r2 = resolve(&mut src, &["snd_hda_intel"], &[], &builtin).unwrap();
     assert!(r2.order.iter().all(|n| !builtin.contains(n)));
     assert!(resolve(&mut src, &["no_such_module"], &[], &BTreeSet::new()).is_err());
-    assert!(resolve(&mut src, &[], &["no_such_module"], &BTreeSet::new()).unwrap().order.is_empty());
+    assert!(
+        resolve(&mut src, &[], &["no_such_module"], &BTreeSet::new())
+            .unwrap()
+            .order
+            .is_empty()
+    );
 }
 
 #[test]
@@ -83,9 +106,23 @@ fn cpio_is_readable() {
     std::fs::write(&f, bytes).unwrap();
     let out = Command::new("bsdtar").arg("-tvf").arg(&f).output().unwrap();
     let text = String::from_utf8_lossy(&out.stdout).to_string();
-    assert!(out.status.success(), "{text}{}", String::from_utf8_lossy(&out.stderr));
-    assert!(text.contains("etc/hello") && text.contains("etc/link -> hello") && text.contains("dev/null"), "{text}");
-    let cat = Command::new("bsdtar").arg("-xOf").arg(&f).arg("etc/hello").output().unwrap();
+    assert!(
+        out.status.success(),
+        "{text}{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        text.contains("etc/hello")
+            && text.contains("etc/link -> hello")
+            && text.contains("dev/null"),
+        "{text}"
+    );
+    let cat = Command::new("bsdtar")
+        .arg("-xOf")
+        .arg(&f)
+        .arg("etc/hello")
+        .output()
+        .expect("bsdtar extract");
     assert_eq!(cat.stdout, b"hello world");
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(std::fs::remove_dir_all(&dir));
 }

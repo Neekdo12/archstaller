@@ -1,0 +1,8 @@
+# Taplo configuration for TOML editor support (VS Code Even Better TOML, Neovim/Helix Taplo LSP).
+[schema]
+enabled = true
+
+[[rule]]
+include = ["configs/*.toml"]
+[rule.schema]
+path = "configs/archstaller.schema.json"

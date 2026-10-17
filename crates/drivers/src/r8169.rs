@@ -4,9 +4,9 @@
 //! shared by the family; chip revisions that need PHY or OCP setup (the 8125/8126 in particular
 //! have chip-specific MAC tuning in the Linux driver) may not link up.
 use crate::dma::Dma;
-use crate::r8169_chip as chip;
 use crate::mmio::Mmio;
 use crate::pci::PciDevice;
+use crate::r8169_chip as chip;
 use crate::{platform, Devices};
 use alloc::boxed::Box;
 use hal::{Error, NetDevice, Result};
@@ -51,7 +51,20 @@ const BUF: usize = 2048;
 /// Realtek's own PCI ids, plus the D-Link boards built around the same chip.
 fn supported(vendor: u16, device: u16) -> bool {
     match vendor {
-        0x10ec => matches!(device, 0x8168 | 0x8169 | 0x8161 | 0x8162 | 0x8167 | 0x8136 | 0x8129 | 0x2502 | 0x2600 | 0x8125 | 0x8126),
+        0x10ec => matches!(
+            device,
+            0x8168
+                | 0x8169
+                | 0x8161
+                | 0x8162
+                | 0x8167
+                | 0x8136
+                | 0x8129
+                | 0x2502
+                | 0x2600
+                | 0x8125
+                | 0x8126
+        ),
         0x1186 => matches!(device, 0x4300 | 0x4302),
         _ => false,
     }
@@ -67,7 +80,9 @@ pub fn probe(dev: &PciDevice, out: &mut Devices) {
         return;
     }
     // Memory BAR is BAR2 on PCIe parts, BAR1 on older PCI ones.
-    let Some(regs) = dev.map_bar(2).or_else(|| dev.map_bar(1)) else { return };
+    let Some(regs) = dev.map_bar(2).or_else(|| dev.map_bar(1)) else {
+        return;
+    };
     dev.enable();
     if let Ok(d) = R8169::new(dev, regs, matches!(dev.device, 0x8125 | 0x8126)) {
         out.net.push(Box::new(d));
@@ -136,7 +151,12 @@ impl R8169 {
 
         let xid = (regs.read32(TX_CONFIG) >> 20) & 0xfcf; // chip revision, as Linux reads it
         let (ver, name) = chip::identify(xid);
-        hal::log!("r8169: pci {:04x}:{:04x} rev {:#04x}, chip xid {xid:#x} = {name} (MAC version {ver})", dev.vendor, dev.device, dev.revision);
+        hal::log!(
+            "r8169: pci {:04x}:{:04x} rev {:#04x}, chip xid {xid:#x} = {name} (MAC version {ver})",
+            dev.vendor,
+            dev.device,
+            dev.revision
+        );
         regs.write8(CFG9346, 0xc0); // unlock config registers
         if !is8125 {
             chip::hw_start(&chip::Ctx { regs: &regs, dev }, ver);
@@ -151,8 +171,22 @@ impl R8169 {
         regs.write8(CR, CR_RE | CR_TE);
         // Receive config for the revision (Linux's rtl_init_rxcfg), then accept broadcast, own MAC and
         // multicast, with the multicast filter open.
-        regs.write32(RX_CONFIG, if is8125 { 0x0000_c700 } else { chip::rx_config(ver) });
-        regs.write32(TX_CONFIG, if is8125 { 0x0300_0780 } else { chip::tx_config(ver) });
+        regs.write32(
+            RX_CONFIG,
+            if is8125 {
+                0x0000_c700
+            } else {
+                chip::rx_config(ver)
+            },
+        );
+        regs.write32(
+            TX_CONFIG,
+            if is8125 {
+                0x0300_0780
+            } else {
+                chip::tx_config(ver)
+            },
+        );
         regs.write32(MAR0 + 4, 0xffff_ffff);
         regs.write32(MAR0, 0xffff_ffff);
         regs.write32(RX_CONFIG, (regs.read32(RX_CONFIG) & !0x3f) | 0x0e);
@@ -180,7 +214,25 @@ impl R8169 {
             hal::log!("r8125: PHYstatus {:#04x}", regs.read8(PHY_STATUS));
         }
 
-        Ok(R8169 { regs, rx_ring, tx_ring, rx_bufs, tx_buf, rx_next: 0, tx_next: 0, mac, is8125, tx_n: 0, rx_n: 0, rx_err: 0, diag_t: 0, diag_n: 0, ver, last_link: false, link_t: 0 })
+        Ok(R8169 {
+            regs,
+            rx_ring,
+            tx_ring,
+            rx_bufs,
+            tx_buf,
+            rx_next: 0,
+            tx_next: 0,
+            mac,
+            is8125,
+            tx_n: 0,
+            rx_n: 0,
+            rx_err: 0,
+            diag_t: 0,
+            diag_n: 0,
+            ver,
+            last_link: false,
+            link_t: 0,
+        })
     }
 }
 
@@ -199,7 +251,11 @@ impl R8169 {
         let up = self.regs.read8(PHY_STATUS) & PHY_LINK != 0;
         if up && !self.last_link && chip::needs_link_patch(self.ver) {
             chip::link_changed(&self.regs, self.ver, self.regs.read8(PHY_STATUS));
-            hal::log!("r8169: link up, PHYstatus {:#04x}, applied the link patch for MAC version {}", self.regs.read8(PHY_STATUS), self.ver);
+            hal::log!(
+                "r8169: link up, PHYstatus {:#04x}, applied the link patch for MAC version {}",
+                self.regs.read8(PHY_STATUS),
+                self.ver
+            );
         }
         self.last_link = up;
         up
@@ -227,12 +283,19 @@ impl NetDevice for R8169 {
         if frame.len() > BUF || frame.is_empty() {
             return Err(Error::InvalidArgument);
         }
+        let Some(dest) = self.tx_buf.as_mut_slice().get_mut(..frame.len()) else {
+            return Err(Error::InvalidArgument);
+        };
+        dest.copy_from_slice(frame);
         let d = Mmio::new(self.tx_ring.as_ptr()).offset(16 * self.tx_next);
-        self.tx_buf.as_mut_slice()[..frame.len()].copy_from_slice(frame);
         d.write32(4, 0);
         d.write64(8, self.tx_buf.phys());
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
-        let eor = if self.tx_next == RING - 1 { DESC_EOR } else { 0 };
+        let eor = if self.tx_next == RING - 1 {
+            DESC_EOR
+        } else {
+            0
+        };
         d.write32(0, DESC_OWN | eor | DESC_FS | DESC_LS | frame.len() as u32);
         self.tx_next = (self.tx_next + 1) % RING;
         if self.tx_n < 4 {
@@ -284,24 +347,34 @@ impl NetDevice for R8169 {
         }
         let len = (opts & 0x3fff) as usize;
         let n = len.saturating_sub(4).min(buf.len()); // strip FCS
-        // A frame longer than one buffer (RX_MAX_SIZE allows them) is split over several descriptors;
-        // its pieces are dropped, as Linux does (`rtl8169_fragmented_frame`), not passed up as frames.
+                                                      // A frame longer than one buffer (RX_MAX_SIZE allows them) is split over several descriptors;
+                                                      // its pieces are dropped, as Linux does (`rtl8169_fragmented_frame`), not passed up as frames.
         let whole = opts & (DESC_FS | DESC_LS) == DESC_FS | DESC_LS;
         let ok = opts & RX_RES == 0 && whole;
         if self.rx_n < 4 || (!ok && self.rx_err < 4) {
-            hal::log!("r8169: rx descriptor {opts:#010x} ({len} bytes){}", if ok { "" } else { ", error" });
+            hal::log!(
+                "r8169: rx descriptor {opts:#010x} ({len} bytes){}",
+                if ok { "" } else { ", error" }
+            );
         }
         self.rx_n += 1;
         if !ok {
             self.rx_err += 1;
         }
         let off = self.rx_next * BUF;
+        let mut copied = false;
         if ok {
-            buf[..n].copy_from_slice(&self.rx_bufs.as_slice()[off..off + n]);
+            if let (Some(dest), Some(src)) = (
+                buf.get_mut(..n),
+                self.rx_bufs.as_slice().get(off..off + n),
+            ) {
+                dest.copy_from_slice(src);
+                copied = true;
+            }
         }
         init_rx_desc(&self.rx_ring, &self.rx_bufs, self.rx_next);
         self.rx_next = (self.rx_next + 1) % RING;
-        if ok {
+        if copied {
             Some(n)
         } else {
             None

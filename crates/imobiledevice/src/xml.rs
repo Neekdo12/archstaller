@@ -6,7 +6,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 pub fn parse(buf: &[u8]) -> Result<Value> {
-    let s = core::str::from_utf8(buf).map_err(|_| Error::Malformed)?;
+    let s = core::str::from_utf8(buf).map_err(|_e| Error::Malformed)?;
     let mut p = Parser { s, pos: 0 };
     // Skip the prolog: <?xml ...?> processing instructions and the DOCTYPE.
     loop {
@@ -36,7 +36,7 @@ struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn rest(&self) -> &'a str {
-        &self.s[self.pos..]
+        self.s.get(self.pos..).unwrap_or("")
     }
 
     fn skip_junk(&mut self) {
@@ -75,7 +75,7 @@ impl<'a> Parser<'a> {
 
     fn text_until(&mut self, tag_end: &str) -> Result<String> {
         let n = self.rest().find(tag_end).ok_or(Error::Malformed)?;
-        let text = &self.rest()[..n];
+        let text = self.rest().get(..n).ok_or(Error::Malformed)?;
         self.pos += n + tag_end.len();
         Ok(unescape(text.trim()))
     }
@@ -114,11 +114,17 @@ impl<'a> Parser<'a> {
         } else if self.rest().starts_with("<integer>") {
             self.pos += 9;
             let t = self.text_until("</integer>")?;
-            t.trim().parse::<u64>().map(Value::Int).map_err(|_| Error::Malformed)
+            t.trim()
+                .parse::<u64>()
+                .map(Value::Int)
+                .map_err(|_e| Error::Malformed)
         } else if self.rest().starts_with("<real>") {
             self.pos += 6;
             let t = self.text_until("</real>")?;
-            t.trim().parse::<f64>().map(Value::Real).map_err(|_| Error::Malformed)
+            t.trim()
+                .parse::<f64>()
+                .map(Value::Real)
+                .map_err(|_e| Error::Malformed)
         } else if self.rest().starts_with("<true/>") || self.rest().starts_with("<true />") {
             self.pos = self.rest().find("/>").ok_or(Error::Malformed)? + self.pos + 2;
             Ok(Value::Bool(true))
@@ -128,7 +134,7 @@ impl<'a> Parser<'a> {
         } else if self.rest().starts_with("<data>") {
             self.pos += 6;
             let t = self.text_until("</data>")?;
-            let raw = pgp_lite::base64_decode(&t).map_err(|_| Error::Malformed)?;
+            let raw = pgp_lite::base64_decode(&t).map_err(|_e| Error::Malformed)?;
             Ok(Value::Data(raw))
         } else if self.rest().starts_with("<data/>") || self.rest().starts_with("<data />") {
             self.pos = self.rest().find("/>").ok_or(Error::Malformed)? + self.pos + 2;
@@ -203,14 +209,28 @@ fn write_value(s: &mut String, v: &Value, depth: usize) {
 /// Standard base64 (RFC 4648) encoder.
 pub fn base64_encode(data: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let byte_at = |idx: usize| T.get(idx & 63).copied().unwrap_or(b'=') as char;
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
-        let n = u32::from(b[0]) << 16 | u32::from(b[1]) << 8 | u32::from(b[2]);
-        out.push(T[(n >> 18) as usize & 63] as char);
-        out.push(T[(n >> 12) as usize & 63] as char);
-        out.push(if chunk.len() > 1 { T[(n >> 6) as usize & 63] as char } else { '=' });
-        out.push(if chunk.len() > 2 { T[n as usize & 63] as char } else { '=' });
+        let (b0, b1, b2) = match *chunk {
+            [a, b, c] => (a, b, c),
+            [a, b] => (a, b, 0),
+            [a] => (a, 0, 0),
+            _ => continue,
+        };
+        let n = u32::from(b0) << 16 | u32::from(b1) << 8 | u32::from(b2);
+        out.push(byte_at((n >> 18) as usize));
+        out.push(byte_at((n >> 12) as usize));
+        out.push(if chunk.len() > 1 {
+            byte_at((n >> 6) as usize)
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            byte_at(n as usize)
+        } else {
+            '='
+        });
     }
     out
 }

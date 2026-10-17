@@ -1,0 +1,58 @@
+# archstaller: kind=e2e
+# Configuration for `cargo xtask e2e --config configs/e2e-aur.toml`: the e2e system plus one AUR package
+# (yay-bin, a prebuilt binary, so the build is quick). The second boot must build and install it.
+schema = 1
+
+[system]
+hostname = "archbox"
+timezone = "Europe/Prague"
+locale = "en_US.UTF-8"
+keymap = "us"
+root_password_hash = "$6$archstlr$yXwFAPpE77sWyJ5zOdpP8YRiKPoEJi2Biqa3t8FQG4vT36whLEHaMrWwdZeuajixHUdgq4OX5TpTCxivgT0/n0"
+
+[install]
+mirrors = ["https://geo.mirror.pkgbuild.com/$repo/os/$arch"]
+
+[install.disk]
+confirm_serial = "TESTDISK0"
+esp_mib = 512
+
+[packages]
+explicit = [
+  "base",
+  "linux",
+  "mkinitcpio",
+  "grub",
+  "efibootmgr",
+  "ly",
+  "networkmanager",
+]
+
+[packages.providers]
+initramfs = "mkinitcpio"
+
+# Pinned and reviewed with `cargo xtask aur-pin yay-bin`.
+[[packages.aur]]
+name = "yay-bin"
+pkgbase = "yay-bin"
+commit = "13e0a4754d106a9252b7479bf1b370fbe454fc48"
+sha256 = "b73aa937ff1cd4a76430393670c3316f71bf48ee2d996114db721faab227ee71"
+deps = ["base-devel", "git", "pacman"]
+build_deps = ["base-devel"]
+
+[[users]]
+name = "arch"
+password_hash = "$6$archstlr$yXwFAPpE77sWyJ5zOdpP8YRiKPoEJi2Biqa3t8FQG4vT36whLEHaMrWwdZeuajixHUdgq4OX5TpTCxivgT0/n0"
+groups = ["wheel"]
+shell = "/bin/bash"
+
+[first_boot]
+services = ["NetworkManager.service", "ly@tty2.service"]
+kernel_params = ["console=ttyS0,115200"]
+
+[[first_boot.scripts]]
+id = "enable-fstrim"
+
+# Keep panic messages for debugging the installer under test (the default profile is "super-small").
+[build]
+profile = "large"

@@ -24,10 +24,18 @@ pub struct Device {
 impl Device {
     /// Bulk OUT endpoint addresses of interface `iface` (first match wins).
     pub fn bulk_in(&self, iface: &InterfaceDesc) -> Option<u8> {
-        iface.endpoints.iter().find(|e| e.is_bulk() && e.is_in()).map(|e| e.addr)
+        iface
+            .endpoints
+            .iter()
+            .find(|e| e.is_bulk() && e.is_in())
+            .map(|e| e.addr)
     }
     pub fn bulk_out(&self, iface: &InterfaceDesc) -> Option<u8> {
-        iface.endpoints.iter().find(|e| e.is_bulk() && !e.is_in()).map(|e| e.addr)
+        iface
+            .endpoints
+            .iter()
+            .find(|e| e.is_bulk() && !e.is_in())
+            .map(|e| e.addr)
     }
 }
 
@@ -67,25 +75,54 @@ impl Controller {
     }
 
     /// Vendor-specific host-to-device request (bmRequestType 0x40).
-    pub fn vendor_out(&mut self, dev: &Device, req: u8, value: u16, index: u16, data: &[u8]) -> Result<()> {
+    pub fn vendor_out(
+        &mut self,
+        dev: &Device,
+        req: u8,
+        value: u16,
+        index: u16,
+        data: &[u8],
+    ) -> Result<()> {
         self.control_out_type(dev, 0x40, req, value, index, data)
     }
 
     /// Class-specific interface request, device to host (bmRequestType 0xA1).
-    pub fn class_in(&mut self, dev: &Device, req: u8, value: u16, index: u16, buf: &mut [u8]) -> Result<usize> {
+    pub fn class_in(
+        &mut self,
+        dev: &Device,
+        req: u8,
+        value: u16,
+        index: u16,
+        buf: &mut [u8],
+    ) -> Result<usize> {
         self.control_in_type(dev, 0xa1, req, value, index, buf)
     }
 
     /// Class-specific interface request, host to device (bmRequestType 0x21).
-    pub fn class_out(&mut self, dev: &Device, req: u8, value: u16, index: u16, data: &[u8]) -> Result<()> {
+    pub fn class_out(
+        &mut self,
+        dev: &Device,
+        req: u8,
+        value: u16,
+        index: u16,
+        data: &[u8],
+    ) -> Result<()> {
         self.control_out_type(dev, 0x21, req, value, index, data)
     }
 
     /// Reads string descriptor `index` (US English).
     pub fn string_descriptor(&mut self, dev: &Device, index: u8) -> Option<String> {
         let mut sbuf = [0u8; 255];
-        let n = self.control_in(dev, desc::GET_DESCRIPTOR, (desc::DT_STRING as u16) << 8 | index as u16, 0x0409, &mut sbuf).ok()?;
-        desc::parse_string(&sbuf[..n])
+        let n = self
+            .control_in(
+                dev,
+                desc::GET_DESCRIPTOR,
+                (desc::DT_STRING as u16) << 8 | index as u16,
+                0x0409,
+                &mut sbuf,
+            )
+            .ok()?;
+        desc::parse_string(sbuf.get(..n)?)
     }
 
     fn control_in_type(
@@ -101,9 +138,17 @@ impl Controller {
             return self.control(dev.slot, setup(req_type, req, value, index, 0), 0, 0, true);
         }
         let dma = Dma::for_transfer(buf.len());
-        let n = self.control(dev.slot, setup(req_type, req, value, index, buf.len() as u16), dma.phys(), buf.len(), true)?;
+        let n = self.control(
+            dev.slot,
+            setup(req_type, req, value, index, buf.len() as u16),
+            dma.phys(),
+            buf.len(),
+            true,
+        )?;
         let n = n.min(buf.len());
-        buf[..n].copy_from_slice(&dma.as_slice()[..n]);
+        if let (Some(dst), Some(src)) = (buf.get_mut(..n), dma.as_slice().get(..n)) {
+            dst.copy_from_slice(src);
+        }
         Ok(n)
     }
 
@@ -134,12 +179,24 @@ impl Controller {
         }
         let mut dma = Dma::for_transfer(data.len());
         dma.as_mut_slice().copy_from_slice(data);
-        self.control(dev.slot, setup(req_type, req, value, index, data.len() as u16), dma.phys(), data.len(), false)?;
+        self.control(
+            dev.slot,
+            setup(req_type, req, value, index, data.len() as u16),
+            dma.phys(),
+            data.len(),
+            false,
+        )?;
         Ok(())
     }
 
     fn get_descriptor(&mut self, dev: &Device, ty: u8, index: u8, buf: &mut [u8]) -> Result<usize> {
-        self.control_in(dev, desc::GET_DESCRIPTOR, (ty as u16) << 8 | index as u16, 0, buf)
+        self.control_in(
+            dev,
+            desc::GET_DESCRIPTOR,
+            (ty as u16) << 8 | index as u16,
+            0,
+            buf,
+        )
     }
 
     /// Enumerates every enabled port and returns addressed, descriptor-read devices.
@@ -156,9 +213,8 @@ impl Controller {
 
     fn enumerate_port(&mut self, port: u8, speed: u8) -> Result<Vec<Device>> {
         hal::log!("usb: port {port} speed {speed}: enumerating");
-        self.enumerate_port_inner(port, speed).map_err(|e| {
+        self.enumerate_port_inner(port, speed).inspect_err(|e| {
             hal::info!("usb: port {port}: enumeration failed: {e:?}");
-            e
         })
     }
 
@@ -185,11 +241,19 @@ impl Controller {
         let mut head = [0u8; 8];
         let mut tries = 0;
         loop {
-            match self.control_in(&probe, desc::GET_DESCRIPTOR, (desc::DT_DEVICE as u16) << 8, 0, &mut head) {
+            match self.control_in(
+                &probe,
+                desc::GET_DESCRIPTOR,
+                (desc::DT_DEVICE as u16) << 8,
+                0,
+                &mut head,
+            ) {
                 Ok(_) if head[1] == desc::DT_DEVICE => break,
                 r => {
                     tries += 1;
-                    hal::log!("usb: port {port}: first descriptor read failed ({r:?}), try {tries}");
+                    hal::log!(
+                        "usb: port {port}: first descriptor read failed ({r:?}), try {tries}"
+                    );
                     if tries >= 4 {
                         return Err(Error::Io);
                     }
@@ -198,7 +262,11 @@ impl Controller {
             }
         }
         // SuperSpeed devices encode bMaxPacketSize0 as a power of two (9 -> 512).
-        let mps = if speed >= 4 { 1u16 << head[7].min(10) } else { head[7] as u16 };
+        let mps = if speed >= 4 {
+            1u16 << head[7].min(10)
+        } else {
+            head[7] as u16
+        };
         if mps != 0 {
             self.set_ep0_mps(slot, mps)?;
         }
@@ -212,41 +280,53 @@ impl Controller {
         let iserial = ddesc[16];
         if iserial != 0 {
             let mut sbuf = [0u8; 255];
-            if self.get_descriptor(&probe, desc::DT_STRING, iserial, &mut sbuf).is_ok() {
+            if self
+                .get_descriptor(&probe, desc::DT_STRING, iserial, &mut sbuf)
+                .is_ok()
+            {
                 if let Some(s) = desc::parse_string(&sbuf) {
                     serial = s;
                 }
             }
         }
 
-        hal::log!("usb: port {port}: {vendor:04x}:{product:04x} with {num_configs} configuration(s)");
+        hal::log!(
+            "usb: port {port}: {vendor:04x}:{product:04x} with {num_configs} configuration(s)"
+        );
         if num_configs == 0 {
             return Err(Error::Unsupported);
         }
         let mut devices = Vec::new();
         for config_index in 0..num_configs {
             let mut chead = [0u8; 9];
-            if self.get_descriptor(&probe, desc::DT_CONFIG, config_index, &mut chead).is_err()
+            if self
+                .get_descriptor(&probe, desc::DT_CONFIG, config_index, &mut chead)
+                .is_err()
                 || chead[1] != desc::DT_CONFIG
             {
                 continue;
             }
             let total = u16::from_le_bytes([chead[2], chead[3]]) as usize;
-            if total < 9 || total > 4096 {
+            if !(9..=4096).contains(&total) {
                 continue;
             }
             let mut cblob = alloc::vec![0u8; total];
-            if self.get_descriptor(&probe, desc::DT_CONFIG, config_index, &mut cblob).is_err()
-                || cblob[1] != desc::DT_CONFIG
+            if self
+                .get_descriptor(&probe, desc::DT_CONFIG, config_index, &mut cblob)
+                .is_err()
+                || cblob.get(1).copied() != Some(desc::DT_CONFIG)
             {
                 continue;
             }
+            let Some(&configuration) = cblob.get(5) else {
+                continue;
+            };
             devices.push(Device {
                 slot,
                 vendor,
                 product,
                 serial: serial.clone(),
-                configuration: cblob[5],
+                configuration,
                 interfaces: desc::parse_config(&cblob),
             });
         }
@@ -264,8 +344,12 @@ impl Controller {
         iface: &InterfaceDesc,
     ) -> Result<()> {
         self.control_out(dev, desc::SET_CONFIGURATION, config as u16, 0, &[])?;
-        let eps: Vec<desc::EndpointDesc> =
-            iface.endpoints.iter().filter(|e| e.is_bulk()).cloned().collect();
+        let eps: Vec<desc::EndpointDesc> = iface
+            .endpoints
+            .iter()
+            .filter(|e| e.is_bulk())
+            .cloned()
+            .collect();
         if !eps.is_empty() {
             self.open_bulk_endpoints(dev.slot, config, &eps)?;
         }
@@ -274,7 +358,13 @@ impl Controller {
 
     /// Selects an alternate setting of an interface (standard SET_INTERFACE).
     pub fn set_interface(&mut self, dev: &Device, iface: u8, alt: u8) -> Result<()> {
-        self.control(dev.slot, setup(0x01, 11, alt as u16, iface as u16, 0), 0, 0, false)?;
+        self.control(
+            dev.slot,
+            setup(0x01, 11, alt as u16, iface as u16, 0),
+            0,
+            0,
+            false,
+        )?;
         Ok(())
     }
 
@@ -294,7 +384,13 @@ impl Controller {
 
     /// Queues a read on a bulk IN endpoint without waiting; collect it with `bulk_in_poll`.
     /// `buf` must stay alive and untouched until the read completes.
-    pub fn bulk_in_submit(&mut self, dev: &Device, ep_addr: u8, buf: &Dma, len: usize) -> Result<()> {
+    pub fn bulk_in_submit(
+        &mut self,
+        dev: &Device,
+        ep_addr: u8,
+        buf: &Dma,
+        len: usize,
+    ) -> Result<()> {
         let dci = (ep_addr & 0x0f) * 2 + 1;
         self.queue_transfer(dev.slot, dci, buf.phys(), len)
     }
@@ -308,7 +404,7 @@ impl Controller {
         if code == 1 || code == 13 {
             Some(Ok(len.saturating_sub(residual as usize)))
         } else {
-            let _ = self.reset_endpoint(dev.slot, dci);
+            _ = self.reset_endpoint(dev.slot, dci);
             Some(Err(Error::Io))
         }
     }
@@ -342,8 +438,12 @@ impl Controller {
         }
         let dma = Dma::for_transfer(buf.len());
         let dci = (ep_addr & 0x0f) * 2 + 1;
-        let n = self.transfer(dev.slot, dci, dma.phys(), buf.len(), timeout_ms)?.min(buf.len());
-        buf[..n].copy_from_slice(&dma.as_slice()[..n]);
+        let n = self
+            .transfer(dev.slot, dci, dma.phys(), buf.len(), timeout_ms)?
+            .min(buf.len());
+        if let (Some(dst), Some(src)) = (buf.get_mut(..n), dma.as_slice().get(..n)) {
+            dst.copy_from_slice(src);
+        }
         Ok(n)
     }
 }

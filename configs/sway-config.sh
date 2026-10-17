@@ -1,5 +1,5 @@
 #!/bin/bash
-# First-boot script of the sway preset (configs/sway.lua): installs a small Sway config as
+# First-boot script of the sway preset (configs/sway.toml): installs a small Sway config as
 # ~/.config/sway/config for every regular user and into /etc/skel for users added later. An existing
 # config (for example one from user_archives) is left alone. Edit the file after the first boot as usual.
 set -u

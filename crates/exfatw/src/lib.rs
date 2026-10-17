@@ -82,27 +82,48 @@ impl Vbr {
     }
 }
 
+fn put_slice(buf: &mut [u8], off: usize, data: &[u8]) {
+    if let Some(slot) = buf.get_mut(off..off + data.len()) {
+        slot.copy_from_slice(data);
+    }
+}
+
+fn put_u8(buf: &mut [u8], off: usize, val: u8) {
+    if let Some(slot) = buf.get_mut(off) {
+        *slot = val;
+    }
+}
+
 fn rd_u16(b: &[u8], off: usize) -> u16 {
-    u16::from_le_bytes([b[off], b[off + 1]])
+    b.get(off..off + 2)
+        .and_then(|s| <[u8; 2]>::try_from(s).ok())
+        .map_or(0, u16::from_le_bytes)
 }
+
 fn rd_u32(b: &[u8], off: usize) -> u32 {
-    u32::from_le_bytes([b[off], b[off + 1], b[off + 2], b[off + 3]])
+    b.get(off..off + 4)
+        .and_then(|s| <[u8; 4]>::try_from(s).ok())
+        .map_or(0, u32::from_le_bytes)
 }
+
 fn rd_u64(b: &[u8], off: usize) -> u64 {
-    u64::from_le_bytes([
-        b[off], b[off + 1], b[off + 2], b[off + 3], b[off + 4], b[off + 5], b[off + 6], b[off + 7],
-    ])
+    b.get(off..off + 8)
+        .and_then(|s| <[u8; 8]>::try_from(s).ok())
+        .map_or(0, u64::from_le_bytes)
 }
 
 fn parse_vbr(sector: &[u8]) -> Result<Vbr> {
-    if sector.len() < 512 || sector[0..3] != VBR_JUMP || &sector[3..11] != FS_NAME {
+    if sector.len() < 512
+        || sector.get(0..3) != Some(&VBR_JUMP)
+        || sector.get(3..11) != Some(&FS_NAME[..])
+    {
         return Err(Error::NotExfat);
     }
     if rd_u16(sector, 510) != VBR_SIGNATURE {
         return Err(Error::NotExfat);
     }
-    let bps_shift = sector[108];
-    let spc_shift = sector[109];
+    let bps_shift = sector.get(108).copied().unwrap_or(0);
+    let spc_shift = sector.get(109).copied().unwrap_or(0);
     if !(9..=12).contains(&bps_shift) || spc_shift > 25 - bps_shift {
         return Err(Error::Invalid("exFAT shifts out of range"));
     }
@@ -113,7 +134,11 @@ fn parse_vbr(sector: &[u8]) -> Result<Vbr> {
     let heap = rd_u32(sector, 88) as u64 * ss as u64;
     let cluster_count = rd_u32(sector, 92);
     let root_cluster = rd_u32(sector, 96);
-    if cluster_count < 1 || root_cluster < 2 || root_cluster >= cluster_count.saturating_add(2) || fat_length == 0 {
+    if cluster_count < 1
+        || root_cluster < 2
+        || root_cluster >= cluster_count.saturating_add(2)
+        || fat_length == 0
+    {
         return Err(Error::Invalid("no cluster heap or no root dir"));
     }
     Ok(Vbr {
@@ -124,7 +149,7 @@ fn parse_vbr(sector: &[u8]) -> Result<Vbr> {
         cluster_heap_offset: heap,
         cluster_count,
         root_cluster,
-        has_second_fat: sector[110] == 2,
+        has_second_fat: sector.get(110).copied() == Some(2),
     })
 }
 
@@ -166,7 +191,12 @@ fn validate_name(units: &[u16]) -> Result<()> {
         return Err(Error::Invalid("bad file name length"));
     }
     for &u in units {
-        if u < 0x20 || matches!(u, 0x22 | 0x2a | 0x2f | 0x3a | 0x3c | 0x3e | 0x3f | 0x5c | 0x7c) {
+        if u < 0x20
+            || matches!(
+                u,
+                0x22 | 0x2a | 0x2f | 0x3a | 0x3c | 0x3e | 0x3f | 0x5c | 0x7c
+            )
+        {
             return Err(Error::Invalid("bad character in file name"));
         }
     }
@@ -186,30 +216,30 @@ fn entry_set_checksum(set: &[u8]) -> u16 {
 
 /// Builds the file + stream + name entry set. `up` is the up-cased name (for the NameHash).
 fn build_entry_set(units: &[u16], up: &[u16], first: u32, size: u64) -> Vec<u8> {
-    let name_entries = (units.len() + 14) / 15;
+    let name_entries = units.len().div_ceil(15);
     let mut set = vec![0u8; 32 * (2 + name_entries)];
-    set[0] = ET_FILE;
-    set[1] = (1 + name_entries) as u8;
-    set[4..6].copy_from_slice(&ATTR_ARCHIVE.to_le_bytes());
+    put_u8(&mut set, 0, ET_FILE);
+    put_u8(&mut set, 1, (1 + name_entries) as u8);
+    put_slice(&mut set, 4, &ATTR_ARCHIVE.to_le_bytes());
     for off in [8usize, 12, 16] {
-        set[off..off + 4].copy_from_slice(&EXFAT_EPOCH_TS.to_le_bytes());
+        put_slice(&mut set, off, &EXFAT_EPOCH_TS.to_le_bytes());
     }
-    set[32] = ET_STREAM;
-    set[33] = if size > 0 { 0x01 } else { 0x00 }; // allocation possible, FAT chain valid
-    set[35] = units.len() as u8;
-    set[36..38].copy_from_slice(&upcase_hash(up).to_le_bytes());
-    set[40..48].copy_from_slice(&size.to_le_bytes()); // ValidDataLength
-    set[52..56].copy_from_slice(&first.to_le_bytes());
-    set[56..64].copy_from_slice(&size.to_le_bytes()); // DataLength
+    put_u8(&mut set, 32, ET_STREAM);
+    put_u8(&mut set, 33, if size > 0 { 0x01 } else { 0x00 }); // allocation possible, FAT chain valid
+    put_u8(&mut set, 35, units.len() as u8);
+    put_slice(&mut set, 36, &upcase_hash(up).to_le_bytes());
+    put_slice(&mut set, 40, &size.to_le_bytes()); // ValidDataLength
+    put_slice(&mut set, 52, &first.to_le_bytes());
+    put_slice(&mut set, 56, &size.to_le_bytes()); // DataLength
     for (k, chunk) in units.chunks(15).enumerate() {
         let o = 64 + 32 * k;
-        set[o] = ET_NAME;
+        put_u8(&mut set, o, ET_NAME);
         for (j, &u) in chunk.iter().enumerate() {
-            set[o + 2 + 2 * j..o + 4 + 2 * j].copy_from_slice(&u.to_le_bytes());
+            put_slice(&mut set, o + 2 + 2 * j, &u.to_le_bytes());
         }
     }
     let ck = entry_set_checksum(&set);
-    set[2..4].copy_from_slice(&ck.to_le_bytes());
+    put_slice(&mut set, 2, &ck.to_le_bytes());
     set
 }
 
@@ -232,7 +262,10 @@ impl<'a, S: Storage> Appender<'a, S> {
         let mut app = Appender {
             s,
             vbr,
-            bitmap: Bitmap { bytes: Vec::new(), first_cluster: 0 },
+            bitmap: Bitmap {
+                bytes: Vec::new(),
+                first_cluster: 0,
+            },
             bitmap_len: 0,
             upcase: Upcase { units: Vec::new() },
             bm_dirty: None,
@@ -247,7 +280,9 @@ impl<'a, S: Storage> Appender<'a, S> {
     }
 
     /// Whether a directory called `name` (case-insensitive) exists in the root.
-    pub fn root_has(&mut self, name: &str) -> Result<bool> { self.has_dir(name) }
+    pub fn root_has(&mut self, name: &str) -> Result<bool> {
+        self.has_dir(name)
+    }
     pub fn has_dir(&mut self, name: &str) -> Result<bool> {
         Ok(matches!(self.lookup(name)?, Some(a) if a & ATTR_DIRECTORY != 0))
     }
@@ -257,7 +292,9 @@ impl<'a, S: Storage> Appender<'a, S> {
         let r = self.append_inner(name, data);
         if r.is_err() {
             // Drop allocations that never reached the disk.
-            let _ = self.load_metadata();
+            match self.load_metadata() {
+                Ok(()) | Err(_) => {}
+            }
         }
         r
     }
@@ -283,10 +320,10 @@ impl<'a, S: Storage> Appender<'a, S> {
         }
 
         let cb = self.vbr.cluster_bytes() as usize;
-        let set_len = 32 * (2 + (units.len() + 14) / 15);
+        let set_len = 32 * (2 + units.len().div_ceil(15));
 
         // Allocate everything in memory first; nothing touches the disk until all of it fits.
-        let need = (data.len() + cb - 1) / cb;
+        let need = data.len().div_ceil(cb);
         let mut hint = 2u32;
         let mut file_clusters: Vec<u32> = Vec::with_capacity(need);
         for _ in 0..need {
@@ -298,7 +335,7 @@ impl<'a, S: Storage> Appender<'a, S> {
         let end = eod + set_len;
         let mut new_root: Vec<u32> = Vec::new();
         if end > root.len() {
-            let n = (end - root.len() + cb - 1) / cb;
+            let n = (end - root.len()).div_ceil(cb);
             for _ in 0..n {
                 let c = self.alloc_cluster(hint)?;
                 hint = c + 1;
@@ -309,10 +346,10 @@ impl<'a, S: Storage> Appender<'a, S> {
 
         let first = file_clusters.first().copied().unwrap_or(0);
         let set = build_entry_set(&units, &up, first, data.len() as u64);
-        root[eod..end].copy_from_slice(&set);
+        put_slice(&mut root, eod, &set);
         // Whatever followed the old end-of-directory must not be parsed as entries.
         let touched_end = if end < root.len() {
-            root[end] = ET_EOD;
+            put_u8(&mut root, end, ET_EOD);
             end + 1
         } else {
             end
@@ -331,7 +368,9 @@ impl<'a, S: Storage> Appender<'a, S> {
             let mut buf = vec![0u8; cb];
             let lo = k * cb;
             let hi = (lo + cb).min(data.len());
-            buf[..hi - lo].copy_from_slice(&data[lo..hi]);
+            if let Some(src) = data.get(lo..hi) {
+                put_slice(&mut buf, 0, src);
+            }
             self.write_cluster(c, &buf)?;
         }
         // 2. file FAT chain
@@ -341,7 +380,9 @@ impl<'a, S: Storage> Appender<'a, S> {
         }
         // 3. new root clusters (content, then their own chain; not linked in yet)
         for ci in old_n..all.len() {
-            self.write_cluster(all[ci], &root[ci * cb..(ci + 1) * cb])?;
+            if let (Some(&cluster), Some(slice)) = (all.get(ci), root.get(ci * cb..(ci + 1) * cb)) {
+                self.write_cluster(cluster, slice)?;
+            }
         }
         for (k, &c) in new_root.iter().enumerate() {
             let next = new_root.get(k + 1).copied().unwrap_or(FAT_EOC);
@@ -357,7 +398,9 @@ impl<'a, S: Storage> Appender<'a, S> {
         // 6. the existing root clusters that now hold the entry set
         for ci in first_ci..=last_ci {
             if ci < old_n {
-                self.write_cluster(chain[ci], &root[ci * cb..(ci + 1) * cb])?;
+                if let (Some(&cluster), Some(slice)) = (chain.get(ci), root.get(ci * cb..(ci + 1) * cb)) {
+                    self.write_cluster(cluster, slice)?;
+                }
             }
         }
         self.update_usage()?;
@@ -366,7 +409,10 @@ impl<'a, S: Storage> Appender<'a, S> {
 
     /// Loads the allocation bitmap (0x81) and up-case table (0x82) from the root.
     fn load_metadata(&mut self) -> Result<()> {
-        self.bitmap = Bitmap { bytes: Vec::new(), first_cluster: 0 };
+        self.bitmap = Bitmap {
+            bytes: Vec::new(),
+            first_cluster: 0,
+        };
         self.bitmap_len = 0;
         self.upcase = Upcase { units: Vec::new() };
         self.bm_dirty = None;
@@ -375,7 +421,7 @@ impl<'a, S: Storage> Appender<'a, S> {
         let cc = self.vbr.cluster_count;
         let mut i = 0usize;
         while i + 32 <= root.len() {
-            let t = root[i];
+            let t = root.get(i).copied().unwrap_or(ET_EOD);
             if t == ET_EOD {
                 break;
             }
@@ -394,13 +440,16 @@ impl<'a, S: Storage> Appender<'a, S> {
                 let mut bytes = vec![0u8; len];
                 let off = self.vbr.cluster_offset(first);
                 self.s.read_at(off, &mut bytes)?; // contiguous, like every real implementation
-                self.bitmap = Bitmap { bytes, first_cluster: first };
+                self.bitmap = Bitmap {
+                    bytes,
+                    first_cluster: first,
+                };
                 self.bitmap_len = len;
             } else if t == ET_UPCASE && self.upcase.units.is_empty() {
                 let stored = rd_u32(&root, i + 4);
                 let first = rd_u32(&root, i + 20);
                 let len64 = rd_u64(&root, i + 24);
-                if first < 2 || first >= cc + 2 || len64 < 2 || len64 > MAX_UPCASE_BYTES {
+                if first < 2 || first >= cc + 2 || !(2..=MAX_UPCASE_BYTES).contains(&len64) {
                     return Err(Error::Invalid("bad upcase"));
                 }
                 let mut raw = vec![0u8; len64 as usize];
@@ -409,7 +458,9 @@ impl<'a, S: Storage> Appender<'a, S> {
                 if Upcase::checksum(&raw) != stored {
                     return Err(Error::Invalid("up-case checksum mismatch"));
                 }
-                self.upcase = Upcase { units: expand_upcase(&raw) };
+                self.upcase = Upcase {
+                    units: expand_upcase(&raw),
+                };
             }
             i += 32;
         }
@@ -452,12 +503,12 @@ impl<'a, S: Storage> Appender<'a, S> {
         let mut i = 0usize;
         let mut found: Option<u16> = None;
         while i + 32 <= root.len() {
-            let t = root[i];
+            let t = root.get(i).copied().unwrap_or(ET_EOD);
             if t == ET_EOD {
                 return (i, found);
             }
             if t == ET_FILE {
-                let n = root[i + 1] as usize;
+                let n = root.get(i + 1).copied().unwrap_or(0) as usize;
                 if found.is_none() {
                     if let Some(up) = self.set_name_upcased(root, i) {
                         if up.as_slice() == want_up {
@@ -475,16 +526,16 @@ impl<'a, S: Storage> Appender<'a, S> {
 
     /// The up-cased name of the entry set starting at `i`, or None if the set is malformed.
     fn set_name_upcased(&self, root: &[u8], i: usize) -> Option<Vec<u16>> {
-        let n = root[i + 1] as usize;
+        let n = root.get(i + 1).copied().unwrap_or(0) as usize;
         let end = i + 32 * (n + 1);
-        if n < 2 || end > root.len() || root[i + 32] != ET_STREAM {
+        if n < 2 || end > root.len() || root.get(i + 32).copied() != Some(ET_STREAM) {
             return None;
         }
-        let nlen = root[i + 35] as usize;
+        let nlen = root.get(i + 35).copied().unwrap_or(0) as usize;
         let mut out: Vec<u16> = Vec::with_capacity(nlen);
         let mut k = i + 64;
         while k < end && out.len() < nlen {
-            if root[k] != ET_NAME {
+            if root.get(k).copied() != Some(ET_NAME) {
                 return None;
             }
             for u in 0..15 {
@@ -542,7 +593,7 @@ impl<'a, S: Storage> Appender<'a, S> {
         let end = self.vbr.cluster_count + 2;
         let mut c = from.max(2);
         while c < end {
-            if (c - 2) % 8 == 0 {
+            if (c - 2).is_multiple_of(8) {
                 if let Some(&b) = self.bitmap.bytes.get(((c - 2) / 8) as usize) {
                     if b == 0xff {
                         c += 8;
@@ -566,7 +617,9 @@ impl<'a, S: Storage> Appender<'a, S> {
     fn flush_bitmap(&mut self) -> Result<()> {
         if let Some((lo, hi)) = self.bm_dirty {
             let base = self.vbr.cluster_offset(self.bitmap.first_cluster) + lo as u64;
-            self.s.write_at(base, &self.bitmap.bytes[lo..=hi])?;
+            if let Some(slice) = self.bitmap.bytes.get(lo..=hi) {
+                self.s.write_at(base, slice)?;
+            }
             self.bm_dirty = None;
         }
         Ok(())
@@ -608,11 +661,14 @@ impl<'a, S: Storage> Appender<'a, S> {
         let full = cc / 8;
         let rem = cc % 8;
         let mut used = 0usize;
-        for b in &self.bitmap.bytes[..full] {
+        let slice = self.bitmap.bytes.get(..full).unwrap_or(&self.bitmap.bytes);
+        for b in slice {
             used += b.count_ones() as usize;
         }
         if rem > 0 {
-            used += (self.bitmap.bytes[full] & ((1u8 << rem) - 1)).count_ones() as usize;
+            if let Some(&b) = self.bitmap.bytes.get(full) {
+                used += (b & ((1u8 << rem) - 1)).count_ones() as usize;
+            }
         }
         (used * 100 / cc.max(1)) as u8
     }
@@ -621,11 +677,11 @@ impl<'a, S: Storage> Appender<'a, S> {
     fn update_usage(&mut self) -> Result<()> {
         let mut cur = [0u8; 1];
         self.s.read_at(BS_PERCENT_IN_USE as u64, &mut cur)?;
-        if cur[0] == 0xff {
+        if cur.first() == Some(&0xff) {
             return Ok(());
         }
         let p = self.percent_in_use();
-        if cur[0] != p {
+        if cur.first() != Some(&p) {
             self.s.write_at(BS_PERCENT_IN_USE as u64, &[p])?;
         }
         Ok(())

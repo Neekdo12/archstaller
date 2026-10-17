@@ -37,7 +37,14 @@ unsafe fn map_4k(arena: &mut Arena, pml4: *mut u64, virt: u64, phys: u64) {
 
 /// Returns the physical address of the PML4: the direct map (the first 4 GiB, every memory range,
 /// the framebuffer), the kernel at `KERNEL_BASE`, and the trampoline page identity mapped.
-pub unsafe fn build(arena: &mut Arena, map: &crate::Map, kernel_phys: u64, kernel_mem: u64, tramp: u64, fb: &Framebuffer) -> u64 {
+pub unsafe fn build(
+    arena: &mut Arena,
+    map: &crate::Map,
+    kernel_phys: u64,
+    kernel_mem: u64,
+    tramp: u64,
+    fb: &Framebuffer,
+) -> u64 {
     let pml4 = new_table(arena);
     let hhdm = |arena: &mut Arena, base: u64, end: u64| {
         let mut a = base & !(HUGE - 1);

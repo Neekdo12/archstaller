@@ -41,11 +41,15 @@ impl AurState {
         self.search_rx = Some(rx);
         self.results = None;
         std::thread::spawn(move || {
-            let _ = tx.send(rpc::search(&term).map(|mut v| {
-                v.sort_by(|a, b| b.popularity.partial_cmp(&a.popularity).unwrap_or(std::cmp::Ordering::Equal));
+            drop(tx.send(rpc::search(&term).map(|mut v| {
+                v.sort_by(|a, b| {
+                    b.popularity
+                        .partial_cmp(&a.popularity)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
                 v.truncate(12);
                 v
-            }));
+            })));
         });
     }
 
@@ -59,18 +63,24 @@ impl AurState {
         self.ack_vcs = false;
         self.message = None;
         std::thread::spawn(move || {
-            let _ = tx.send(rpc::fetch_review(&name, &base, None));
+            drop(tx.send(rpc::fetch_review(&name, &base, None)));
         });
     }
 
     /// Pins the reviewed recipe: re-checks the packages that are already pinned, resolves every dependency
     /// against the official repositories and plans the order.
-    pub fn start_pin(&mut self, review: Review, existing: Vec<config::AurPackage>, mirror: String, cache: PathBuf) {
+    pub fn start_pin(
+        &mut self,
+        review: Review,
+        existing: Vec<config::AurPackage>,
+        mirror: String,
+        cache: PathBuf,
+    ) {
         let (tx, rx) = channel();
         self.pin_rx = Some(rx);
         self.message = None;
         std::thread::spawn(move || {
-            let _ = tx.send(pin(review, existing, &mirror, &cache));
+            drop(tx.send(pin(review, existing, &mirror, &cache)));
         });
     }
 
@@ -88,7 +98,11 @@ impl AurState {
                 self.fetching = None;
                 match r {
                     Ok(rev) => {
-                        self.file = if rev.files.contains_key("PKGBUILD") { "PKGBUILD".into() } else { rev.files.keys().next().cloned().unwrap_or_default() };
+                        self.file = if rev.files.contains_key("PKGBUILD") {
+                            "PKGBUILD".into()
+                        } else {
+                            rev.files.keys().next().cloned().unwrap_or_default()
+                        };
                         self.review = Some(rev);
                     }
                     Err(e) => self.message = Some(Err(e)),
@@ -113,13 +127,19 @@ impl AurState {
 }
 
 /// The worker of [`AurState::start_pin`].
-pub fn pin(review: Review, existing: Vec<config::AurPackage>, mirror: &str, cache: &std::path::Path) -> Reply<Pinned> {
+pub fn pin(
+    review: Review,
+    existing: Vec<config::AurPackage>,
+    mirror: &str,
+    cache: &std::path::Path,
+) -> Reply<Pinned> {
     // The packages that are already pinned must still be the recipes that were reviewed.
     let mut reviews: Vec<Review> = Vec::new();
     for e in existing.iter().filter(|e| e.name != review.name) {
         let r = aurbuild::plan::review(&e.name, &e.commit, rpc::snapshot(&e.commit)?)?;
         if r.tree_sha256 != e.sha256 {
-            return Err(format!("{}: the recipe at the pinned commit {} no longer matches its pin; remove it and review it again", e.name, &e.commit[..8]));
+            let commit_short = e.commit.get(..8).unwrap_or(&e.commit);
+            return Err(format!("{}: the recipe at the pinned commit {commit_short} no longer matches its pin; remove it and review it again", e.name));
         }
         reviews.push(r);
     }
@@ -129,7 +149,10 @@ pub fn pin(review: Review, existing: Vec<config::AurPackage>, mirror: &str, cach
     let official = Official::new(&dbs);
     let missing = unresolved(&reviews, &official);
     if !missing.is_empty() {
-        let list: Vec<String> = missing.iter().map(|(owner, dep)| format!("{dep} (needed by {owner})")).collect();
+        let list: Vec<String> = missing
+            .iter()
+            .map(|(owner, dep)| format!("{dep} (needed by {owner})"))
+            .collect();
         return Err(format!("not in the official repositories and not pinned yet: {}. Search the AUR for each, review it and pin it first.", list.join(", ")));
     }
     let explicit: Vec<String> = reviews.iter().map(|r| r.name.clone()).collect();
@@ -140,13 +163,19 @@ pub fn pin(review: Review, existing: Vec<config::AurPackage>, mirror: &str, cach
             e.services = old.services.clone();
         }
     }
-    let added = entries.iter().find(|e| e.name == name).map(|e| e.deps.len()).unwrap_or(0);
+    let added = entries
+        .iter()
+        .find(|e| e.name == name)
+        .map(|e| e.deps.len())
+        .unwrap_or(0);
     Ok(Pinned { summary: format!("Pinned {name}. The plan has {} AUR package(s) and adds {added} official package(s) it needs.", entries.len()), entries })
 }
 
 /// Whether the config has a network service the first boot build can rely on.
 pub fn has_network_service(services: &[String]) -> bool {
-    services.iter().any(|u| config::NETWORK_SERVICES.contains(&u.as_str()))
+    services
+        .iter()
+        .any(|u| config::NETWORK_SERVICES.contains(&u.as_str()))
 }
 
 #[cfg(test)]
@@ -155,7 +184,10 @@ mod tests {
 
     #[test]
     fn network_service_detection() {
-        assert!(has_network_service(&["sshd.service".into(), "NetworkManager.service".into()]));
+        assert!(has_network_service(&[
+            "sshd.service".into(),
+            "NetworkManager.service".into()
+        ]));
         assert!(!has_network_service(&["sshd.service".into()]));
     }
 }

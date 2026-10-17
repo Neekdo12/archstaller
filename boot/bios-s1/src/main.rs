@@ -6,11 +6,13 @@
 //! The BIOS may start this code at 07C0:0000 or 0000:7C00, or have trashed any register but `dl`,
 //! so it normalizes `cs` first; the way to ask for the sector size and the fallback when it
 //! cannot are from Limine's stage 1.
-#![no_std]
-#![no_main]
+#![cfg_attr(target_os = "none", no_std)]
+#![cfg_attr(target_os = "none", no_main)]
 
+#[cfg(target_os = "none")]
 use core::arch::global_asm;
 
+#[cfg(target_os = "none")]
 global_asm!(
     r#"
     .section .s1,"ax"
@@ -31,13 +33,17 @@ s1_start:
     sti
     mov byte ptr [s1_drive], dl
 
+    mov byte ptr [s1_has_ext], 1
+    test dl, 0x80
+    jz 30f
+
     # INT 13h extensions present?
     mov ah, 0x41
     mov bx, 0x55aa
     int 0x13
-    jc 90f
+    jc 30f
     cmp bx, 0xaa55
-    jne 91f
+    jne 30f
 
     # Sector size. The word after the size field must be clear: a PhoenixBIOS 4.0 R6.0 fails the call otherwise.
     mov si, 0x600
@@ -58,9 +64,20 @@ s1_start:
 4:
     mov bp, 512
 5:
-    # A CD whose BIOS did not say otherwise (the El Torito boot drive is 0x80 or above).
-    # (Nothing to do: 512 is what a disk has, and CD BIOSes answer function 48h.)
+    mov eax, 32768
+    movzx ecx, bp
+    xor edx, edx
+    div ecx
+    mov word ptr [s1_chunk], ax
+    jmp 31f
 
+30:
+    # CHS (floppy) path:
+    mov byte ptr [s1_has_ext], 0
+    mov bp, 512
+    mov word ptr [s1_chunk], 1
+
+31:
     # eax = first sector = offset / sector size; the patched offset is a multiple of the sector size.
     mov eax, dword ptr [s1_off]
     movzx ecx, bp
@@ -74,11 +91,6 @@ s1_start:
     xor edx, edx
     div ecx
     mov dword ptr [s1_left], eax
-    # chunk = 32 KiB / sector size, in sectors
-    mov eax, 32768
-    xor edx, edx
-    div ecx
-    mov word ptr [s1_chunk], ax
     mov word ptr [s1_seg], 0x0800        # stage 2 lives at 0x8000
 
 6:
@@ -94,6 +106,10 @@ s1_start:
     mov cx, 3                             # tries
 10:
     push cx
+    cmp byte ptr [s1_has_ext], 0
+    jz 20f
+
+    # LBA read via AH=42h:
     mov eax, dword ptr [s1_lba]
     mov dword ptr [s1_dap + 8], eax
     mov ax, word ptr [s1_seg]
@@ -102,6 +118,26 @@ s1_start:
     mov ah, 0x42
     mov dl, byte ptr [s1_drive]
     int 0x13
+    jmp 21f
+
+20:
+    # CHS read via AH=02h (1 sector at a time):
+    mov ax, word ptr [s1_lba]
+    mov bl, 18
+    div bl                                # AL = temp, AH = sector - 1
+    inc ah
+    mov cl, ah                            # CL = sector (1..18)
+    shr al, 1                             # CF = head (0 or 1), AL = cylinder
+    mov ch, al                            # CH = cylinder
+    mov dh, 0
+    adc dh, 0                             # DH = head
+    mov dl, byte ptr [s1_drive]
+    mov es, word ptr [s1_seg]
+    xor bx, bx
+    mov ax, 0x0201                        # AH=02h, AL=01h
+    int 0x13
+
+21:
     pop cx
     jnc 11f
     xor ax, ax
@@ -150,7 +186,8 @@ s1_lba:    .long 0
 s1_left:   .long 0
 s1_chunk:  .word 0
 s1_seg:    .word 0
-s1_drive:  .byte 0
+s1_drive:   .byte 0
+s1_has_ext: .byte 1
 
     .org 424
 s1_off:    .quad 0
@@ -158,7 +195,11 @@ s1_len:    .long 0
     "#
 );
 
+#[cfg(target_os = "none")]
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
     loop {}
 }
+
+#[cfg(not(target_os = "none"))]
+fn main() {}

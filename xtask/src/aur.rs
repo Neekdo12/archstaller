@@ -1,4 +1,4 @@
-//! `cargo xtask aur-pin NAME [--commit C]`: reviews an AUR package and prints the Lua entry that pins it (it goes into `packages.aur` of the `as` config).
+//! `cargo xtask aur-pin NAME [--commit C]`: reviews an AUR package and prints the TOML entry that pins it (it goes into `packages.aur` of the config).
 use crate::Result;
 
 pub fn pin(args: &[String]) -> Result<()> {
@@ -14,10 +14,21 @@ pub fn pin(args: &[String]) -> Result<()> {
     if names.len() != 1 {
         return Err("usage: cargo xtask aur-pin NAME [--commit COMMIT]".into());
     }
-    let name = &names[0];
-    let info = aurbuild::rpc::info(&[name.clone()])?;
-    let info = info.first().ok_or_else(|| format!("{name} is not on the AUR"))?;
-    eprintln!("{} {} by {} (votes {}, out of date: {})", info.name, info.version, info.maintainer.as_deref().unwrap_or("nobody (orphaned)"), info.votes, info.out_of_date.is_some());
+    let Some(name) = names.first() else {
+        return Err("usage: cargo xtask aur-pin NAME [--commit COMMIT]".into());
+    };
+    let info = aurbuild::rpc::info(std::slice::from_ref(name))?;
+    let info = info
+        .first()
+        .ok_or_else(|| format!("{name} is not on the AUR"))?;
+    eprintln!(
+        "{} {} by {} (votes {}, out of date: {})",
+        info.name,
+        info.version,
+        info.maintainer.as_deref().unwrap_or("nobody (orphaned)"),
+        info.votes,
+        info.out_of_date.is_some()
+    );
     let review = aurbuild::rpc::fetch_review(name, &info.pkgbase, commit.as_deref())?;
     for w in &review.warnings {
         eprintln!("warning: {w}");
@@ -29,13 +40,21 @@ pub fn pin(args: &[String]) -> Result<()> {
     let official = aurbuild::plan::Official::new(&dbs);
     let missing = aurbuild::plan::unresolved(std::slice::from_ref(&review), &official);
     if !missing.is_empty() {
-        eprintln!("not in the official repositories (pin these AUR packages too): {}", missing.iter().map(|m| m.1.clone()).collect::<Vec<_>>().join(", "));
+        eprintln!(
+            "not in the official repositories (pin these AUR packages too): {}",
+            missing
+                .iter()
+                .map(|m| m.1.clone())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
     }
-    let plan = aurbuild::plan::plan(std::slice::from_ref(&review), &[name.clone()], &official);
-    let entry = match plan {
-        Ok(mut p) => p.remove(0),
-        Err(e) => return Err(e.into()),
-    };
+    let mut plan = aurbuild::plan::plan(
+        std::slice::from_ref(&review),
+        std::slice::from_ref(name),
+        &official,
+    )?;
+    let entry = plan.remove(0);
     print!("{}", hostcfg::writer::aur_block(&[entry]));
     Ok(())
 }

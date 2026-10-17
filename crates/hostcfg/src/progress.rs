@@ -19,7 +19,13 @@ pub enum Event {
     /// A build stage (`config`, `keyring`, `kernel`, `tiny-init`, `uefi-loader`, `bios`, `payload`, `iso`).
     Stage { name: String, state: State },
     /// The ISO is complete: path, size, SHA-256, the profile and config it was built from.
-    Done { path: String, size: u64, sha256: String, profile: String, config: String },
+    Done {
+        path: String,
+        size: u64,
+        sha256: String,
+        profile: String,
+        config: String,
+    },
     /// The build failed; `message` is the error text.
     Failed { message: String },
 }
@@ -27,7 +33,10 @@ pub enum Event {
 impl Event {
     /// The line `xtask` prints.
     pub fn line(&self) -> String {
-        format!("{MARKER}{}", serde_json::to_string(self).expect("events serialize"))
+        format!(
+            "{MARKER}{}",
+            serde_json::to_string(self).expect("events serialize")
+        )
     }
 
     /// Parses a line of `xtask` output; `None` for anything that is not an event.
@@ -42,10 +51,22 @@ mod tests {
 
     #[test]
     fn events_round_trip_and_log_lines_are_ignored() {
-        let e = Event::Stage { name: "kernel".into(), state: State::Start };
-        assert_eq!(e.line(), "@archstaller-event {\"event\":\"stage\",\"name\":\"kernel\",\"state\":\"start\"}");
+        let e = Event::Stage {
+            name: "kernel".into(),
+            state: State::Start,
+        };
+        assert_eq!(
+            e.line(),
+            "@archstaller-event {\"event\":\"stage\",\"name\":\"kernel\",\"state\":\"start\"}"
+        );
         assert_eq!(Event::parse(&e.line()), Some(e));
-        let d = Event::Done { path: "/x.iso".into(), size: 5, sha256: "ab".into(), profile: "large".into(), config: "c.lua".into() };
+        let d = Event::Done {
+            path: "/x.iso".into(),
+            size: 5,
+            sha256: "ab".into(),
+            profile: "large".into(),
+            config: "c.toml".into(),
+        };
         assert_eq!(Event::parse(&d.line()), Some(d));
         assert_eq!(Event::parse("payload: kernel 1 -> 2 bytes"), None);
         assert_eq!(Event::parse("@archstaller-event not json"), None);

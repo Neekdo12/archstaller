@@ -67,10 +67,13 @@ const TX_DEXT: u32 = 1 << 29;
 const DD: u32 = 1;
 
 const IGB_IDS: &[u16] = &[
-    0x10c9, 0x10e6, 0x10e7, 0x10e8, 0x150a, 0x150d, 0x150e, 0x150f, 0x1510, 0x1511, 0x1516, 0x1518, 0x1521, 0x1522,
-    0x1523, 0x1524, 0x1533, 0x1534, 0x1535, 0x1536, 0x1537, 0x1538, 0x1539, 0x157b, 0x157c, 0x1f40, 0x1f41, 0x1f45,
+    0x10c9, 0x10e6, 0x10e7, 0x10e8, 0x150a, 0x150d, 0x150e, 0x150f, 0x1510, 0x1511, 0x1516, 0x1518,
+    0x1521, 0x1522, 0x1523, 0x1524, 0x1533, 0x1534, 0x1535, 0x1536, 0x1537, 0x1538, 0x1539, 0x157b,
+    0x157c, 0x1f40, 0x1f41, 0x1f45,
 ];
-const IGC_IDS: &[u16] = &[0x15f2, 0x15f3, 0x0d9f, 0x125b, 0x125c, 0x125d, 0x3100, 0x3101, 0x5502, 0x5503];
+const IGC_IDS: &[u16] = &[
+    0x15f2, 0x15f3, 0x0d9f, 0x125b, 0x125c, 0x125d, 0x3100, 0x3101, 0x5502, 0x5503,
+];
 
 #[derive(Clone, Copy, PartialEq)]
 enum Variant {
@@ -129,22 +132,33 @@ impl Igb {
         regs.write32(TCTL, TCTL_PSP);
         regs.read32(STATUS); // flush
         platform::delay_us(2_000);
-        let reset = if variant == Variant::Igc { CTRL_DEV_RST } else { CTRL_RST };
+        let reset = if variant == Variant::Igc {
+            CTRL_DEV_RST
+        } else {
+            CTRL_RST
+        };
         regs.write32(CTRL, regs.read32(CTRL) | reset);
         platform::delay_us(20_000);
         platform::wait_until(1000, || regs.read32(CTRL) & reset == 0)?;
         // The NVM autoload fills in the MAC address; wait for it.
-        let _ = platform::wait_until(500, || regs.read32(EECD) & EECD_AUTO_RD != 0);
+        let _res = platform::wait_until(500, || regs.read32(EECD) & EECD_AUTO_RD != 0);
         regs.write32(IMC, 0xffff_ffff);
         regs.write32(CTRL, regs.read32(CTRL) | CTRL_SLU);
         if variant == Variant::Igb {
             // Start copper auto-negotiation the way the Linux driver does.
-            let _ = Self::mdic_write(&regs, MII_BMCR, BMCR_AUTONEG_RESTART);
+            let _res = Self::mdic_write(&regs, MII_BMCR, BMCR_AUTONEG_RESTART);
         }
 
         let ral = regs.read32(RAL0);
         let rah = regs.read32(RAH0);
-        let mac = [ral as u8, (ral >> 8) as u8, (ral >> 16) as u8, (ral >> 24) as u8, rah as u8, (rah >> 8) as u8];
+        let mac = [
+            ral as u8,
+            (ral >> 8) as u8,
+            (ral >> 16) as u8,
+            (ral >> 24) as u8,
+            rah as u8,
+            (rah >> 8) as u8,
+        ];
         if mac == [0; 6] {
             return Err(Error::Unsupported);
         }
@@ -182,7 +196,17 @@ impl Igb {
         platform::wait_until(1000, || regs.read32(TXDCTL) & QUEUE_ENABLE != 0)?;
         regs.write32(TCTL, TCTL_EN | TCTL_PSP | (0x0f << 4) | (0x40 << 12));
 
-        Ok(Igb { regs, rx_ring, tx_ring, rx_bufs, tx_buf, rx_next: 0, tx_next: 0, mac, variant })
+        Ok(Igb {
+            regs,
+            rx_ring,
+            tx_ring,
+            rx_bufs,
+            tx_buf,
+            rx_next: 0,
+            tx_next: 0,
+            mac,
+            variant,
+        })
     }
 }
 
@@ -207,11 +231,17 @@ impl NetDevice for Igb {
         if frame.len() > BUF || frame.is_empty() {
             return Err(Error::InvalidArgument);
         }
+        let Some(dest) = self.tx_buf.as_mut_slice().get_mut(..frame.len()) else {
+            return Err(Error::InvalidArgument);
+        };
+        dest.copy_from_slice(frame);
         let d = Mmio::new(self.tx_ring.as_ptr()).offset(16 * self.tx_next);
-        self.tx_buf.as_mut_slice()[..frame.len()].copy_from_slice(frame);
         d.write64(0, self.tx_buf.phys());
         d.write32(12, (frame.len() as u32) << 14); // PAYLEN, DD cleared
-        d.write32(8, frame.len() as u32 | TX_DTYP_DATA | TX_EOP | TX_IFCS | TX_RS | TX_DEXT);
+        d.write32(
+            8,
+            frame.len() as u32 | TX_DTYP_DATA | TX_EOP | TX_IFCS | TX_RS | TX_DEXT,
+        );
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
         self.tx_next = (self.tx_next + 1) % RING;
         self.regs.write32(TDT, self.tx_next as u32);
@@ -228,7 +258,13 @@ impl NetDevice for Igb {
         let len = d.read16(12) as usize;
         let n = len.min(buf.len());
         let off = self.rx_next * BUF;
-        buf[..n].copy_from_slice(&self.rx_bufs.as_slice()[off..off + n]);
+        let (Some(dest), Some(src)) = (
+            buf.get_mut(..n),
+            self.rx_bufs.as_slice().get(off..off + n),
+        ) else {
+            return None;
+        };
+        dest.copy_from_slice(src);
         // Hand the descriptor back: fresh read format.
         d.write64(0, self.rx_bufs.phys_at(off));
         d.write64(8, 0);

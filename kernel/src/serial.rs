@@ -23,7 +23,9 @@ pub struct Serial {
 
 impl Serial {
     pub const fn new() -> Self {
-        Serial { state: State::Absent }
+        Serial {
+            state: State::Absent,
+        }
     }
 
     pub fn init(&mut self) {

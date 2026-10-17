@@ -1,0 +1,64 @@
+# archstaller: kind=preset
+# KDE Plasma (Wayland session) with NetworkManager, PipeWire and Firefox; ly starts the session.
+# The biggest preset (well over 1 GiB to download); use a disk of 20 GiB or more.
+schema = 1
+
+[system]
+hostname = "plasma"
+timezone = "Europe/Prague"
+locale = "en_US.UTF-8"
+keymap = "us"
+
+[install]
+mirrors = ["https://geo.mirror.pkgbuild.com/$repo/os/$arch"]
+
+[install.disk]
+auto_largest = true
+esp_mib = 1024
+
+[packages]
+explicit = [
+  "base",
+  "linux",
+  "mkinitcpio",
+  "grub",
+  "efibootmgr",
+  "sudo",
+  "nano",
+  "ly",
+  "linux-firmware",
+  "plasma-desktop",
+  "plasma-nm",
+  "plasma-pa",
+  "kscreen",
+  "konsole",
+  "dolphin",
+  "kate",
+  "polkit",
+  "mesa",
+  "xorg-xwayland",
+  "networkmanager",
+  "pipewire",
+  "pipewire-pulse",
+  "wireplumber",
+  "ttf-dejavu",
+  "noto-fonts",
+  "firefox",
+]
+
+[packages.providers]
+initramfs = "mkinitcpio"
+jack = "pipewire-jack"
+
+[[users]]
+name = "passwd_is_passwd"
+password_hash = "$6$archstlr$gnUg60P8TrWaKT.8/oW8Iq1kc8LlPnk4A6UWw5ij0AAQNe2IN7TuPFnw7PmXMXuobrVIYBSbNWUgRbpafXqcc."
+groups = ["wheel"]
+shell = "/bin/bash"
+
+[first_boot]
+services = [
+  "systemd-timesyncd.service",
+  "ly@tty2.service",
+  "NetworkManager.service",
+]

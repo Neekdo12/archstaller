@@ -8,7 +8,7 @@ fn init_platform() {
         struct TestPlatform;
         impl drivers::platform::Platform for TestPlatform {
             fn map_mmio(&self, _phys: u64, _len: usize) -> *mut u8 {
-                unimplemented!("tests never map device memory")
+                core::ptr::null_mut()
             }
             fn hhdm(&self) -> u64 {
                 0 // phys == virt
@@ -16,8 +16,8 @@ fn init_platform() {
             fn now_ns(&self) -> u64 {
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos() as u64
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(0)
             }
         }
         drivers::platform::init(Box::leak(Box::new(TestPlatform)));
@@ -29,12 +29,16 @@ mod ring {
     use usb::xhci::Ring;
 
     fn trb(ring_mem: &[u8], i: usize) -> (u64, u32, u32) {
-        let b = &ring_mem[i * 16..i * 16 + 16];
-        (
-            u64::from_le_bytes(b[0..8].try_into().unwrap()),
-            u32::from_le_bytes(b[8..12].try_into().unwrap()),
-            u32::from_le_bytes(b[12..16].try_into().unwrap()),
-        )
+        let b = ring_mem.get(i * 16..i * 16 + 16).unwrap_or(&[]);
+        if let [p0, p1, p2, p3, p4, p5, p6, p7, s0, s1, s2, s3, c0, c1, c2, c3] = *b {
+            (
+                u64::from_le_bytes([p0, p1, p2, p3, p4, p5, p6, p7]),
+                u32::from_le_bytes([s0, s1, s2, s3]),
+                u32::from_le_bytes([c0, c1, c2, c3]),
+            )
+        } else {
+            (0, 0, 0)
+        }
     }
 
     #[test]
@@ -53,7 +57,11 @@ mod ring {
         let (param, _status, control) = trb(mem, 3);
         assert_eq!(param, p0, "link TRB points back at the ring base");
         assert_eq!((control >> 10) & 0x3f, 6, "link TRB type");
-        assert_eq!(control & 1, 1, "link TRB cycle matches the pass it was written in");
+        assert_eq!(
+            control & 1,
+            1,
+            "link TRB cycle matches the pass it was written in"
+        );
         assert_ne!(control & 2, 0, "link TRB has the toggle-cycle bit");
         // Next pass runs with the flipped cycle state.
         r.push(0x4000, 0, 2 << 10);

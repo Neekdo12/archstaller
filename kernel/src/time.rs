@@ -22,7 +22,7 @@ pub fn init(boot_unix: i64) {
     };
     TSC_HZ.store(hz, Ordering::Relaxed);
     TSC_BASE.store(unsafe { _rdtsc() }, Ordering::Relaxed);
-    BOOT_UNIX.store(boot_unix.max(0) as u64, Ordering::Relaxed);
+    BOOT_UNIX.store(boot_unix.max(0).cast_unsigned(), Ordering::Relaxed);
 }
 
 /// Calibrates against PIT channel 2 (one-shot, polled). The wait is bounded in TSC cycles (about
@@ -121,7 +121,13 @@ pub fn rtc_unix_time() -> i64 {
         t = again;
     }
     let b = read(0x0b);
-    let bcd = |v: u8| if b & 4 == 0 { (v & 0x0f) + (v >> 4) * 10 } else { v };
+    let bcd = |v: u8| {
+        if b & 4 == 0 {
+            (v & 0x0f) + (v >> 4) * 10
+        } else {
+            v
+        }
+    };
     let pm = t[2] & 0x80 != 0;
     let mut hour = bcd(t[2] & 0x7f) as i64;
     if b & 2 == 0 {
@@ -130,7 +136,13 @@ pub fn rtc_unix_time() -> i64 {
             hour += 12;
         }
     }
-    let (sec, min, day, month, year) = (bcd(t[0]) as i64, bcd(t[1]) as i64, bcd(t[3]) as i64, bcd(t[4]) as i64, 2000 + bcd(t[5]) as i64);
+    let (sec, min, day, month, year) = (
+        bcd(t[0]) as i64,
+        bcd(t[1]) as i64,
+        bcd(t[3]) as i64,
+        bcd(t[4]) as i64,
+        2000 + bcd(t[5]) as i64,
+    );
     if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
         return 0;
     }

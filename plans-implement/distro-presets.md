@@ -1,9 +1,9 @@
 # Omarchy support
 
-**Status:** the Omarchy preset exists (`configs/omarchy.lua`, derived from Omarchy v4.0.4) and resolves with
+**Status:** the Omarchy preset exists (`configs/omarchy.toml`, derived from Omarchy v4.0.4) and resolves with
 `cargo xtask check-presets` (896 packages, about 2.4 GiB). It is the official-repository subset of Omarchy's package
 list, with `ly` instead of `sddm`, and without Omarchy's own scripts, themes and dotfiles, because those come from
-Omarchy's repository or the AUR, which the installer does not use for presets. `cargo xtask e2e --config configs/omarchy.lua --disk-gib 24`
+Omarchy's repository or the AUR, which the installer does not use for presets. `cargo xtask e2e --config configs/omarchy.toml --disk-gib 24`
 passes in QEMU (BIOS, virtio): install, first boot (`pacman -U` of all 906 packages) and a second boot to the
 `omarchy login:` prompt. It does not start Hyprland or log in, and the default 16 GiB test disk is too small for it.
 Use a disk of 24 GiB or more.
@@ -23,7 +23,7 @@ Arch package pipeline, different package selection and system configuration.
 
 ## Current boundary
 
-The existing preset mechanism is the files marked `-- archstaller: kind=preset` in `configs/`, with shared defaults in `configs/common.lua`. The
+The existing preset mechanism is the files marked `# archstaller: kind=preset` in `configs/`. The
 presets supply package names and system configuration; they do not select a different installer kernel.
 The GUI and CLI already load these configs through `hostcfg`.
 
@@ -42,9 +42,9 @@ Several current assumptions must be addressed when adding Arch-derived distribut
 
 Implement Omarchy first, reusing the Arch backend and adding no new kernel code.
 
-1. Add `configs/omarchy.lua` (first line `-- archstaller: kind=preset`). Reuse `configs/common.lua` for shared Arch packages, users, disk setup,
-   and standard configuration. Keep the Omarchy package list and any supported configuration files in
-   the Omarchy preset or small shared Lua modules; do not fork all common defaults.
+1. Add `configs/omarchy.toml` (first line `# archstaller: kind=preset`).
+   Keep the Omarchy package list and any supported configuration files in
+   the Omarchy preset; do not fork all common defaults.
 2. Derive the package list and configuration from a documented, pinned Omarchy release. Prefer normal
    Arch packages and Arch repositories where possible. Record any packages that require another
    repository and do not silently run an upstream installer script as root.

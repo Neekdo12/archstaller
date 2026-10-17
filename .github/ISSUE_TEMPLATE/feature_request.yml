@@ -15,7 +15,7 @@ body:
       options:
         - New preset or preset change
         - Network or storage driver
-        - Config option (Lua)
+        - Config option (TOML)
         - GTK desktop app
         - Build tooling (xtask)
         - First-boot behaviour
@@ -34,8 +34,8 @@ body:
     id: proposal
     attributes:
       label: What would you like to see?
-      description: For a config option, show the Lua you would write.
-      render: lua
+      description: For a config option, show the TOML you would write.
+      render: toml
   - type: textarea
     id: alternatives
     attributes:

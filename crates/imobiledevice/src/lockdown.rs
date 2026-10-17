@@ -34,7 +34,10 @@ pub struct Lockdown {
 fn summary(v: &Value) -> String {
     match v {
         Value::Dict(kv) => {
-            let parts: Vec<String> = kv.iter().map(|(k, v)| alloc::format!("{k}={}", summary(v))).collect();
+            let parts: Vec<String> = kv
+                .iter()
+                .map(|(k, v)| alloc::format!("{k}={}", summary(v)))
+                .collect();
             alloc::format!("{{{}}}", parts.join(", "))
         }
         Value::Array(a) => alloc::format!("[{} items]", a.len()),
@@ -63,14 +66,17 @@ fn frame_recv(io: &mut Channel, timeout_ms: u64) -> Result<Value> {
     }
     let mut body = alloc::vec![0u8; len];
     io.read_exact(&mut body, timeout_ms)?;
-    plist::parse(&body).map_err(|_| Error::Io)
+    plist::parse(&body).map_err(|_e| Error::Io)
 }
 
 impl Lockdown {
     /// Takes the connection to lockdownd's port and verifies the service type via QueryType.
     pub fn new(chan: Channel) -> Result<Lockdown> {
         let mut ld = Lockdown { io: chan };
-        let reply = ld.request(&Value::dict(alloc::vec![("Request", Value::str("QueryType"))]))?;
+        let reply = ld.request(&Value::dict(alloc::vec![(
+            "Request",
+            Value::str("QueryType")
+        )]))?;
         match reply.dict_get_str("Type") {
             Some("com.apple.mobile.lockdown") => Ok(ld),
             other => {
@@ -103,7 +109,10 @@ impl Lockdown {
 
     /// lockdownd GetValue; returns the raw value node.
     pub fn get_value(&mut self, domain: Option<&str>, key: &str) -> Result<Value> {
-        let mut req = alloc::vec![("Key", Value::str(key)), ("Request", Value::str("GetValue"))];
+        let mut req = alloc::vec![
+            ("Key", Value::str(key)),
+            ("Request", Value::str("GetValue"))
+        ];
         if let Some(d) = domain {
             req.push(("Domain", Value::str(d)));
         }
@@ -129,7 +138,10 @@ impl Lockdown {
             ("PairRecord", pair::record_plist(record)),
             ("Request", Value::str("Pair")),
             ("ProtocolVersion", Value::str(PROTOCOL_VERSION)),
-            ("PairingOptions", Value::dict(alloc::vec![("ExtendedPairingErrors", Value::Bool(true))])),
+            (
+                "PairingOptions",
+                Value::dict(alloc::vec![("ExtendedPairingErrors", Value::Bool(true))])
+            ),
         ]);
         self.send(&req)
     }
@@ -143,7 +155,9 @@ impl Lockdown {
         // `{EscrowBag, Request = "Pair"}` and no Result key (seen on real hardware).
         let has_error = reply.get("Error").is_some();
         if reply.dict_get_str("Result") == Some("Success")
-            || (!has_error && reply.dict_get_str("Result").is_none() && reply.dict_get_data("EscrowBag").is_some())
+            || (!has_error
+                && reply.dict_get_str("Result").is_none()
+                && reply.dict_get_data("EscrowBag").is_some())
         {
             return Ok(PairReply::Paired);
         }

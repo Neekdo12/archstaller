@@ -1,16 +1,48 @@
 //! BIOS stage 2 (64-bit part). `entry.s` collected the memory map and a framebuffer, read what to
 //! boot into high memory, and entered long mode with the first 4 GiB identity mapped; this hands
 //! over to `loadcore` (installer ISO) or boots the installed system's Linux kernel (first boot).
-#![no_std]
-#![no_main]
+#![cfg_attr(target_os = "none", no_std)]
+#![cfg_attr(target_os = "none", no_main)]
+#![cfg_attr(
+    not(target_os = "none"),
+    expect(
+        dead_code,
+        unused_imports,
+        reason = "items only used in target_os = none"
+    )
+)]
+
+#![cfg_attr(
+    target_os = "none",
+    expect(
+        clippy::multiple_unsafe_ops_per_block,
+        reason = "bare-metal BIOS low memory, real-mode buffers, and stage 2 entry"
+    )
+)]
+#![cfg_attr(
+    target_os = "none",
+    expect(
+        clippy::undocumented_unsafe_blocks,
+        reason = "bare-metal BIOS low memory, real-mode buffers, and stage 2 entry"
+    )
+)]
+#![cfg_attr(
+    target_os = "none",
+    expect(
+        clippy::panic,
+        reason = "bare-metal BIOS early boot errors must panic and halt"
+    )
+)]
 
 use bootinfo::bios;
 use bootinfo::*;
+#[cfg(target_os = "none")]
 use core::arch::global_asm;
 use loadcore::{log, log_hex, Boot, Map};
 
-mod linux;
+pub mod linux;
 
+#[cfg(target_os = "none")]
 global_asm!(include_str!("entry.s"));
 
 /// Page tables for the identity map, zeroed and filled by `entry.s`.
@@ -21,17 +53,20 @@ pub static mut boot_pt: PageTables = PageTables([0; 0x6000]);
 
 static mut MAP: Map = Map::new();
 
+#[cfg(target_os = "none")]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     log("boot: ");
     log(info.message().as_str().unwrap_or("panic"));
     log("\n");
     loop {
+        // SAFETY: Disabling interrupts and halting is the defined panic behaviour on x86 bare-metal.
         unsafe { core::arch::asm!("cli; hlt") };
     }
 }
 
 fn rd32(addr: usize) -> u32 {
+    // SAFETY: Read from known BIOS low-memory / data area.
     unsafe { core::ptr::read_volatile(addr as *const u32) }
 }
 
@@ -39,9 +74,11 @@ extern "C" {
     static s2_header: u8;
 }
 
+#[cfg(target_os = "none")]
 #[no_mangle]
 extern "C" fn bios_main() -> ! {
     log("boot: long mode\n");
+    #[expect(clippy::deref_addrof, reason = "raw pointer deref to MAP")]
     unsafe {
         let map = &mut *(&raw mut MAP);
         // E820 entries: base u64, length u64, type u32, extended attributes u32 (bit 0 clear: ignore the entry).
@@ -87,10 +124,14 @@ extern "C" fn bios_main() -> ! {
             _pad: 0,
         };
         if mode == bios::MODE_PAYLOAD {
-            let payload = core::slice::from_raw_parts(staged[0].0 as *const u8, staged[0].1 as usize);
-            let size = loadcore::arena_size(payload, map.top()).unwrap_or_else(|| panic!("payload is damaged"));
+            let payload =
+                core::slice::from_raw_parts(staged[0].0 as *const u8, staged[0].1 as usize);
+            let size = loadcore::arena_size(payload, map.top())
+                .unwrap_or_else(|| panic!("payload is damaged"));
             let size = (size + 4095) & !4095;
-            let arena = map.find_free(size, 4096, 0x10_0000, 4 << 30).unwrap_or_else(|| panic!("not enough memory"));
+            let arena = map
+                .find_free(size, 4096, 0x10_0000, 4 << 30)
+                .unwrap_or_else(|| panic!("not enough memory"));
             log("boot: arena at ");
             log_hex(arena);
             log("\n");
@@ -110,11 +151,24 @@ extern "C" fn bios_main() -> ! {
             } else {
                 BootMedium::default()
             };
-            loadcore::boot(map, Boot { firmware: FIRMWARE_BIOS, fb, payload, arena: (arena, size), boot_medium });
+            loadcore::boot(
+                map,
+                Boot {
+                    firmware: FIRMWARE_BIOS,
+                    fb,
+                    payload,
+                    arena: (arena, size),
+                    boot_medium,
+                },
+            );
         }
         if mode == bios::MODE_LINUX {
             let cmd = core::slice::from_raw_parts(h.add(8 + 48), bios::CMDLINE_MAX);
-            let cmd = core::str::from_utf8(&cmd[..cmd.iter().position(|&b| b == 0).unwrap_or(0)]).unwrap_or("");
+            let cmd_len = cmd.iter().position(|&b| b == 0).unwrap_or(0);
+            let cmd = cmd
+                .get(..cmd_len)
+                .and_then(|c| core::str::from_utf8(c).ok())
+                .unwrap_or("");
             let bz = core::slice::from_raw_parts(staged[0].0 as *const u8, staged[0].1 as usize);
             let end = staged[1].0 + ((staged[1].1 + 0xfffff) & !0xfffff);
             linux::boot(map, bz, staged[1], cmd, &fb, end);
@@ -122,3 +176,6 @@ extern "C" fn bios_main() -> ! {
         panic!("this boot mode is not supported");
     }
 }
+
+#[cfg(not(target_os = "none"))]
+fn main() {}

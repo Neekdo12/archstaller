@@ -4,19 +4,34 @@ use usbnet::rndis::*;
 fn init_message_layout() {
     let m = init_msg(1, 0x4000);
     assert_eq!(m.len(), 24);
-    assert_eq!(m, [2, 0, 0, 0, 24, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0x40, 0, 0]);
+    assert_eq!(
+        m,
+        [2, 0, 0, 0, 24, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0x40, 0, 0]
+    );
 }
 
 #[test]
 fn query_and_set_layout() {
     let q = query_msg(2, OID_802_3_PERMANENT_ADDRESS, 48);
-    assert_eq!(q.len(), 76, "header plus a 48-byte zeroed information buffer");
+    assert_eq!(
+        q.len(),
+        76,
+        "header plus a 48-byte zeroed information buffer"
+    );
     assert_eq!(&q[0..8], &[4, 0, 0, 0, 76, 0, 0, 0]);
     assert_eq!(&q[12..16], &0x0101_0101u32.to_le_bytes());
     assert_eq!(&q[16..20], &48u32.to_le_bytes());
     assert!(q[28..].iter().all(|b| *b == 0));
-    assert_eq!(&q[20..24], &20u32.to_le_bytes(), "buffer offset counts from the request id");
-    let s = set_msg(3, OID_GEN_CURRENT_PACKET_FILTER, &PACKET_FILTER.to_le_bytes());
+    assert_eq!(
+        &q[20..24],
+        &20u32.to_le_bytes(),
+        "buffer offset counts from the request id"
+    );
+    let s = set_msg(
+        3,
+        OID_GEN_CURRENT_PACKET_FILTER,
+        &PACKET_FILTER.to_le_bytes(),
+    );
     assert_eq!(s.len(), 32);
     assert_eq!(&s[4..8], &32u32.to_le_bytes());
     assert_eq!(&s[28..], &0xfu32.to_le_bytes());
@@ -31,7 +46,10 @@ fn parses_completions() {
     init[8..12].copy_from_slice(&1u32.to_le_bytes());
     init[36..40].copy_from_slice(&0x4000u32.to_le_bytes());
     let r = parse_reply(&init).unwrap();
-    assert_eq!((r.msg_type, r.request_id, r.status, r.max_transfer), (MSG_INIT | CMPLT, 1, 0, 0x4000));
+    assert_eq!(
+        (r.msg_type, r.request_id, r.status, r.max_transfer),
+        (MSG_INIT | CMPLT, 1, 0, 0x4000)
+    );
 
     // QUERY_CMPLT with a 6-byte MAC; the offset is relative to the request id (byte 8).
     let mut q = vec![0u8; 24 + 6];
@@ -44,7 +62,10 @@ fn parses_completions() {
     let r = parse_reply(&q).unwrap();
     assert_eq!(r.info, [0x02, 0, 0x11, 0x22, 0x33, 0x44]);
 
-    assert!(parse_reply(&q[..20]).is_err(), "length field exceeds the buffer");
+    assert!(
+        parse_reply(&q[..20]).is_err(),
+        "length field exceeds the buffer"
+    );
 }
 
 #[test]

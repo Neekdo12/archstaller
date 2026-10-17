@@ -1,7 +1,13 @@
 use usbnet::{ax88179, ncm};
 
 fn params(div: u16, rem: u16, align: u16) -> ncm::Params {
-    ncm::Params { in_max: 16384, out_max: 16384, out_divisor: div, out_remainder: rem, out_align: align }
+    ncm::Params {
+        in_max: 16384,
+        out_max: 16384,
+        out_divisor: div,
+        out_remainder: rem,
+        out_align: align,
+    }
 }
 
 #[test]
@@ -15,10 +21,19 @@ fn ncm_parameters_parse() {
     b[22..24].copy_from_slice(&0u16.to_le_bytes());
     b[24..26].copy_from_slice(&4u16.to_le_bytes());
     let p = ncm::parse_params(&b).unwrap();
-    assert_eq!((p.in_max, p.out_max, p.out_divisor, p.out_remainder, p.out_align), (16384, 8192, 4, 0, 4));
+    assert_eq!(
+        (
+            p.in_max,
+            p.out_max,
+            p.out_divisor,
+            p.out_remainder,
+            p.out_align
+        ),
+        (16384, 8192, 4, 0, 4)
+    );
     b[2] = 0; // no NTB16
-    assert!(ncm::parse_params(&b).is_err());
-    assert!(ncm::parse_params(&b[..10]).is_err());
+    ncm::parse_params(&b).unwrap_err();
+    ncm::parse_params(&b[..10]).unwrap_err();
 }
 
 #[test]
@@ -30,7 +45,11 @@ fn ncm_ntb_layout_and_round_trip() {
     assert_eq!(&ntb[4..6], &12u16.to_le_bytes());
     assert_eq!(&ntb[6..8], &7u16.to_le_bytes());
     assert_eq!(&ntb[8..10], &(ntb.len() as u16).to_le_bytes());
-    assert_eq!(&ntb[10..12], &72u16.to_le_bytes(), "NDP follows the datagram, 4-byte aligned");
+    assert_eq!(
+        &ntb[10..12],
+        &72u16.to_le_bytes(),
+        "NDP follows the datagram, 4-byte aligned"
+    );
     assert_eq!(&ntb[12..72], &frame[..]);
     // NDP16: "NCM0", length 16, no next NDP, one entry (offset 12, length 60), then zeros.
     assert_eq!(&ntb[72..76], b"NCM0");
@@ -50,8 +69,11 @@ fn ncm_respects_divisor_and_remainder() {
     assert_eq!(ndp % 8, 0);
     assert_eq!(ncm::parse_ntb(&ntb), vec![frame.clone()]);
     // Too big for the device's limit.
-    let small = ncm::Params { out_max: 64, ..params(4, 0, 4) };
-    assert!(ncm::build_ntb(&frame, 1, &small).is_err());
+    let small = ncm::Params {
+        out_max: 64,
+        ..params(4, 0, 4)
+    };
+    ncm::build_ntb(&frame, 1, &small).unwrap_err();
 }
 
 #[test]
@@ -82,7 +104,10 @@ fn ax88179_tx_header_pads_on_packet_boundaries() {
     assert_eq!(&t[4..8], &0u32.to_le_bytes());
     assert_eq!(t.len(), 68);
     let f = vec![0u8; 504]; // 504 + 8 == 512
-    assert_eq!(&ax88179::tx_frame(&f, 512)[4..8], &0x8000_8000u32.to_le_bytes());
+    assert_eq!(
+        &ax88179::tx_frame(&f, 512)[4..8],
+        &0x8000_8000u32.to_le_bytes()
+    );
 }
 
 #[test]
@@ -119,7 +144,15 @@ fn ax88179_rx_splits_batched_packets() {
 fn ax88179_link_settings_follow_speed() {
     use ax88179::*;
     let (m, q, rx) = link_settings(PHYSR_GIGA | PHYSR_FULL | PHYSR_LINK, USB_SS);
-    assert_eq!(m, MEDIUM_RECEIVE_EN | MEDIUM_TXFLOW | MEDIUM_RXFLOW | MEDIUM_GIGA | MEDIUM_125MHZ | MEDIUM_FULL_DUPLEX);
+    assert_eq!(
+        m,
+        MEDIUM_RECEIVE_EN
+            | MEDIUM_TXFLOW
+            | MEDIUM_RXFLOW
+            | MEDIUM_GIGA
+            | MEDIUM_125MHZ
+            | MEDIUM_FULL_DUPLEX
+    );
     assert_eq!(q, [7, 0x4f, 0, 0x12, 0xff]);
     assert_eq!(rx, 1024 * (0x12 + 2));
     let (m, q, _) = link_settings(PHYSR_100 | PHYSR_FULL | PHYSR_LINK, USB_HS);

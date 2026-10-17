@@ -1,10 +1,10 @@
-//! The `as` authoring model: what a Lua config returns (`return { as = { ... } }`).
+//! The configuration authoring model for TOML configs.
 //!
-//! These types only describe the shape of the file. They reject unknown keys and wrong value types
+//! These types describe the shape of the TOML file. They reject unknown keys and wrong value types
 //! while deserializing, then [`AsConfig::into_parts`] normalizes them into the installer's
 //! [`config::Config`] and the host-only [`HostConfig`]; the values are validated there, by the same
-//! code as before. [`AsConfig::from_parts`] goes the other way for the writer. The LuaLS annotations
-//! in `configs/archstaller.lua` are generated from these types (`cargo xtask gen-luals`).
+//! code as before. [`AsConfig::from_parts`] goes the other way for the writer. The JSON Schema
+//! in `configs/archstaller.schema.json` is generated from these types (`cargo xtask gen-schema`).
 use crate::host::{Build, HostConfig, DRIVERS};
 use schemars::{json_schema, JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
@@ -12,14 +12,6 @@ use std::collections::BTreeMap;
 
 /// The schema version this build reads and writes.
 pub const SCHEMA: u32 = 1;
-
-/// The whole file: exactly one application namespace, `as`.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct Envelope {
-    #[serde(rename = "as")]
-    pub as_: AsConfig,
-}
 
 /// An Archstaller configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -126,6 +118,9 @@ pub struct FirstBoot {
     /// Scripts run as root, in order, at the end of the first boot.
     #[serde(default)]
     pub scripts: Vec<Script>,
+    /// Custom systemd units installed into /etc/systemd/system/ (root) or ~/.config/systemd/user/ (user).
+    #[serde(default)]
+    pub custom_services: Vec<CustomService>,
     /// Files downloaded into every user's home directory (a failed download only warns).
     #[serde(default)]
     pub user_files: Vec<UserFile>,
@@ -134,12 +129,32 @@ pub struct FirstBoot {
     pub user_archives: Vec<UserArchive>,
 }
 
+/// A custom systemd service unit, either inline or from a local file.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CustomService {
+    /// Unit file name, for example `rclone-onedrive.service`.
+    pub name: String,
+    /// Target user: `"root"` (or omit) for system service, or a username for user service.
+    #[serde(default)]
+    pub user: Option<String>,
+    /// Whether the service is enabled on first boot (default: true).
+    #[serde(default = "config::default_true")]
+    pub enable: bool,
+    /// Path of a local unit file, relative to the config file. Mutually exclusive with `content`.
+    #[serde(default)]
+    pub file: Option<String>,
+    /// Inline unit file content. Mutually exclusive with `file`.
+    #[serde(default)]
+    pub content: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UserFile {
     /// `https://` URL of the file (at most 1 MiB).
     pub url: String,
-    /// Destination relative to the home directory, for example `.config/hypr/hyprland.lua`.
+    /// Destination relative to the home directory, for example `.config/hypr/hyprland.conf`.
     pub dest: String,
 }
 
@@ -225,15 +240,13 @@ fn drivers_schema(_: &mut SchemaGenerator) -> Schema {
     json_schema!({ "type": ["array", "null"], "items": { "type": "string", "enum": ids } })
 }
 
-impl Envelope {
-    /// Reads the Lua value a config returned; errors carry the full path (`as.system.hostname: ...`),
-    /// with list positions counted from 1 like Lua does.
-    pub fn from_lua(value: mlua::Value) -> Result<Envelope, String> {
-        let de = mlua::serde::Deserializer::new(value);
-        serde_path_to_error::deserialize(de).map_err(|e| {
-            let msg = e.inner().to_string();
-            format!("{}: {}", path(e.path()), msg.strip_prefix("deserialize error: ").unwrap_or(&msg))
-        })
+impl AsConfig {
+    /// Reads an Archstaller TOML configuration string; errors carry the full path (`system.hostname: ...`).
+    pub fn from_toml(src: &str) -> Result<AsConfig, String> {
+        let de = toml::Deserializer::new(src);
+        let cfg: AsConfig = serde_path_to_error::deserialize(de)
+            .map_err(|e| format!("{}: {}", path(e.path()), e.inner()))?;
+        Ok(cfg)
     }
 }
 
@@ -242,7 +255,7 @@ fn path(p: &serde_path_to_error::Path) -> String {
     let mut s = String::new();
     for seg in p.iter() {
         match seg {
-            Segment::Seq { index } => s.push_str(&format!("[{}]", index + 1)),
+            Segment::Seq { index } => s.push_str(&format!("[{index}]")),
             Segment::Map { key } | Segment::Enum { variant: key } => {
                 if !s.is_empty() {
                     s.push('.');
@@ -263,33 +276,103 @@ impl AsConfig {
     /// The installer's config and the host-only settings this file stands for. Not validated yet.
     pub fn into_parts(self) -> Result<(config::Config, HostConfig), String> {
         if self.schema != SCHEMA {
-            return Err(format!("as.schema: this version reads schema {SCHEMA}, the file says {}", self.schema));
+            return Err(format!(
+                "schema: this version reads schema {SCHEMA}, the file says {}",
+                self.schema
+            ));
         }
         let cfg = config::Config {
             hostname: self.system.hostname,
             timezone: self.system.timezone,
             locale: self.system.locale,
             keymap: self.system.keymap,
-            disk: config::Disk { model: self.install.disk.model, confirm_serial: self.install.disk.confirm_serial, auto_largest: self.install.disk.auto_largest, esp_mib: self.install.disk.esp_mib },
+            disk: config::Disk {
+                model: self.install.disk.model,
+                confirm_serial: self.install.disk.confirm_serial,
+                auto_largest: self.install.disk.auto_largest,
+                esp_mib: self.install.disk.esp_mib,
+            },
             mirrors: self.install.mirrors,
             packages: self.packages.explicit,
             providers: self.packages.providers.into_iter().collect(),
             root_password_hash: self.system.root_password_hash,
-            users: self.users.into_iter().map(|u| config::User { name: u.name, password_hash: u.password_hash, groups: u.groups, shell: u.shell }).collect(),
+            users: self
+                .users
+                .into_iter()
+                .map(|u| config::User {
+                    name: u.name,
+                    password_hash: u.password_hash,
+                    groups: u.groups,
+                    shell: u.shell,
+                })
+                .collect(),
             services: self.first_boot.services,
             kernel_params: self.first_boot.kernel_params,
-            user_files: self.first_boot.user_files.into_iter().map(|f| config::UserFile { url: f.url, dest: f.dest }).collect(),
-            user_archives: self.first_boot.user_archives.into_iter().map(|a| config::UserArchive { url: a.url }).collect(),
+            user_files: self
+                .first_boot
+                .user_files
+                .into_iter()
+                .map(|f| config::UserFile {
+                    url: f.url,
+                    dest: f.dest,
+                })
+                .collect(),
+            user_archives: self
+                .first_boot
+                .user_archives
+                .into_iter()
+                .map(|a| config::UserArchive { url: a.url })
+                .collect(),
             dry_run: self.install.dry_run,
-            scripts: self.first_boot.scripts.into_iter().map(|s| config::Script { id: s.id, args: s.args, file: s.file, url: s.url, sha256: s.sha256, content: None }).collect(),
+            scripts: self
+                .first_boot
+                .scripts
+                .into_iter()
+                .map(|s| config::Script {
+                    id: s.id,
+                    args: s.args,
+                    file: s.file,
+                    url: s.url,
+                    sha256: s.sha256,
+                    content: None,
+                })
+                .collect(),
+            custom_services: self
+                .first_boot
+                .custom_services
+                .into_iter()
+                .map(|cs| config::CustomService {
+                    name: cs.name,
+                    user: cs.user,
+                    enable: cs.enable,
+                    file: cs.file,
+                    content: cs.content.map(|c| c.into_bytes()),
+                })
+                .collect(),
             aur: self
                 .packages
                 .aur
                 .into_iter()
-                .map(|a| config::AurPackage { name: a.name, pkgbase: a.pkgbase, commit: a.commit, sha256: a.sha256, vcs: a.vcs, as_dep: a.as_dep, deps: a.deps, build_deps: a.build_deps, services: a.services })
+                .map(|a| config::AurPackage {
+                    name: a.name,
+                    pkgbase: a.pkgbase,
+                    commit: a.commit,
+                    sha256: a.sha256,
+                    vcs: a.vcs,
+                    as_dep: a.as_dep,
+                    deps: a.deps,
+                    build_deps: a.build_deps,
+                    services: a.services,
+                })
                 .collect(),
         };
-        let host = HostConfig { build: Build { profile: self.build.profile, tethering: self.build.tethering }, installer_drivers: self.build.installer_drivers };
+        let host = HostConfig {
+            build: Build {
+                profile: self.build.profile,
+                tethering: self.build.tethering,
+            },
+            installer_drivers: self.build.installer_drivers,
+        };
         Ok((cfg, host))
     }
 
@@ -298,9 +381,20 @@ impl AsConfig {
     pub fn from_parts(cfg: &config::Config, host: &HostConfig) -> AsConfig {
         AsConfig {
             schema: SCHEMA,
-            system: System { hostname: cfg.hostname.clone(), timezone: cfg.timezone.clone(), locale: cfg.locale.clone(), keymap: cfg.keymap.clone(), root_password_hash: cfg.root_password_hash.clone() },
+            system: System {
+                hostname: cfg.hostname.clone(),
+                timezone: cfg.timezone.clone(),
+                locale: cfg.locale.clone(),
+                keymap: cfg.keymap.clone(),
+                root_password_hash: cfg.root_password_hash.clone(),
+            },
             install: Install {
-                disk: Disk { model: cfg.disk.model.clone(), confirm_serial: cfg.disk.confirm_serial.clone(), auto_largest: cfg.disk.auto_largest, esp_mib: cfg.disk.esp_mib },
+                disk: Disk {
+                    model: cfg.disk.model.clone(),
+                    confirm_serial: cfg.disk.confirm_serial.clone(),
+                    auto_largest: cfg.disk.auto_largest,
+                    esp_mib: cfg.disk.esp_mib,
+                },
                 mirrors: cfg.mirrors.clone(),
                 dry_run: cfg.dry_run,
             },
@@ -310,24 +404,84 @@ impl AsConfig {
                 aur: cfg
                     .aur
                     .iter()
-                    .map(|a| Aur { name: a.name.clone(), pkgbase: a.pkgbase.clone(), commit: a.commit.clone(), sha256: a.sha256.clone(), vcs: a.vcs, as_dep: a.as_dep, deps: a.deps.clone(), build_deps: a.build_deps.clone(), services: a.services.clone() })
+                    .map(|a| Aur {
+                        name: a.name.clone(),
+                        pkgbase: a.pkgbase.clone(),
+                        commit: a.commit.clone(),
+                        sha256: a.sha256.clone(),
+                        vcs: a.vcs,
+                        as_dep: a.as_dep,
+                        deps: a.deps.clone(),
+                        build_deps: a.build_deps.clone(),
+                        services: a.services.clone(),
+                    })
                     .collect(),
             },
-            users: cfg.users.iter().map(|u| User { name: u.name.clone(), password_hash: u.password_hash.clone(), groups: u.groups.clone(), shell: u.shell.clone() }).collect(),
+            users: cfg
+                .users
+                .iter()
+                .map(|u| User {
+                    name: u.name.clone(),
+                    password_hash: u.password_hash.clone(),
+                    groups: u.groups.clone(),
+                    shell: u.shell.clone(),
+                })
+                .collect(),
             first_boot: FirstBoot {
                 services: cfg.services.clone(),
+                custom_services: cfg
+                    .custom_services
+                    .iter()
+                    .map(|cs| CustomService {
+                        name: cs.name.clone(),
+                        user: cs.user.clone(),
+                        enable: cs.enable,
+                        file: cs.file.clone(),
+                        content: cs
+                            .content
+                            .as_ref()
+                            .map(|c| String::from_utf8_lossy(c).into_owned()),
+                    })
+                    .collect(),
                 kernel_params: cfg.kernel_params.clone(),
-                scripts: cfg.scripts.iter().map(|s| Script { id: s.id.clone(), args: s.args.clone(), file: s.file.clone(), url: s.url.clone(), sha256: s.sha256.clone() }).collect(),
-                user_files: cfg.user_files.iter().map(|f| UserFile { url: f.url.clone(), dest: f.dest.clone() }).collect(),
-                user_archives: cfg.user_archives.iter().map(|a| UserArchive { url: a.url.clone() }).collect(),
+                scripts: cfg
+                    .scripts
+                    .iter()
+                    .map(|s| Script {
+                        id: s.id.clone(),
+                        args: s.args.clone(),
+                        file: s.file.clone(),
+                        url: s.url.clone(),
+                        sha256: s.sha256.clone(),
+                    })
+                    .collect(),
+                user_files: cfg
+                    .user_files
+                    .iter()
+                    .map(|f| UserFile {
+                        url: f.url.clone(),
+                        dest: f.dest.clone(),
+                    })
+                    .collect(),
+                user_archives: cfg
+                    .user_archives
+                    .iter()
+                    .map(|a| UserArchive { url: a.url.clone() })
+                    .collect(),
             },
-            build: AsBuild { profile: host.build.profile.clone(), tethering: host.build.tethering, installer_drivers: host.installer_drivers.clone() },
+            build: AsBuild {
+                profile: host.build.profile.clone(),
+                tethering: host.build.tethering,
+                installer_drivers: host.installer_drivers.clone(),
+            },
         }
     }
 }
 
-/// The JSON Schema of the file, the single source of the LuaLS annotations.
+/// The JSON Schema of an Archstaller TOML configuration.
 pub fn json_schema() -> serde_json::Value {
-    let schema = schemars::generate::SchemaSettings::draft2020_12().into_generator().into_root_schema_for::<Envelope>();
+    let schema = schemars::generate::SchemaSettings::draft2020_12()
+        .into_generator()
+        .into_root_schema_for::<AsConfig>();
     serde_json::to_value(schema).expect("a schema is JSON")
 }

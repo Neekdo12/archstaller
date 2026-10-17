@@ -1,7 +1,7 @@
 # Sway desktop preset implementation
 
-**Status: written, not tested.** `configs/sway.lua` exists (paths below say `presets/`; the presets now live
-in `configs/`, marked `-- archstaller: kind=preset`). Its packages were checked by name against the `core`/`extra`
+**Status: written, not tested.** `configs/sway.toml` exists (paths below say `presets/`; the presets now live
+in `configs/`, marked `# archstaller: kind=preset`). Its packages were checked by name against the `core`/`extra`
 databases of 2026-10-07; `waybar` needs `jack`, so it pins `jack = pipewire-jack`. The user config is a local
 first-boot script, `configs/sway-config.sh` (embedded at build time, no download; `common.build` gained a `scripts`
 field for it): it writes `~/.config/sway/config` for every regular user that has none and puts the same file in
@@ -20,16 +20,13 @@ kernel code or a new distribution backend.
 
 ## Existing patterns
 
-Use `presets/i3.lua` as the closest starting point for a lightweight tiling desktop's package selection,
-and `presets/hyprland.lua` for Wayland packages and the current optional user-configuration archive
-pattern. Both call `presets/common.lua`, which supplies the Arch base packages, firmware, user, disk
-selection, `ly`, and shared defaults.
+Use `configs/i3.toml` as the closest starting point for a lightweight tiling desktop's package selection,
+and `configs/hyprland.toml` for Wayland packages and user-configuration archive patterns.
 
 Follow the existing preset conventions:
 
 - Keep the config as an ordinary Arch package preset and resolve packages using the existing Arch
   `core`/`extra` databases.
-- Use `common.build{ ... }` for shared defaults; do not duplicate the shared setup.
 - Keep Sway configuration per-user under `~/.config/sway/`. Do not replace the system-wide Archstaller
   first-boot flow or add desktop-specific behavior to the installer kernel.
 - Use only official Arch repository packages for the initial preset. Do not silently add AUR helpers or
@@ -41,7 +38,7 @@ Confirm exact package names and availability in current Arch `core`/`extra` data
 an implementation; this list is a starting point, not a guarantee of repository state.
 
 - Session and display: `sway`, `xorg-xwayland`, `mesa`, `polkit`.
-- Login and session defaults: shared `ly` from `common.lua`; verify that the installed Sway session is
+- Login and session defaults: `ly`; verify that the installed Sway session is
   discoverable and selectable through ly on the supported release. Do not assume that a Wayland session
   entry is installed without checking the package contents.
 - Bar, launcher, terminal: `waybar`, `wofi`, `foot` (or another terminal available in the official
@@ -96,7 +93,7 @@ extra seat setup only if a real test demonstrates it is necessary.
 
 ## Implementation steps
 
-1. Add `presets/sway.lua` using `common.build`, with a short first-line description and a package list
+1. Add `configs/sway.toml` with a short first-line description and a package list
    resolved only from official Arch repositories.
 2. Add the Sway user config through a safe, deterministic mechanism. Keep optional user customization
    separate from the core preset so an unavailable remote source never prevents installation.
@@ -112,7 +109,7 @@ extra seat setup only if a real test demonstrates it is necessary.
    possible. Verify keyboard input, multiple outputs, suspend/resume if claimed, Wi-Fi or wired
    networking as available, audio playback, screen locking, and clean logout.
 7. Update `README.md`, `OVERVIEW.md`, preset build/check output, and GUI preset discovery (which scans
-   `presets/*.lua`) when the actual Lua preset is implemented. Do not list Sway as available before
+   `configs/*.toml`) when the actual TOML preset is implemented. Do not list Sway as available before
    package resolution and the install/login smoke test pass.
 
 ## Acceptance criteria

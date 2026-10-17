@@ -45,7 +45,13 @@ pub const MUX_CLASS: (u8, u8, u8) = (0xff, 0xfe, 0x02);
 
 /// Builds one mux packet. `version` selects the header size (0/1: 8 bytes, 2: 16 bytes).
 #[doc(hidden)]
-pub fn encode_packet(version: u32, protocol: u32, tx_seq: u16, rx_seq: u16, payload: &[u8]) -> Vec<u8> {
+pub fn encode_packet(
+    version: u32,
+    protocol: u32,
+    tx_seq: u16,
+    rx_seq: u16,
+    payload: &[u8],
+) -> Vec<u8> {
     let hdr = if version >= 2 { 16 } else { 8 };
     let mut p = Vec::with_capacity(hdr + payload.len());
     p.extend_from_slice(&protocol.to_be_bytes());
@@ -66,13 +72,27 @@ pub fn parse_packet(version: u32, buf: &[u8]) -> Result<(u32, u16, &[u8])> {
     if buf.len() < hdr {
         return Err(Error::Io);
     }
-    let protocol = u32::from_be_bytes(buf[0..4].try_into().unwrap());
-    let length = u32::from_be_bytes(buf[4..8].try_into().unwrap()) as usize;
+    let protocol = match buf.get(0..4) {
+        Some(&[b0, b1, b2, b3]) => u32::from_be_bytes([b0, b1, b2, b3]),
+        _ => return Err(Error::Io),
+    };
+    let length = match buf.get(4..8) {
+        Some(&[b0, b1, b2, b3]) => u32::from_be_bytes([b0, b1, b2, b3]) as usize,
+        _ => return Err(Error::Io),
+    };
     if length != buf.len() {
         return Err(Error::Io);
     }
-    let rx_seq = if version >= 2 { u16::from_be_bytes(buf[14..16].try_into().unwrap()) } else { 0 };
-    Ok((protocol, rx_seq, &buf[hdr..]))
+    let rx_seq = if version >= 2 {
+        match buf.get(14..16) {
+            Some(&[b0, b1]) => u16::from_be_bytes([b0, b1]),
+            _ => return Err(Error::Io),
+        }
+    } else {
+        0
+    };
+    let payload = buf.get(hdr..).ok_or(Error::Io)?;
+    Ok((protocol, rx_seq, payload))
 }
 
 #[doc(hidden)]
@@ -108,19 +128,42 @@ pub fn parse_tcp(buf: &[u8]) -> Result<(Tcp, &[u8])> {
     if buf.len() < TCP_HDR {
         return Err(Error::Io);
     }
-    let off = ((buf[12] >> 4) as usize) * 4;
+    let byte12 = *buf.get(12).ok_or(Error::Io)?;
+    let off = ((byte12 >> 4) as usize) * 4;
     if off < TCP_HDR || off > buf.len() {
         return Err(Error::Io);
     }
-    let t = Tcp {
-        sport: u16::from_be_bytes(buf[0..2].try_into().unwrap()),
-        dport: u16::from_be_bytes(buf[2..4].try_into().unwrap()),
-        seq: u32::from_be_bytes(buf[4..8].try_into().unwrap()),
-        ack: u32::from_be_bytes(buf[8..12].try_into().unwrap()),
-        flags: buf[13],
-        win: u16::from_be_bytes(buf[14..16].try_into().unwrap()),
+    let sport = match buf.get(0..2) {
+        Some(&[b0, b1]) => u16::from_be_bytes([b0, b1]),
+        _ => return Err(Error::Io),
     };
-    Ok((t, &buf[off..]))
+    let dport = match buf.get(2..4) {
+        Some(&[b0, b1]) => u16::from_be_bytes([b0, b1]),
+        _ => return Err(Error::Io),
+    };
+    let seq = match buf.get(4..8) {
+        Some(&[b0, b1, b2, b3]) => u32::from_be_bytes([b0, b1, b2, b3]),
+        _ => return Err(Error::Io),
+    };
+    let ack = match buf.get(8..12) {
+        Some(&[b0, b1, b2, b3]) => u32::from_be_bytes([b0, b1, b2, b3]),
+        _ => return Err(Error::Io),
+    };
+    let flags = *buf.get(13).ok_or(Error::Io)?;
+    let win = match buf.get(14..16) {
+        Some(&[b0, b1]) => u16::from_be_bytes([b0, b1]),
+        _ => return Err(Error::Io),
+    };
+    let payload = buf.get(off..).ok_or(Error::Io)?;
+    let t = Tcp {
+        sport,
+        dport,
+        seq,
+        ack,
+        flags,
+        win,
+    };
+    Ok((t, payload))
 }
 
 // ---------------------------------------------------------------------------
@@ -164,11 +207,16 @@ impl Muxer {
                 if d.vendor != APPLE_VENDOR {
                     return None;
                 }
-                d.interfaces.iter().find(|i| (i.class, i.subclass, i.protocol) == MUX_CLASS).cloned()
+                d.interfaces
+                    .iter()
+                    .find(|i| (i.class, i.subclass, i.protocol) == MUX_CLASS)
+                    .cloned()
             },
             |d| {
                 d.interfaces.iter().any(|i| {
-                    (i.class, i.subclass, i.protocol) == crate::netdev::IPHETH_CLASS && d.bulk_in(i).is_some() && d.bulk_out(i).is_some()
+                    (i.class, i.subclass, i.protocol) == crate::netdev::IPHETH_CLASS
+                        && d.bulk_in(i).is_some()
+                        && d.bulk_out(i).is_some()
                 })
             },
         )?;
@@ -184,7 +232,11 @@ impl Muxer {
             .ok_or(Error::Unsupported)?;
         let ep_in = dev.bulk_in(&iface).ok_or(Error::Unsupported)?;
         let ep_out = dev.bulk_out(&iface).ok_or(Error::Unsupported)?;
-        let mps_out = iface.endpoints.iter().find(|e| e.addr == ep_out).map_or(512, |e| e.max_packet as usize);
+        let mps_out = iface
+            .endpoints
+            .iter()
+            .find(|e| e.addr == ep_out)
+            .map_or(512, |e| e.max_packet as usize);
         Ok(Muxer {
             ctrl,
             dev,
@@ -215,7 +267,7 @@ impl Muxer {
             self.tx_seq = self.tx_seq.wrapping_add(1);
         }
         self.ctrl.bulk_write(&self.dev, self.ep_out, &p)?;
-        if p.len() % self.mps_out == 0 {
+        if p.len().is_multiple_of(self.mps_out) {
             self.ctrl.bulk_write_zlp(&self.dev, self.ep_out)?;
         }
         Ok(())
@@ -231,12 +283,18 @@ impl Muxer {
                 return Err(Error::Timeout);
             }
             let mut chunk = alloc::vec![0u8; RX_BUF];
-            let n = self.ctrl.bulk_read(&self.dev, self.ep_in, &mut chunk, left.max(1))?;
-            data.extend_from_slice(&chunk[..n]);
+            let n = self
+                .ctrl
+                .bulk_read(&self.dev, self.ep_in, &mut chunk, left.max(1))?;
+            if let Some(c) = chunk.get(..n) {
+                data.extend_from_slice(c);
+            }
             if data.len() >= 8 {
-                let total = u32::from_be_bytes(data[4..8].try_into().unwrap()) as usize;
-                if data.len() >= total {
-                    break;
+                if let Some(&[b0, b1, b2, b3]) = data.get(4..8) {
+                    let total = u32::from_be_bytes([b0, b1, b2, b3]) as usize;
+                    if data.len() >= total {
+                        break;
+                    }
                 }
             }
         }
@@ -263,7 +321,10 @@ impl Muxer {
             if protocol != PROTO_VERSION || payload.len() < 12 {
                 continue;
             }
-            let major = u32::from_be_bytes(payload[0..4].try_into().unwrap());
+            let major = match payload.get(0..4) {
+                Some(&[b0, b1, b2, b3]) => u32::from_be_bytes([b0, b1, b2, b3]),
+                _ => continue,
+            };
             if major != 1 && major != 2 {
                 return Err(Error::Unsupported);
             }
@@ -297,7 +358,16 @@ impl Muxer {
         }
         let sport = self.next_sport;
         self.next_sport = self.next_sport.wrapping_add(1).max(1);
-        self.conn = Some(Conn { sport, dport: port, tx_seq: 0, tx_ack: 0, peer_ack: 0, peer_win: RX_WINDOW, rx: Vec::new(), reset: false });
+        self.conn = Some(Conn {
+            sport,
+            dport: port,
+            tx_seq: 0,
+            tx_ack: 0,
+            peer_ack: 0,
+            peer_win: RX_WINDOW,
+            rx: Vec::new(),
+            reset: false,
+        });
         self.send_tcp(TH_SYN, &[])?;
         let deadline = drivers_now() + 5_000_000_000;
         loop {
@@ -309,7 +379,9 @@ impl Muxer {
             if protocol != PROTO_TCP {
                 continue;
             }
-            let Ok((t, _)) = parse_tcp(&payload) else { continue };
+            let Ok((t, _)) = parse_tcp(&payload) else {
+                continue;
+            };
             if t.dport != sport || t.sport != port {
                 continue;
             }
@@ -320,7 +392,7 @@ impl Muxer {
             if t.flags != (TH_SYN | TH_ACK) {
                 continue;
             }
-            let c = self.conn.as_mut().unwrap();
+            let c = self.conn.as_mut().ok_or(Error::Io)?;
             c.tx_seq = 1;
             c.tx_ack = 1;
             c.peer_ack = t.ack;
@@ -340,8 +412,12 @@ impl Muxer {
         if protocol != PROTO_TCP {
             return Ok(true);
         }
-        let Ok((t, data)) = parse_tcp(&payload) else { return Ok(true) };
-        let Some(c) = self.conn.as_mut() else { return Ok(true) };
+        let Ok((t, data)) = parse_tcp(&payload) else {
+            return Ok(true);
+        };
+        let Some(c) = self.conn.as_mut() else {
+            return Ok(true);
+        };
         if t.dport != c.sport || t.sport != c.dport {
             return Ok(true); // a packet for a connection we already dropped
         }
@@ -384,10 +460,11 @@ impl Channel {
                 self.mux.pump(50)?;
                 continue;
             }
-            self.mux.send_tcp(TH_ACK, &buf[..n])?;
-            let c = self.mux.conn.as_mut().unwrap();
+            let payload_slice = buf.get(..n).ok_or(Error::InvalidArgument)?;
+            self.mux.send_tcp(TH_ACK, payload_slice)?;
+            let c = self.mux.conn.as_mut().ok_or(Error::Io)?;
             c.tx_seq = c.tx_seq.wrapping_add(n as u32);
-            buf = &buf[n..];
+            buf = buf.get(n..).unwrap_or(&[]);
         }
         Ok(())
     }
@@ -399,7 +476,9 @@ impl Channel {
             let c = self.mux.conn.as_mut().ok_or(Error::Io)?;
             if !c.rx.is_empty() {
                 let n = buf.len().min(c.rx.len());
-                buf[..n].copy_from_slice(&c.rx[..n]);
+                if let (Some(dst), Some(src)) = (buf.get_mut(..n), c.rx.get(..n)) {
+                    dst.copy_from_slice(src);
+                }
                 c.rx.drain(..n);
                 return Ok(n);
             }
@@ -422,7 +501,8 @@ impl Channel {
             if left == 0 {
                 return Err(Error::Timeout);
             }
-            got += self.read(&mut buf[got..], left)?;
+            let slice = buf.get_mut(got..).ok_or(Error::InvalidArgument)?;
+            got += self.read(slice, left)?;
         }
         Ok(())
     }

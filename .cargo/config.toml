@@ -11,3 +11,8 @@ rustflags = [
     "--cfg", "poly1305_force_soft",
     "--cfg", 'curve25519_dalek_backend="serial"',
 ]
+
+[target.aarch64-unknown-none]
+rustflags = [
+    "-C", "link-arg=-Tkernel-rpi/linker.ld",
+]

@@ -1,7 +1,7 @@
 //! Build-host settings: the `build` table, the installer driver catalogue, reserved fields.
 use serde::{Deserialize, Serialize};
 
-/// Compiler profile of the installer. Saved in Lua as `build.profile`.
+/// Compiler profile of the installer. Saved in TOML under `[build]` as `profile`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Profile {
     /// Size-optimized (Cargo profile `small`: build-std, panics abort without messages). The default.
@@ -97,7 +97,10 @@ pub fn driver(id: &str) -> Option<&'static Driver> {
 impl HostConfig {
     /// The profile this config asks for (`super-small` if it names none).
     pub fn profile(&self) -> Result<Profile, String> {
-        self.build.profile.as_deref().map_or(Ok(Profile::DEFAULT), Profile::parse)
+        self.build
+            .profile
+            .as_deref()
+            .map_or(Ok(Profile::DEFAULT), Profile::parse)
     }
 
     /// The installer drivers to build: the listed ones, or all.
@@ -114,10 +117,16 @@ impl HostConfig {
         if let Some(list) = &self.installer_drivers {
             for (i, id) in list.iter().enumerate() {
                 if driver(id).is_none() {
-                    return Err(format!("installer_drivers[{}]: unknown installer driver {id:?}", i + 1));
+                    return Err(format!(
+                        "installer_drivers[{}]: unknown installer driver {id:?}",
+                        i + 1
+                    ));
                 }
-                if list[..i].contains(id) {
-                    return Err(format!("installer_drivers[{}]: {id:?} is listed twice", i + 1));
+                if list.iter().take(i).any(|x| x == id) {
+                    return Err(format!(
+                        "installer_drivers[{}]: {id:?} is listed twice",
+                        i + 1
+                    ));
                 }
             }
             let has = |c: DriverClass| list.iter().filter_map(|i| driver(i)).any(|d| d.class == c);
@@ -141,7 +150,11 @@ pub struct Resolved {
 
 /// Picks the profile. Precedence: `--profile`, then the deprecated `--small`/`--super-small`
 /// switches (which warn), then `build.profile` in the config, then the default (`super-small`).
-pub fn resolve_profile(cli_profile: Option<Profile>, legacy_small: bool, host: &HostConfig) -> Result<Resolved, String> {
+pub fn resolve_profile(
+    cli_profile: Option<Profile>,
+    legacy_small: bool,
+    host: &HostConfig,
+) -> Result<Resolved, String> {
     let mut warnings = Vec::new();
     if legacy_small {
         warnings.push("--small/--super-small are deprecated: set build.profile = \"super-small\" in the config (or pass --profile)".to_string());
@@ -161,17 +174,31 @@ mod tests {
     use super::*;
 
     fn host(profile: Option<&str>) -> HostConfig {
-        HostConfig { build: Build { profile: profile.map(String::from), tethering: false }, ..Default::default() }
+        HostConfig {
+            build: Build {
+                profile: profile.map(String::from),
+                tethering: false,
+            },
+            ..Default::default()
+        }
     }
 
     #[test]
     fn default_is_super_small() {
-        assert_eq!(resolve_profile(None, false, &host(None)).unwrap().profile, Profile::SuperSmall);
+        assert_eq!(
+            resolve_profile(None, false, &host(None)).unwrap().profile,
+            Profile::SuperSmall
+        );
     }
 
     #[test]
     fn config_value_beats_default() {
-        assert_eq!(resolve_profile(None, false, &host(Some("large"))).unwrap().profile, Profile::Large);
+        assert_eq!(
+            resolve_profile(None, false, &host(Some("large")))
+                .unwrap()
+                .profile,
+            Profile::Large
+        );
     }
 
     #[test]
@@ -190,22 +217,43 @@ mod tests {
 
     #[test]
     fn extra_large_and_unknown_profiles_are_rejected() {
-        assert!(host(Some("extra-large")).validate().unwrap_err().contains("reserved"));
-        assert!(host(Some("huge")).validate().unwrap_err().contains("unknown build profile"));
+        assert!(host(Some("extra-large"))
+            .validate()
+            .unwrap_err()
+            .contains("reserved"));
+        assert!(host(Some("huge"))
+            .validate()
+            .unwrap_err()
+            .contains("unknown build profile"));
     }
 
     #[test]
     fn driver_lists_are_checked() {
         let with = |ids: &[&str], tethering: bool| HostConfig {
             installer_drivers: Some(ids.iter().map(|s| s.to_string()).collect()),
-            build: Build { profile: None, tethering },
-            ..Default::default()
+            build: Build {
+                profile: None,
+                tethering,
+            },
         };
-        assert!(with(&["virtio-blk", "virtio-net"], false).validate().is_ok());
-        assert!(with(&["virtio-blk", "bogus"], false).validate().unwrap_err().contains("installer_drivers[2]"));
-        assert!(with(&["virtio-blk", "virtio-blk", "e1000"], false).validate().unwrap_err().contains("twice"));
-        assert!(with(&["e1000"], false).validate().unwrap_err().contains("no storage driver"));
-        assert!(with(&["nvme"], false).validate().unwrap_err().contains("no network driver"));
-        assert!(with(&["nvme"], true).validate().is_ok());
+        with(&["virtio-blk", "virtio-net"], false)
+            .validate().unwrap();
+        assert!(with(&["virtio-blk", "bogus"], false)
+            .validate()
+            .unwrap_err()
+            .contains("installer_drivers[2]"));
+        assert!(with(&["virtio-blk", "virtio-blk", "e1000"], false)
+            .validate()
+            .unwrap_err()
+            .contains("twice"));
+        assert!(with(&["e1000"], false)
+            .validate()
+            .unwrap_err()
+            .contains("no storage driver"));
+        assert!(with(&["nvme"], false)
+            .validate()
+            .unwrap_err()
+            .contains("no network driver"));
+        with(&["nvme"], true).validate().unwrap();
     }
 }

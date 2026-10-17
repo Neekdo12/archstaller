@@ -31,7 +31,10 @@ fn main() -> gtk::glib::ExitCode {
             }
         }
     }
-    let gapp = gtk::Application::builder().application_id("org.archstaller.Gui").flags(gtk::gio::ApplicationFlags::NON_UNIQUE).build();
+    let gapp = gtk::Application::builder()
+        .application_id("org.archstaller.Gui")
+        .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
+        .build();
     gapp.connect_shutdown(|_| polkit::stop());
     gapp.connect_activate(|gapp| {
         polkit::start();
@@ -40,11 +43,15 @@ fn main() -> gtk::glib::ExitCode {
         let css = gtk::CssProvider::new();
         css.load_from_string(&ui::css(ui::is_dark(&app.win)));
         if let Some(display) = gtk::gdk::Display::default() {
-            gtk::style_context_add_provider_for_display(&display, &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+            gtk::style_context_add_provider_for_display(
+                &display,
+                &css,
+                gtk::STYLE_PROVIDER_PRIORITY_USER + 10,
+            );
         }
-        // `ARCHSTALLER_PAGE=lua` (a page id of the sidebar) opens on that page: handy for screenshots.
+        // `ARCHSTALLER_PAGE=toml` (a page id of the sidebar) opens on that page: handy for screenshots.
         if let Ok(id) = std::env::var("ARCHSTALLER_PAGE") {
-            if let Some((page, ..)) = app::PAGES.iter().find(|p| p.1 == id) {
+            if let Some((page, ..)) = app::PAGES.iter().find(|p| p.1 == id.as_str()) {
                 app.show(*page);
             }
         }

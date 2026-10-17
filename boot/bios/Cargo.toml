@@ -7,6 +7,10 @@ edition = "2021"
 name = "boot-bios"
 path = "src/main.rs"
 
+
 [dependencies]
 bootinfo = { path = "../../crates/bootinfo" }
 loadcore = { path = "../../crates/loadcore" }
+
+[lints]
+workspace = true

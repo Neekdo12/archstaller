@@ -7,5 +7,5 @@ Exec=archstaller-gui
 Icon=org.archstaller.Gui
 Terminal=false
 Categories=GTK;System;
-Keywords=arch;installer;iso;usb;ventoy;lua;
+Keywords=arch;installer;iso;usb;ventoy;toml;
 StartupNotify=true

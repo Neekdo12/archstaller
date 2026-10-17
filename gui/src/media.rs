@@ -26,7 +26,15 @@ pub fn volumes() -> Vec<Volume> {
 }
 
 fn lsblk_volumes() -> Option<Vec<Volume>> {
-    let out = std::process::Command::new("lsblk").args(["-J", "-b", "-o", "PATH,LABEL,FSTYPE,SIZE,MOUNTPOINT,FSAVAIL,RM,HOTPLUG,TYPE"]).output().ok()?;
+    let out = std::process::Command::new("lsblk")
+        .args([
+            "-J",
+            "-b",
+            "-o",
+            "PATH,LABEL,FSTYPE,SIZE,MOUNTPOINT,FSAVAIL,RM,HOTPLUG,TYPE",
+        ])
+        .output()
+        .ok()?;
     if !out.status.success() {
         return None;
     }
@@ -38,7 +46,18 @@ fn lsblk_volumes() -> Option<Vec<Volume>> {
         let b = |k: &str| d.get(k).and_then(|x| x.as_bool()).unwrap_or(false);
         let fs = s("fstype");
         let path = s("path");
-        if fs.is_empty() || ["swap", "LVM2_member", "crypto_LUKS", "linux_raid_member", "zfs_member"].contains(&fs.as_str()) || path.starts_with("/dev/zram") || path.starts_with("/dev/loop") {
+        if fs.is_empty()
+            || [
+                "swap",
+                "LVM2_member",
+                "crypto_LUKS",
+                "linux_raid_member",
+                "zfs_member",
+            ]
+            .contains(&fs.as_str())
+            || path.starts_with("/dev/zram")
+            || path.starts_with("/dev/loop")
+        {
             continue;
         }
         let mount = s("mountpoint");
@@ -69,20 +88,34 @@ pub fn mount(dev: &str) -> Result<PathBuf, String> {
     let out = udisksctl(&["mount", "--no-user-interaction", "-b", dev])?;
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
     if !out.status.success() {
-        return Err(format!("could not mount {dev}: {}", String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(format!(
+            "could not mount {dev}: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
     }
     // "Mounted /dev/sda1 at /run/media/user/Ventoy"
-    text.split(" at ").nth(1).map(|p| PathBuf::from(p.trim().trim_end_matches('.'))).ok_or_else(|| format!("mounted {dev}, but its mount point is unknown: {}", text.trim()))
+    text.split(" at ")
+        .nth(1)
+        .map(|p| PathBuf::from(p.trim().trim_end_matches('.')))
+        .ok_or_else(|| {
+            format!(
+                "mounted {dev}, but its mount point is unknown: {}",
+                text.trim()
+            )
+        })
 }
 
 /// Flushes everything to the device, then unmounts it, so the stick can be pulled out.
 pub fn sync_and_unmount(dev: &str) -> Result<(), String> {
-    let _ = std::process::Command::new("sync").status();
+    drop(std::process::Command::new("sync").status());
     let out = udisksctl(&["unmount", "--no-user-interaction", "-b", dev])?;
     if out.status.success() {
         Ok(())
     } else {
-        Err(format!("could not unmount {dev}: {}", String::from_utf8_lossy(&out.stderr).trim()))
+        Err(format!(
+            "could not unmount {dev}: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))
     }
 }
 
@@ -102,7 +135,9 @@ fn disk_of(dev: &str) -> String {
 
 /// The device node carrying a file system label (Linux: `/dev/disk/by-label`).
 fn device_by_label(label: &str) -> Option<String> {
-    std::fs::canonicalize(Path::new("/dev/disk/by-label").join(label)).ok().map(|p| p.to_string_lossy().into_owned())
+    std::fs::canonicalize(Path::new("/dev/disk/by-label").join(label))
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 /// Whether `v` is a Ventoy data volume. A fresh Ventoy stick has no `ventoy` folder yet, so the proofs are:
@@ -137,7 +172,12 @@ pub struct Report {
 
 pub trait MediaTarget {
     /// Writes the ISO and verifies it; `progress(done, total)` is called as it goes.
-    fn write(&self, iso: &Path, progress: &mut dyn FnMut(Phase, u64, u64), cancel: &AtomicBool) -> Result<Report, String>;
+    fn write(
+        &self,
+        iso: &Path,
+        progress: &mut dyn FnMut(Phase, u64, u64),
+        cancel: &AtomicBool,
+    ) -> Result<Report, String>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -180,7 +220,11 @@ pub struct FolderCopy {
 
 /// The base of an ISO name: lower case, without extension and without a trailing `-2`, `_20260101` and so on.
 fn base_name(name: &str) -> String {
-    let stem = name.strip_suffix(".iso").or_else(|| name.strip_suffix(".ISO")).unwrap_or(name).to_ascii_lowercase();
+    let stem = name
+        .strip_suffix(".iso")
+        .or_else(|| name.strip_suffix(".ISO"))
+        .unwrap_or(name)
+        .to_ascii_lowercase();
     let t = stem.trim_end_matches(|c: char| c.is_ascii_digit());
     match t.strip_suffix(['-', '_']) {
         Some(b) if t.len() < stem.len() && !b.is_empty() => b.to_string(),
@@ -199,7 +243,10 @@ pub fn older_isos(dir: &Path, iso_name: &str) -> Vec<PathBuf> {
         .map(|e| e.path())
         .filter(|p| p.is_file())
         .filter(|p| {
-            let n = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let n = p
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
             n.to_ascii_lowercase().ends_with(".iso") && !n.starts_with('.') && base_name(&n) == base
         })
         .collect();
@@ -216,7 +263,7 @@ pub fn free_name(dir: &Path, iso_name: &str) -> String {
     (2u32..)
         .map(|n| format!("{stem}-{n}.iso"))
         .find(|n| !dir.join(n).exists())
-        .unwrap()
+        .unwrap_or_else(|| format!("{stem}-2.iso"))
 }
 
 /// The folder a file manager makes for deleted files on a volume: `.Trash-<uid>` in its top directory.
@@ -231,7 +278,7 @@ pub fn delete_iso(file: &Path, root: Option<&Path>) -> Result<(), String> {
     std::fs::remove_file(file).map_err(|e| format!("cannot delete {}: {e}", file.display()))?;
     if let Some(t) = root.and_then(trash_dir) {
         if t.is_dir() {
-            let _ = std::fs::remove_dir_all(&t);
+            drop(std::fs::remove_dir_all(&t));
         }
     }
     Ok(())
@@ -240,27 +287,48 @@ pub fn delete_iso(file: &Path, root: Option<&Path>) -> Result<(), String> {
 const CHUNK: usize = 1 << 20;
 
 impl MediaTarget for FolderCopy {
-    fn write(&self, iso: &Path, progress: &mut dyn FnMut(Phase, u64, u64), cancel: &AtomicBool) -> Result<Report, String> {
+    fn write(
+        &self,
+        iso: &Path,
+        progress: &mut dyn FnMut(Phase, u64, u64),
+        cancel: &AtomicBool,
+    ) -> Result<Report, String> {
         let name = match &self.rename_to {
             Some(n) => std::ffi::OsString::from(n),
-            None => iso.file_name().ok_or("the ISO has no file name")?.to_os_string(),
+            None => iso
+                .file_name()
+                .ok_or("the ISO has no file name")?
+                .to_os_string(),
         };
         let dest = self.dir.join(&name);
         let part = self.dir.join(format!(".{}.part", name.to_string_lossy()));
-        let total = std::fs::metadata(iso).map_err(|e| format!("{}: {e}", iso.display()))?.len();
+        let total = std::fs::metadata(iso)
+            .map_err(|e| format!("{}: {e}", iso.display()))?
+            .len();
         if !self.dir.is_dir() {
             return Err(format!("{} is not a directory", self.dir.display()));
         }
         // Every check before anything is deleted: a copy refused afterwards must not cost the old builds.
-        let dest_deleted = self.delete.iter().any(|f| *f == dest);
+        let dest_deleted = self.delete.contains(&dest);
         if dest.exists() && !self.overwrite && !dest_deleted {
             return Err(format!("{} already exists", dest.display()));
         }
-        let freed: u64 = self.delete.iter().map(|f| std::fs::metadata(f).map(|m| m.len()).unwrap_or(0)).sum();
-        let have_back = freed + if dest.exists() && !dest_deleted { std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0) } else { 0 };
+        let freed: u64 = self
+            .delete
+            .iter()
+            .map(|f| std::fs::metadata(f).map(|m| m.len()).unwrap_or(0))
+            .sum();
+        let have_back = freed
+            + if dest.exists() && !dest_deleted {
+                std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0)
+            } else {
+                0
+            };
         if let Some(free) = self.available {
             if free + have_back < total {
-                return Err(format!("not enough free space: the ISO is {total} bytes, {free} are free"));
+                return Err(format!(
+                    "not enough free space: the ISO is {total} bytes, {free} are free"
+                ));
             }
         }
         for f in &self.delete {
@@ -268,7 +336,8 @@ impl MediaTarget for FolderCopy {
         }
         let result = (|| -> Result<Report, String> {
             let mut src = std::fs::File::open(iso).map_err(|e| e.to_string())?;
-            let mut out = std::fs::File::create(&part).map_err(|e| format!("{}: {e}", part.display()))?;
+            let mut out =
+                std::fs::File::create(&part).map_err(|e| format!("{}: {e}", part.display()))?;
             let mut hash = Sha256::new();
             let mut buf = vec![0u8; CHUNK];
             let mut done = 0u64;
@@ -280,13 +349,16 @@ impl MediaTarget for FolderCopy {
                 if n == 0 {
                     break;
                 }
-                hash.update(&buf[..n]);
-                out.write_all(&buf[..n]).map_err(|e| format!("write failed: {e}"))?;
+                let chunk = buf.get(..n).ok_or("buffer slice out of bounds")?;
+                hash.update(chunk);
+                out.write_all(chunk)
+                    .map_err(|e| format!("write failed: {e}"))?;
                 done += n as u64;
                 progress(Phase::Copying, done, total);
             }
             out.flush().map_err(|e| e.to_string())?;
-            out.sync_all().map_err(|e| format!("could not flush to the device: {e}"))?;
+            out.sync_all()
+                .map_err(|e| format!("could not flush to the device: {e}"))?;
             drop(out);
             let sha256: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
             std::fs::rename(&part, &dest).map_err(|e| format!("{}: {e}", dest.display()))?;
@@ -306,18 +378,27 @@ impl MediaTarget for FolderCopy {
                 if n == 0 {
                     break;
                 }
-                h2.update(&buf[..n]);
+                let chunk = buf.get(..n).ok_or("buffer slice out of bounds")?;
+                h2.update(chunk);
                 read += n as u64;
                 progress(Phase::Verifying, read, total);
             }
             let got: String = h2.finalize().iter().map(|b| format!("{b:02x}")).collect();
             if got != sha256 {
-                return Err(format!("verification failed: the copy hashes to {got}, the ISO to {sha256}"));
+                return Err(format!(
+                    "verification failed: the copy hashes to {got}, the ISO to {sha256}"
+                ));
             }
-            Ok(Report { dest: dest.clone(), size, sha256, note: None, flashed: false })
+            Ok(Report {
+                dest: dest.clone(),
+                size,
+                sha256,
+                note: None,
+                flashed: false,
+            })
         })();
         if result.is_err() {
-            let _ = std::fs::remove_file(&part);
+            drop(std::fs::remove_file(&part));
         }
         result
     }
@@ -328,8 +409,9 @@ mod tests {
     use super::*;
 
     fn tmp(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("archstaller-media-{}-{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
+        let d =
+            std::env::temp_dir().join(format!("archstaller-media-{}-{name}", std::process::id()));
+        drop(std::fs::remove_dir_all(&d));
         std::fs::create_dir_all(&d).unwrap();
         d
     }
@@ -347,17 +429,44 @@ mod tests {
         let dest = d.join("stick");
         std::fs::create_dir_all(&dest).unwrap();
         let mut phases = vec![];
-        let r = FolderCopy { dir: dest.clone(), available: Some(u64::MAX), overwrite: false, delete: vec![], trash_root: None, rename_to: None }
-            .write(&src, &mut |p, _, _| phases.push(p), &AtomicBool::new(false))
-            .unwrap();
-        assert_eq!(std::fs::read(&r.dest).unwrap(), std::fs::read(&src).unwrap());
+        let r = FolderCopy {
+            dir: dest.clone(),
+            available: Some(u64::MAX),
+            overwrite: false,
+            delete: vec![],
+            trash_root: None,
+            rename_to: None,
+        }
+        .write(&src, &mut |p, _, _| phases.push(p), &AtomicBool::new(false))
+        .unwrap();
+        assert_eq!(
+            std::fs::read(&r.dest).unwrap(),
+            std::fs::read(&src).unwrap()
+        );
         assert!(phases.contains(&Phase::Copying) && phases.contains(&Phase::Verifying));
         assert!(!dest.join(".a.iso.part").exists());
         // A second copy needs an explicit overwrite.
-        let again = FolderCopy { dir: dest.clone(), available: None, overwrite: false, delete: vec![], trash_root: None, rename_to: None }.write(&src, &mut |_, _, _| {}, &AtomicBool::new(false));
+        let again = FolderCopy {
+            dir: dest.clone(),
+            available: None,
+            overwrite: false,
+            delete: vec![],
+            trash_root: None,
+            rename_to: None,
+        }
+        .write(&src, &mut |_, _, _| {}, &AtomicBool::new(false));
         assert!(again.unwrap_err().contains("already exists"));
-        assert!(FolderCopy { dir: dest, available: None, overwrite: true, delete: vec![], trash_root: None, rename_to: None }.write(&src, &mut |_, _, _| {}, &AtomicBool::new(false)).is_ok());
-        let _ = std::fs::remove_dir_all(&d);
+        FolderCopy {
+            dir: dest,
+            available: None,
+            overwrite: true,
+            delete: vec![],
+            trash_root: None,
+            rename_to: None,
+        }
+        .write(&src, &mut |_, _, _| {}, &AtomicBool::new(false))
+        .unwrap();
+        drop(std::fs::remove_dir_all(&d));
     }
 
     #[test]
@@ -366,25 +475,64 @@ mod tests {
         let src = iso(&d, CHUNK);
         let dest = d.join("stick");
         std::fs::create_dir_all(&dest).unwrap();
-        let e = FolderCopy { dir: dest.clone(), available: Some(10), overwrite: false, delete: vec![], trash_root: None, rename_to: None }.write(&src, &mut |_, _, _| {}, &AtomicBool::new(false)).unwrap_err();
+        let e = FolderCopy {
+            dir: dest.clone(),
+            available: Some(10),
+            overwrite: false,
+            delete: vec![],
+            trash_root: None,
+            rename_to: None,
+        }
+        .write(&src, &mut |_, _, _| {}, &AtomicBool::new(false))
+        .unwrap_err();
         assert!(e.contains("not enough free space"));
-        let e = FolderCopy { dir: dest.clone(), available: None, overwrite: false, delete: vec![], trash_root: None, rename_to: None }.write(&src, &mut |_, _, _| {}, &AtomicBool::new(true)).unwrap_err();
+        let e = FolderCopy {
+            dir: dest.clone(),
+            available: None,
+            overwrite: false,
+            delete: vec![],
+            trash_root: None,
+            rename_to: None,
+        }
+        .write(&src, &mut |_, _, _| {}, &AtomicBool::new(true))
+        .unwrap_err();
         assert_eq!(e, "cancelled");
-        assert_eq!(std::fs::read_dir(&dest).unwrap().count(), 0, "no partial file is left");
-        let _ = std::fs::remove_dir_all(&d);
+        assert_eq!(
+            std::fs::read_dir(&dest).unwrap().count(),
+            0,
+            "no partial file is left"
+        );
+        drop(std::fs::remove_dir_all(&d));
     }
 
     #[test]
     fn finds_older_builds_and_names_the_new_one() {
         let d = tmp("older");
-        for n in ["archstaller.iso", "archstaller-2.iso", "Archstaller_20260101.ISO", "ubuntu.iso", ".archstaller.iso.part", "archstaller.txt"] {
+        for n in [
+            "archstaller.iso",
+            "archstaller-2.iso",
+            "Archstaller_20260101.ISO",
+            "ubuntu.iso",
+            ".archstaller.iso.part",
+            "archstaller.txt",
+        ] {
             std::fs::write(d.join(n), b"x").unwrap();
         }
-        let names: Vec<String> = older_isos(&d, "archstaller.iso").iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
-        assert_eq!(names, ["Archstaller_20260101.ISO", "archstaller-2.iso", "archstaller.iso"]);
+        let names: Vec<String> = older_isos(&d, "archstaller.iso")
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "Archstaller_20260101.ISO",
+                "archstaller-2.iso",
+                "archstaller.iso"
+            ]
+        );
         assert_eq!(free_name(&d, "archstaller.iso"), "archstaller-3.iso");
         assert_eq!(free_name(&d, "new.iso"), "new.iso");
-        let _ = std::fs::remove_dir_all(&d);
+        drop(std::fs::remove_dir_all(&d));
     }
 
     #[test]
@@ -398,18 +546,35 @@ mod tests {
         if let Some(t) = &trash {
             std::fs::create_dir_all(t.join("files")).unwrap();
         }
-        let r = FolderCopy { dir: stick.clone(), available: Some(1000), overwrite: false, delete: vec![stick.join("a.iso")], trash_root: Some(stick.clone()), rename_to: None }
-            .write(&src, &mut |_, _, _| {}, &AtomicBool::new(false))
-            .unwrap();
-        assert_eq!(std::fs::read(&r.dest).unwrap(), std::fs::read(&src).unwrap());
+        let r = FolderCopy {
+            dir: stick.clone(),
+            available: Some(1000),
+            overwrite: false,
+            delete: vec![stick.join("a.iso")],
+            trash_root: Some(stick.clone()),
+            rename_to: None,
+        }
+        .write(&src, &mut |_, _, _| {}, &AtomicBool::new(false))
+        .unwrap();
+        assert_eq!(
+            std::fs::read(&r.dest).unwrap(),
+            std::fs::read(&src).unwrap()
+        );
         if let Some(t) = &trash {
             assert!(!t.exists(), "the trash folder is removed");
         }
-        let r = FolderCopy { dir: stick.clone(), available: None, overwrite: false, delete: vec![], trash_root: None, rename_to: Some("a-2.iso".into()) }
-            .write(&src, &mut |_, _, _| {}, &AtomicBool::new(false))
-            .unwrap();
+        let r = FolderCopy {
+            dir: stick.clone(),
+            available: None,
+            overwrite: false,
+            delete: vec![],
+            trash_root: None,
+            rename_to: Some("a-2.iso".into()),
+        }
+        .write(&src, &mut |_, _, _| {}, &AtomicBool::new(false))
+        .unwrap();
         assert!(r.dest.ends_with("a-2.iso") && stick.join("a.iso").exists());
-        let _ = std::fs::remove_dir_all(&d);
+        drop(std::fs::remove_dir_all(&d));
     }
 
     #[test]
@@ -421,20 +586,43 @@ mod tests {
         std::fs::write(stick.join("old.iso"), vec![1u8; 10]).unwrap();
         std::fs::write(stick.join(src.file_name().unwrap()), b"taken").unwrap();
         // The name is taken and overwriting was not asked for: the old build chosen for deletion stays.
-        let copy = |available| FolderCopy { dir: stick.clone(), available, overwrite: false, delete: vec![stick.join("old.iso")], trash_root: None, rename_to: None };
-        assert!(copy(None).write(&src, &mut |_, _, _| {}, &AtomicBool::new(false)).unwrap_err().contains("already exists"));
+        let copy = |available| FolderCopy {
+            dir: stick.clone(),
+            available,
+            overwrite: false,
+            delete: vec![stick.join("old.iso")],
+            trash_root: None,
+            rename_to: None,
+        };
+        assert!(copy(None)
+            .write(&src, &mut |_, _, _| {}, &AtomicBool::new(false))
+            .unwrap_err()
+            .contains("already exists"));
         assert!(stick.join("old.iso").exists());
         // Not enough space even with it gone: it stays too.
         std::fs::remove_file(stick.join(src.file_name().unwrap())).unwrap();
-        assert!(copy(Some(0)).write(&src, &mut |_, _, _| {}, &AtomicBool::new(false)).unwrap_err().contains("free space"));
+        assert!(copy(Some(0))
+            .write(&src, &mut |_, _, _| {}, &AtomicBool::new(false))
+            .unwrap_err()
+            .contains("free space"));
         assert!(stick.join("old.iso").exists());
         // Deleting a file with the destination's name makes room for the copy.
         std::fs::write(stick.join(src.file_name().unwrap()), b"older build").unwrap();
-        let r = FolderCopy { dir: stick.clone(), available: None, overwrite: false, delete: vec![stick.join(src.file_name().unwrap())], trash_root: None, rename_to: None }
-            .write(&src, &mut |_, _, _| {}, &AtomicBool::new(false))
-            .unwrap();
-        assert_eq!(std::fs::read(&r.dest).unwrap(), std::fs::read(&src).unwrap());
-        let _ = std::fs::remove_dir_all(&d);
+        let r = FolderCopy {
+            dir: stick.clone(),
+            available: None,
+            overwrite: false,
+            delete: vec![stick.join(src.file_name().unwrap())],
+            trash_root: None,
+            rename_to: None,
+        }
+        .write(&src, &mut |_, _, _| {}, &AtomicBool::new(false))
+        .unwrap();
+        assert_eq!(
+            std::fs::read(&r.dest).unwrap(),
+            std::fs::read(&src).unwrap()
+        );
+        drop(std::fs::remove_dir_all(&d));
     }
 
     #[test]
@@ -447,10 +635,19 @@ mod tests {
     #[test]
     fn ventoy_is_recognised_by_its_files() {
         let d = tmp("ventoy");
-        let v = |p: &Path| Volume { name: "/dev/zzz9".into(), mount: p.to_path_buf(), fs: "exfat".into(), total: 1, available: 1, removable: true, label: String::new(), mounted: true };
+        let v = |p: &Path| Volume {
+            name: "/dev/zzz9".into(),
+            mount: p.to_path_buf(),
+            fs: "exfat".into(),
+            total: 1,
+            available: 1,
+            removable: true,
+            label: String::new(),
+            mounted: true,
+        };
         assert!(!is_ventoy(&v(&d), &[]), "an ordinary volume is not Ventoy");
         std::fs::create_dir(d.join("ventoy")).unwrap();
         assert!(is_ventoy(&v(&d), &[]));
-        let _ = std::fs::remove_dir_all(&d);
+        drop(std::fs::remove_dir_all(&d));
     }
 }

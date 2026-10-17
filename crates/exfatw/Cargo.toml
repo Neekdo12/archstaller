@@ -5,3 +5,6 @@ edition = "2021"
 description = "Appends a file to an existing exFAT volume (for the installer kernel's log dump)"
 
 [dependencies]
+
+[lints]
+workspace = true

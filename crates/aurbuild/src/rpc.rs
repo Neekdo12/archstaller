@@ -49,12 +49,20 @@ struct Answer {
 }
 
 fn get(url: &str, limit: u64) -> Result<Vec<u8>> {
-    let mut resp = ureq::get(url).header("User-Agent", "archstaller-gui").call().map_err(|e| format!("{url}: {e}"))?;
-    resp.body_mut().with_config().limit(limit).read_to_vec().map_err(|e| format!("{url}: {e}"))
+    let mut resp = ureq::get(url)
+        .header("User-Agent", "archstaller-gui")
+        .call()
+        .map_err(|e| format!("{url}: {e}"))?;
+    resp.body_mut()
+        .with_config()
+        .limit(limit)
+        .read_to_vec()
+        .map_err(|e| format!("{url}: {e}"))
 }
 
 fn answer(body: &[u8]) -> Result<Vec<Info>> {
-    let a: Answer = serde_json::from_slice(body).map_err(|e| format!("unexpected answer from the AUR: {e}"))?;
+    let a: Answer =
+        serde_json::from_slice(body).map_err(|e| format!("unexpected answer from the AUR: {e}"))?;
     match a.error {
         Some(e) => Err(format!("the AUR says: {e}")),
         None => Ok(a.results),
@@ -65,8 +73,14 @@ fn answer(body: &[u8]) -> Result<Vec<Info>> {
 pub fn info(names: &[String]) -> Result<Vec<Info>> {
     let mut out = Vec::new();
     for chunk in names.chunks(150) {
-        let args: Vec<String> = chunk.iter().map(|n| format!("arg%5B%5D={}", pct(n))).collect();
-        out.extend(answer(&get(&format!("{BASE}/rpc/v5/info?{}", args.join("&")), 4 << 20)?)?);
+        let args: Vec<String> = chunk
+            .iter()
+            .map(|n| format!("arg%5B%5D={}", pct(n)))
+            .collect();
+        out.extend(answer(&get(
+            &format!("{BASE}/rpc/v5/info?{}", args.join("&")),
+            4 << 20,
+        )?)?);
     }
     Ok(out)
 }
@@ -76,12 +90,21 @@ pub fn search(term: &str) -> Result<Vec<Info>> {
     if term.trim().len() < 2 {
         return Ok(vec![]);
     }
-    answer(&get(&format!("{BASE}/rpc/v5/search/{}?by=name-desc", pct(term.trim())), 8 << 20)?)
+    answer(&get(
+        &format!("{BASE}/rpc/v5/search/{}?by=name-desc", pct(term.trim())),
+        8 << 20,
+    )?)
 }
 
 /// The commit a repository's HEAD points at, from the git smart-HTTP ref advertisement.
 pub fn head_commit(pkgbase: &str) -> Result<String> {
-    let body = get(&format!("{BASE}/{}.git/info/refs?service=git-upload-pack", pct(pkgbase)), 1 << 20)?;
+    let body = get(
+        &format!(
+            "{BASE}/{}.git/info/refs?service=git-upload-pack",
+            pct(pkgbase)
+        ),
+        1 << 20,
+    )?;
     parse_head(&body).ok_or_else(|| format!("{pkgbase}: no HEAD in the git answer"))
 }
 
@@ -89,7 +112,8 @@ fn parse_head(body: &[u8]) -> Option<String> {
     // pkt-lines: 4 hex digits of length (including themselves) then the payload; 0000 is a flush.
     let mut pos = 0;
     while pos + 4 <= body.len() {
-        let len = usize::from_str_radix(std::str::from_utf8(&body[pos..pos + 4]).ok()?, 16).ok()?;
+        let len_slice = body.get(pos..pos + 4)?;
+        let len = usize::from_str_radix(std::str::from_utf8(len_slice).ok()?, 16).ok()?;
         if len == 0 {
             pos += 4;
             continue;
@@ -112,7 +136,10 @@ pub fn snapshot(commit: &str) -> Result<Files> {
     if commit.len() != 40 || !commit.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(format!("{commit:?} is not a commit id"));
     }
-    read_snapshot(&get(&format!("{BASE}/cgit/aur.git/snapshot/{commit}.tar.gz"), 64 << 20)?)
+    read_snapshot(&get(
+        &format!("{BASE}/cgit/aur.git/snapshot/{commit}.tar.gz"),
+        64 << 20,
+    )?)
 }
 
 /// Downloads the recipe of `pkgbase` (HEAD, or the given commit) and reviews the package `name` in it.
@@ -125,7 +152,15 @@ pub fn fetch_review(name: &str, pkgbase: &str, commit: Option<&str>) -> Result<R
 }
 
 fn pct(s: &str) -> String {
-    s.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-._~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
+    s.bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -154,8 +189,15 @@ mod tests {
     fn answers_and_percent_encoding() {
         let ok = br#"{"resultcount":1,"results":[{"Name":"a","PackageBase":"a","Version":"1-1","Maintainer":null,"OutOfDate":null,"LastModified":5,"NumVotes":2,"Popularity":1.5,"Depends":["x"]}],"type":"search","version":5}"#;
         let r = answer(ok).unwrap();
-        assert_eq!((r[0].name.as_str(), r[0].votes, r[0].depends.len()), ("a", 2, 1));
-        assert!(answer(br#"{"error":"Too many package results.","results":[],"type":"error","version":5}"#).unwrap_err().contains("Too many"));
+        assert_eq!(
+            (r[0].name.as_str(), r[0].votes, r[0].depends.len()),
+            ("a", 2, 1)
+        );
+        assert!(answer(
+            br#"{"error":"Too many package results.","results":[],"type":"error","version":5}"#
+        )
+        .unwrap_err()
+        .contains("Too many"));
         assert_eq!(pct("a b+c"), "a%20b%2Bc");
     }
 

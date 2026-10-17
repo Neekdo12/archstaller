@@ -26,7 +26,11 @@ fn rpmvercmp(a: &str, b: &str) -> Ordering {
             break;
         }
         if one - ptr1 != two - ptr2 {
-            return if one - ptr1 < two - ptr2 { Ordering::Less } else { Ordering::Greater };
+            return if one - ptr1 < two - ptr2 {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            };
         }
         ptr1 = one;
         ptr2 = two;
@@ -50,15 +54,20 @@ fn rpmvercmp(a: &str, b: &str) -> Ordering {
             return Ordering::Less;
         }
         if two == ptr2 {
-            return if isnum { Ordering::Greater } else { Ordering::Less };
+            return if isnum {
+                Ordering::Greater
+            } else {
+                Ordering::Less
+            };
         }
-        let (mut s1, mut s2) = (&a[one..ptr1], &b[two..ptr2]);
+        let mut s1 = a.get(one..ptr1).unwrap_or(&[]);
+        let mut s2 = b.get(two..ptr2).unwrap_or(&[]);
         if isnum {
-            while s1.first() == Some(&b'0') {
-                s1 = &s1[1..];
+            while let Some((&b'0', rest)) = s1.split_first() {
+                s1 = rest;
             }
-            while s2.first() == Some(&b'0') {
-                s2 = &s2[1..];
+            while let Some((&b'0', rest)) = s2.split_first() {
+                s2 = rest;
             }
             if s1.len() != s2.len() {
                 return s1.len().cmp(&s2.len());
@@ -87,14 +96,18 @@ fn rpmvercmp(a: &str, b: &str) -> Ordering {
 fn parse_evr(evr: &str) -> (&str, &str, Option<&str>) {
     let digits = evr.bytes().take_while(|b| b.is_ascii_digit()).count();
     let (epoch, rest) = if evr.as_bytes().get(digits) == Some(&b':') {
-        (if digits == 0 { "0" } else { &evr[..digits] }, &evr[digits + 1..])
+        let (ep, after) = evr.split_at_checked(digits).unwrap_or(("", evr));
+        let epoch = if ep.is_empty() { "0" } else { ep };
+        let rest = after.strip_prefix(':').unwrap_or(after);
+        (epoch, rest)
     } else {
         ("0", evr)
     };
-    match rest.rfind('-') {
-        Some(i) => (epoch, &rest[..i], Some(&rest[i + 1..])),
-        None => (epoch, rest, None),
-    }
+    let (version, release) = match rest.rsplit_once('-') {
+        Some((v, r)) => (v, Some(r)),
+        None => (rest, None),
+    };
+    (epoch, version, release)
 }
 
 /// Compares two package versions the way pacman does.

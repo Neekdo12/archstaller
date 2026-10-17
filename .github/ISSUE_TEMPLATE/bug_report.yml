@@ -37,9 +37,9 @@ body:
     id: repro
     attributes:
       label: Steps to reproduce
-      description: The exact commands, or the GUI pages and buttons. For a config problem attach the Lua file (remove secrets).
+      description: The exact commands, or the GUI pages and buttons. For a config problem attach the TOML file (remove secrets).
       placeholder: |
-        1. cargo xtask build --config configs/i3.lua
+        1. cargo xtask build --config configs/i3.toml
         2. cargo xtask run --uefi --headless
         3. ...
     validations:

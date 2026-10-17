@@ -53,7 +53,10 @@ pub enum Source {
 pub fn source(s: &Script) -> Source {
     match (&s.file, &s.url) {
         (Some(f), _) => Source::File(f.clone()),
-        (None, Some(u)) => Source::Remote { url: u.clone(), sha256: s.sha256.clone().unwrap_or_default() },
+        (None, Some(u)) => Source::Remote {
+            url: u.clone(),
+            sha256: s.sha256.clone().unwrap_or_default(),
+        },
         (None, None) => Source::Builtin,
     }
 }
@@ -62,7 +65,11 @@ pub fn source(s: &Script) -> Source {
 pub fn validate(cfg: &Config) -> std::result::Result<(), String> {
     for (i, s) in cfg.scripts.iter().enumerate() {
         if source(s) == Source::Builtin && s.content.is_none() && builtin(&s.id).is_none() {
-            return Err(format!("scripts[{}]: {:?} is not a built-in script (give it a file or a url + sha256)", i + 1, s.id));
+            return Err(format!(
+                "scripts[{}]: {:?} is not a built-in script (give it a file or a url + sha256)",
+                i + 1,
+                s.id
+            ));
         }
     }
     Ok(())
@@ -76,15 +83,24 @@ pub fn resolve(cfg: &Config, base: &Path) -> Result<Config> {
         match source(s) {
             Source::Builtin => {
                 if s.content.is_none() {
-                    let b = builtin(&s.id).ok_or_else(|| format!("scripts[{}]: {:?} is not a built-in script", i + 1, s.id))?;
+                    let b = builtin(&s.id).ok_or_else(|| {
+                        format!("scripts[{}]: {:?} is not a built-in script", i + 1, s.id)
+                    })?;
                     s.content = Some(b.source.as_bytes().to_vec());
                 }
             }
             Source::File(f) => {
                 let path = base.join(&f);
-                let data = std::fs::read(&path).map_err(|e| format!("scripts[{}]: cannot read {}: {e}", i + 1, path.display()))?;
+                let data = std::fs::read(&path).map_err(|e| {
+                    format!("scripts[{}]: cannot read {}: {e}", i + 1, path.display())
+                })?;
                 if data.len() > SCRIPT_MAX {
-                    return Err(format!("scripts[{}]: {} is larger than 64 KiB", i + 1, path.display()).into());
+                    return Err(format!(
+                        "scripts[{}]: {} is larger than 64 KiB",
+                        i + 1,
+                        path.display()
+                    )
+                    .into());
                 }
                 s.content = Some(data);
                 s.file = None;
@@ -97,15 +113,23 @@ pub fn resolve(cfg: &Config, base: &Path) -> Result<Config> {
 
 /// One line per script for the build summary: source, phase, privileges and (where known) the digest.
 pub fn summary(cfg: &Config) -> Vec<String> {
-    use std::fmt::Write;
     cfg.scripts
         .iter()
         .map(|s| {
             let mut l = format!("script {}: ", s.id);
             match source(s) {
-                Source::Builtin => write!(l, "built-in, ").unwrap(),
-                Source::File(f) => write!(l, "local file {f}, ").unwrap(),
-                Source::Remote { url, sha256 } => write!(l, "{url} (sha256 {sha256}), ").unwrap(),
+                Source::Builtin => l.push_str("built-in, "),
+                Source::File(f) => {
+                    l.push_str("local file ");
+                    l.push_str(&f);
+                    l.push_str(", ");
+                }
+                Source::Remote { url, sha256 } => {
+                    l.push_str(&url);
+                    l.push_str(" (sha256 ");
+                    l.push_str(&sha256);
+                    l.push_str("), ");
+                }
             }
             l.push_str("runs as root at the end of the first boot");
             l
@@ -118,7 +142,10 @@ mod tests {
     use super::*;
 
     fn script(id: &str) -> Script {
-        Script { id: id.into(), ..Default::default() }
+        Script {
+            id: id.into(),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -130,41 +157,78 @@ mod tests {
 
     #[test]
     fn unknown_builtin_is_rejected() {
-        let mut cfg = crate::lua::tests_support::minimal_config();
+        let mut cfg = crate::toml::tests_support::minimal_config();
         cfg.scripts = vec![script("enable-sshd")];
-        assert!(validate(&cfg).is_ok());
+        validate(&cfg).unwrap();
         cfg.scripts = vec![script("no-such-thing")];
         assert!(validate(&cfg).unwrap_err().contains("not a built-in"));
     }
 
     #[test]
     fn config_validation_of_script_sources() {
-        let mut cfg = crate::lua::tests_support::minimal_config();
+        let mut cfg = crate::toml::tests_support::minimal_config();
         let check = |cfg: &Config| cfg.validate().unwrap_err();
         let sha = "a".repeat(64);
-        cfg.scripts = vec![Script { id: "x".into(), url: Some("https://e.org/x.sh".into()), ..Default::default() }];
+        cfg.scripts = vec![Script {
+            id: "x".into(),
+            url: Some("https://e.org/x.sh".into()),
+            ..Default::default()
+        }];
         assert!(check(&cfg).contains("needs its sha256"));
-        cfg.scripts = vec![Script { id: "x".into(), url: Some("http://e.org/x.sh".into()), sha256: Some(sha.clone()), ..Default::default() }];
+        cfg.scripts = vec![Script {
+            id: "x".into(),
+            url: Some("http://e.org/x.sh".into()),
+            sha256: Some(sha.clone()),
+            ..Default::default()
+        }];
         assert!(check(&cfg).contains("https://"));
-        cfg.scripts = vec![Script { id: "x".into(), url: Some("https://e.org/x.sh".into()), sha256: Some("ABC".into()), ..Default::default() }];
+        cfg.scripts = vec![Script {
+            id: "x".into(),
+            url: Some("https://e.org/x.sh".into()),
+            sha256: Some("ABC".into()),
+            ..Default::default()
+        }];
         assert!(check(&cfg).contains("64 lower-case hex"));
-        cfg.scripts = vec![Script { id: "x".into(), file: Some("a.sh".into()), url: Some("https://e.org/x.sh".into()), sha256: Some(sha.clone()), ..Default::default() }];
+        cfg.scripts = vec![Script {
+            id: "x".into(),
+            file: Some("a.sh".into()),
+            url: Some("https://e.org/x.sh".into()),
+            sha256: Some(sha.clone()),
+            ..Default::default()
+        }];
         assert!(check(&cfg).contains("not both"));
-        cfg.scripts = vec![Script { id: "x y".into(), ..Default::default() }];
+        cfg.scripts = vec![Script {
+            id: "x y".into(),
+            ..Default::default()
+        }];
         assert!(check(&cfg).contains("invalid id"));
-        cfg.scripts = vec![Script { id: "x".into(), args: vec!["a b".into()], ..Default::default() }];
+        cfg.scripts = vec![Script {
+            id: "x".into(),
+            args: vec!["a b".into()],
+            ..Default::default()
+        }];
         assert!(check(&cfg).contains("args"));
         cfg.scripts = vec![script("x"), script("x")];
         assert!(check(&cfg).contains("twice"));
-        cfg.scripts = vec![Script { id: "x".into(), url: Some("https://e.org/x.sh".into()), sha256: Some(sha), args: vec!["--now".into()], ..Default::default() }];
-        assert!(cfg.validate().is_ok());
+        cfg.scripts = vec![Script {
+            id: "x".into(),
+            url: Some("https://e.org/x.sh".into()),
+            sha256: Some(sha),
+            args: vec!["--now".into()],
+            ..Default::default()
+        }];
+        cfg.validate().unwrap();
     }
 
     #[test]
     fn resolve_fills_in_content() {
-        let mut cfg = crate::lua::tests_support::minimal_config();
+        let mut cfg = crate::toml::tests_support::minimal_config();
         cfg.scripts = vec![script("enable-fstrim")];
         let r = resolve(&cfg, Path::new(".")).unwrap();
-        assert!(r.scripts[0].content.as_ref().unwrap().starts_with(b"#!/bin/bash"));
+        assert!(r.scripts[0]
+            .content
+            .as_ref()
+            .unwrap()
+            .starts_with(b"#!/bin/bash"));
     }
 }

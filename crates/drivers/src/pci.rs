@@ -37,21 +37,25 @@ pub enum Bar {
 }
 
 fn cfg_addr(a: Addr, off: u16) -> u32 {
-    0x8000_0000 | (a.bus as u32) << 16 | (a.dev as u32) << 11 | (a.func as u32) << 8 | (off as u32 & 0xfc)
+    0x8000_0000
+        | (a.bus as u32) << 16
+        | (a.dev as u32) << 11
+        | (a.func as u32) << 8
+        | (off as u32 & 0xfc)
 }
 
 pub fn read32(a: Addr, off: u16) -> u32 {
-    unsafe {
-        outl(CONFIG_ADDRESS, cfg_addr(a, off));
-        inl(CONFIG_DATA)
-    }
+    // SAFETY: Writing the target device's configuration mechanism 1 address to CONFIG_ADDRESS is safe on x86 platforms.
+    unsafe { outl(CONFIG_ADDRESS, cfg_addr(a, off)) };
+    // SAFETY: Reading from CONFIG_DATA accesses the register selected by the preceding CONFIG_ADDRESS write.
+    unsafe { inl(CONFIG_DATA) }
 }
 
 pub fn write32(a: Addr, off: u16, v: u32) {
-    unsafe {
-        outl(CONFIG_ADDRESS, cfg_addr(a, off));
-        outl(CONFIG_DATA, v);
-    }
+    // SAFETY: Writing the target device's configuration mechanism 1 address to CONFIG_ADDRESS is safe on x86 platforms.
+    unsafe { outl(CONFIG_ADDRESS, cfg_addr(a, off)) };
+    // SAFETY: Writing to CONFIG_DATA modifies the register selected by the preceding CONFIG_ADDRESS write.
+    unsafe { outl(CONFIG_DATA, v) };
 }
 
 pub fn read16(a: Addr, off: u16) -> u16 {
@@ -132,7 +136,9 @@ impl PciDevice {
     /// same when it enables a device. A device without No_Soft_Reset resets on the way and forgets its
     /// BARs, so they are put back.
     fn wake(&self) {
-        let Some(&(cap, _)) = self.capabilities().iter().find(|(_, id)| *id == 0x01) else { return };
+        let Some(&(cap, _)) = self.capabilities().iter().find(|(_, id)| *id == 0x01) else {
+            return;
+        };
         let pmcsr = self.read16(cap + 4);
         if pmcsr & 3 == 0 {
             return;
@@ -164,7 +170,10 @@ impl PciDevice {
         if is_io {
             let size = !(mask & !3) + 1;
             if mask & !3 != 0 {
-                result = Some(Bar::Io { port: (orig & !3) as u16, size });
+                result = Some(Bar::Io {
+                    port: (orig & !3) as u16,
+                    size,
+                });
             }
         } else {
             let is64 = (orig >> 1) & 3 == 2;
@@ -181,7 +190,10 @@ impl PciDevice {
                 m |= 0xffff_ffff_0000_0000;
             }
             if m & !0xf != 0 && (mask & !0xf) | (m >> 32) as u32 != 0 {
-                result = Some(Bar::Mem { addr: base, size: (!m).wrapping_add(1) });
+                result = Some(Bar::Mem {
+                    addr: base,
+                    size: (!m).wrapping_add(1),
+                });
             }
         }
         write16(self.addr, 0x04, cmd);

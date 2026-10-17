@@ -82,7 +82,12 @@ pub struct Ring {
 
 impl Ring {
     pub fn new(n: usize) -> Ring {
-        Ring { buf: Dma::new(n * 16, 64), n, enq: 0, pcs: true }
+        Ring {
+            buf: Dma::new(n * 16, 64),
+            n,
+            enq: 0,
+            pcs: true,
+        }
     }
 
     fn mmio(&self, idx: usize) -> Mmio {
@@ -154,7 +159,13 @@ impl EventRing {
         let e = Mmio::new(erst.as_ptr());
         e.write64(0, buf.phys());
         e.write16(8, n as u16);
-        EventRing { buf, n, deq: 0, ccs: true, erst }
+        EventRing {
+            buf,
+            n,
+            deq: 0,
+            ccs: true,
+            erst,
+        }
     }
 
     fn next(&mut self, rt0: &Mmio) -> Option<Event> {
@@ -186,9 +197,8 @@ impl EventRing {
 pub(crate) struct Slot {
     /// Device context; never read from the host side, but must stay allocated
     /// (its address is programmed into the DCBAA).
-    #[allow(dead_code)]
-    pub out_ctx: Dma,  // 32 * ctx_size
-    pub in_ctx: Dma,   // 33 * ctx_size
+    pub _out_ctx: Dma, // 32 * ctx_size
+    pub in_ctx: Dma,                  // 33 * ctx_size
     pub rings: alloc::vec::Vec<Ring>, // indexed by DCI - 1
     pub speed: u8,
     pub port: u8,
@@ -214,11 +224,21 @@ impl Drop for Controller {
     /// controller would keep DMA-ing into that memory.
     fn drop(&mut self) {
         self.op.write32(USBCMD, self.op.read32(USBCMD) & !CMD_RS);
-        let _ = platform::wait_until(500, || self.op.read32(USBSTS) & STS_HCH != 0);
+        _ = platform::wait_until(500, || self.op.read32(USBSTS) & STS_HCH != 0);
     }
 }
 
 impl Controller {
+    pub(crate) fn slot_mut(&mut self, slot: u8) -> Option<&mut Slot> {
+        let idx = (slot as usize).checked_sub(1)?;
+        self.slots.get_mut(idx)?.as_mut()
+    }
+
+    pub(crate) fn slot_ref(&self, slot: u8) -> Option<&Slot> {
+        let idx = (slot as usize).checked_sub(1)?;
+        self.slots.get(idx)?.as_ref()
+    }
+
     pub fn new(mmio: Mmio) -> Result<Controller> {
         let caplen = mmio.read8(0) as usize;
         let hcs1 = mmio.read32(HCSPARAMS1);
@@ -241,11 +261,14 @@ impl Controller {
             if cap & 0xff == 1 {
                 if cap & (1 << 16) != 0 {
                     mmio.write32(xecp, cap | (1 << 24));
-                    let _ = platform::wait_until(1000, || mmio.read32(xecp) & (1 << 16) == 0);
+                    _ = platform::wait_until(1000, || mmio.read32(xecp) & (1 << 16) == 0);
                 }
                 // Disable SMI generation, acknowledge pending SMI status bits.
                 let cs = mmio.read32(xecp + 4);
-                mmio.write32(xecp + 4, (cs & ((0x3 << 1) | (0xff << 5) | (0x7 << 17))) | (0x7 << 29));
+                mmio.write32(
+                    xecp + 4,
+                    (cs & ((0x3 << 1) | (0xff << 5) | (0x7 << 17))) | (0x7 << 29),
+                );
                 break;
             }
             let next = ((cap >> 8) & 0xff) as usize * 4;
@@ -325,10 +348,13 @@ impl Controller {
             }
         }
         let max = self.max_ports;
-        let _ = platform::wait_until(2500, || (1..=max).any(|p| self.portsc(p) & PSC_CCS != 0));
+        _ = platform::wait_until(2500, || (1..=max).any(|p| self.portsc(p) & PSC_CCS != 0));
         platform::delay_us(150_000);
         let states: alloc::vec::Vec<u32> = (1..=max).map(|p| self.portsc(p)).collect();
-        hal::log!("usb: {max} ports, connected: {}", states.iter().filter(|p| *p & PSC_CCS != 0).count());
+        hal::log!(
+            "usb: {max} ports, connected: {}",
+            states.iter().filter(|p| *p & PSC_CCS != 0).count()
+        );
         hal::log!("usb: portsc {:x?}", states);
         for port in 1..=self.max_ports {
             let p = self.portsc(port);
@@ -338,7 +364,7 @@ impl Controller {
             hal::log!("usb: port {port} connected, portsc {p:#010x}");
             if p & PSC_PP == 0 {
                 self.op.write32(PORTSC + 0x10 * (port as usize - 1), PSC_PP);
-                let _ = platform::wait_until(500, || self.portsc(port) & PSC_PP != 0);
+                _ = platform::wait_until(500, || self.portsc(port) & PSC_PP != 0);
             }
             let mut p = self.portsc(port);
             if p & PSC_PED == 0 {
@@ -352,7 +378,7 @@ impl Controller {
                     let base = self.portsc(port) & PSC_RWS_PRESERVE;
                     self.op.write32(off, base | PSC_PRC);
                 }
-                let _ = platform::wait_until(500, || self.portsc(port) & PSC_PED != 0);
+                _ = platform::wait_until(500, || self.portsc(port) & PSC_PED != 0);
                 p = self.portsc(port);
             }
             hal::log!("usb: port {port} after reset: portsc {p:#010x}");
@@ -394,7 +420,11 @@ impl Controller {
     /// Non-blocking: the completion of the oldest transfer on (`slot`, `dci`), if it arrived.
     /// Returns `(completion_code, residual_bytes)`.
     pub(crate) fn poll_transfer(&mut self, slot: u8, dci: u8) -> Option<(u8, u32)> {
-        if let Some(i) = self.stash.iter().position(|e| e.slot == slot && e.dci == dci) {
+        if let Some(i) = self
+            .stash
+            .iter()
+            .position(|e| e.slot == slot && e.dci == dci)
+        {
             let ev = self.stash.remove(i);
             return Some((ev.code, ev.residual));
         }
@@ -407,7 +437,12 @@ impl Controller {
         None
     }
 
-    pub(crate) fn wait_transfer(&mut self, slot: u8, dci: u8, timeout_ms: u64) -> Result<(u8, u32)> {
+    pub(crate) fn wait_transfer(
+        &mut self,
+        slot: u8,
+        dci: u8,
+        timeout_ms: u64,
+    ) -> Result<(u8, u32)> {
         let deadline = platform::now_ns() + timeout_ms * 1_000_000;
         loop {
             if let Some(r) = self.poll_transfer(slot, dci) {
@@ -433,9 +468,9 @@ impl Controller {
     /// device-descriptor read via Evaluate Context).
     fn ep0_mps(speed: u8) -> u16 {
         match speed {
-            1 => 8,              // low
-            2 | 3 => 64,         // full / high
-            _ => 512,            // super and up
+            1 => 8,      // low
+            2 | 3 => 64, // full / high
+            _ => 512,    // super and up
         }
     }
 
@@ -444,7 +479,9 @@ impl Controller {
     /// Configure Endpoint form: only the listed endpoints are added, EP0 is left alone.
     pub(crate) fn build_input_ctx(&mut self, slot: u8, config_value: u8, eps: &[(u8, u32, u32)]) {
         let cs = self.ctx_size;
-        let Some(s) = &mut self.slots[(slot - 1) as usize] else { return };
+        let Some(s) = self.slot_mut(slot) else {
+            return;
+        };
         let in_ctx = Mmio::new(s.in_ctx.as_ptr());
         s.in_ctx.as_mut_slice().fill(0);
         let mut add = 1u32; // slot context
@@ -469,21 +506,28 @@ impl Controller {
         sctx.write32(4, (s.port as u32) << 16);
         if eps.is_empty() {
             let ectx = in_ctx.offset(cs * 2);
-            ectx.write32(4, (3 << 1) | (4 << 3) | ((Self::ep0_mps(s.speed) as u32) << 16));
-            ectx.write64(8, s.rings[0].phys() | 1); // TR dequeue + DCS
+            ectx.write32(
+                4,
+                (3 << 1) | (4 << 3) | ((Self::ep0_mps(s.speed) as u32) << 16),
+            );
+            if let Some(r0) = s.rings.first() {
+                ectx.write64(8, r0.phys() | 1); // TR dequeue + DCS
+            }
             ectx.write32(16, 8);
         }
         for &(dci, ty, mps) in eps {
             let ectx = in_ctx.offset(cs * (1 + dci as usize));
             ectx.write32(0, 0);
             ectx.write32(4, (3 << 1) | (ty << 3) | (mps << 16));
-            ectx.write64(8, s.rings[(dci - 1) as usize].phys() | 1);
+            if let Some(r) = s.rings.get((dci as usize).wrapping_sub(1)) {
+                ectx.write64(8, r.phys() | 1);
+            }
             ectx.write32(16, 1024);
         }
     }
 
     pub(crate) fn address_device(&mut self, slot: u8) -> Result<()> {
-        let in_ctx = self.slots[(slot - 1) as usize].as_ref().unwrap().in_ctx.phys();
+        let in_ctx = self.slot_ref(slot).ok_or(Error::InvalidArgument)?.in_ctx.phys();
         let (got, code) = self.command(in_ctx, (TRB_ADDRESS_DEVICE << 10) | (slot as u32) << 24)?;
         if code != CC_SUCCESS || got != slot {
             return Err(Error::Io);
@@ -492,7 +536,7 @@ impl Controller {
     }
 
     pub(crate) fn configure(&mut self, slot: u8, trb_type: u32) -> Result<()> {
-        let in_ctx = self.slots[(slot - 1) as usize].as_ref().unwrap().in_ctx.phys();
+        let in_ctx = self.slot_ref(slot).ok_or(Error::InvalidArgument)?.in_ctx.phys();
         let (_, code) = self.command(in_ctx, (trb_type << 10) | (slot as u32) << 24)?;
         if code != CC_SUCCESS {
             return Err(Error::Io);
@@ -503,7 +547,9 @@ impl Controller {
     /// Fixes EP0's max packet size after reading the device descriptor's byte 7.
     pub(crate) fn set_ep0_mps(&mut self, slot: u8, mps: u16) -> Result<()> {
         let cs = self.ctx_size;
-        let Some(s) = &mut self.slots[(slot - 1) as usize] else { return Err(Error::InvalidArgument) };
+        let Some(s) = self.slot_mut(slot) else {
+            return Err(Error::InvalidArgument);
+        };
         let in_ctx = Mmio::new(s.in_ctx.as_ptr());
         s.in_ctx.as_mut_slice().fill(0);
         in_ctx.write32(4, 1 << 1); // add DCI 1 only
@@ -518,19 +564,30 @@ impl Controller {
     /// Adds a device on `port` with `speed`: enable slot, build contexts, address it.
     pub(crate) fn add_device(&mut self, port: u8, speed: u8) -> Result<u8> {
         let slot = self.enable_slot()?;
-        let result = (|| {
-            let out_ctx = Dma::new(32 * self.ctx_size, 64);
-            let in_ctx = Dma::new(33 * self.ctx_size, 64);
-            Mmio::new(self.dcbaa.as_ptr()).write64(slot as usize * 8, out_ctx.phys());
-            let rings = alloc::vec![Ring::new(RING_TRBS)];
-            self.slots[(slot - 1) as usize] = Some(Slot { out_ctx, in_ctx, rings, speed, port });
-            self.build_input_ctx(slot, 0, &[]);
-            self.address_device(slot)
-        })();
-        if result.is_err() {
-            self.slots[(slot - 1) as usize] = None;
+        let out_ctx = Dma::new(32 * self.ctx_size, 64);
+        let in_ctx = Dma::new(33 * self.ctx_size, 64);
+        Mmio::new(self.dcbaa.as_ptr()).write64(slot as usize * 8, out_ctx.phys());
+        let rings = alloc::vec![Ring::new(RING_TRBS)];
+        let slot_idx = (slot as usize).checked_sub(1).ok_or(Error::InvalidArgument)?;
+        if let Some(slot_entry) = self.slots.get_mut(slot_idx) {
+            *slot_entry = Some(Slot {
+                _out_ctx: out_ctx,
+                in_ctx,
+                rings,
+                speed,
+                port,
+            });
+        } else {
+            return Err(Error::InvalidArgument);
         }
-        result.map(|_| slot)
+        self.build_input_ctx(slot, 0, &[]);
+        if let Err(e) = self.address_device(slot) {
+            if let Some(slot_entry) = self.slots.get_mut(slot_idx) {
+                *slot_entry = None;
+            }
+            return Err(e);
+        }
+        Ok(slot)
     }
 
     /// Creates transfer rings for the given bulk endpoints and issues Configure Endpoint.
@@ -542,14 +599,22 @@ impl Controller {
     ) -> Result<()> {
         let max_dci = eps.iter().map(|e| e.dci()).max().unwrap_or(1);
         {
-            let Some(s) = &mut self.slots[(slot - 1) as usize] else { return Err(Error::InvalidArgument) };
+            let Some(s) = self.slot_mut(slot) else {
+                return Err(Error::InvalidArgument);
+            };
             while (s.rings.len() as u8) < max_dci {
                 s.rings.push(Ring::new(RING_TRBS));
             }
         }
         let list: alloc::vec::Vec<(u8, u32, u32)> = eps
             .iter()
-            .map(|ep| (ep.dci(), if ep.is_in() { 6u32 } else { 2u32 }, ep.max_packet as u32))
+            .map(|ep| {
+                (
+                    ep.dci(),
+                    if ep.is_in() { 6u32 } else { 2u32 },
+                    ep.max_packet as u32,
+                )
+            })
             .collect();
         self.build_input_ctx(slot, config_value, &list);
         self.configure(slot, TRB_CONFIGURE_EP)
@@ -570,13 +635,13 @@ impl Controller {
         match self.wait_transfer(slot, dci, timeout_ms) {
             Ok((code, residual)) => {
                 if code != CC_SUCCESS && code != CC_SHORT_PACKET {
-                    let _ = self.reset_endpoint(slot, dci);
+                    _ = self.reset_endpoint(slot, dci);
                     return Err(Error::Io);
                 }
                 Ok(len - residual as usize)
             }
             Err(e) => {
-                let _ = self.reset_endpoint(slot, dci);
+                _ = self.reset_endpoint(slot, dci);
                 Err(e)
             }
         }
@@ -584,15 +649,26 @@ impl Controller {
 
     /// Queues a transfer (zero length = a zero-length packet) and rings the endpoint doorbell.
     /// Completion is collected with `poll_transfer` / `wait_transfer`.
-    pub(crate) fn queue_transfer(&mut self, slot: u8, dci: u8, buf_phys: u64, len: usize) -> Result<()> {
+    pub(crate) fn queue_transfer(
+        &mut self,
+        slot: u8,
+        dci: u8,
+        buf_phys: u64,
+        len: usize,
+    ) -> Result<()> {
         self.submit_normal(slot, dci, buf_phys, len)?;
         self.db.write32(slot as usize * 4, dci as u32);
         Ok(())
     }
 
     fn submit_normal(&mut self, slot: u8, dci: u8, buf_phys: u64, len: usize) -> Result<()> {
-        let Some(s) = &mut self.slots[(slot - 1) as usize] else { return Err(Error::InvalidArgument) };
-        let ring = &mut s.rings[(dci - 1) as usize];
+        let Some(s) = self.slot_mut(slot) else {
+            return Err(Error::InvalidArgument);
+        };
+        let ring = s
+            .rings
+            .get_mut((dci as usize).wrapping_sub(1))
+            .ok_or(Error::InvalidArgument)?;
         if len == 0 {
             ring.push(buf_phys, 0, (TRB_NORMAL << 10) | TRB_IOC);
             return Ok(());
@@ -618,24 +694,39 @@ impl Controller {
         data_in: bool,
     ) -> Result<usize> {
         {
-            let Some(s) = &mut self.slots[(slot - 1) as usize] else { return Err(Error::InvalidArgument) };
-            let ring = &mut s.rings[0];
-            let trt = if data_len == 0 { 0 } else if data_in { 3 } else { 2 };
+            let Some(s) = self.slot_mut(slot) else {
+                return Err(Error::InvalidArgument);
+            };
+            let ring = s.rings.first_mut().ok_or(Error::InvalidArgument)?;
+            let trt = if data_len == 0 {
+                0
+            } else if data_in {
+                3
+            } else {
+                2
+            };
             let sp = u64::from_le_bytes(setup);
             ring.push(sp, 8, (TRB_SETUP << 10) | TRB_IDT | (trt << 16));
             if data_len > 0 {
                 let dir = if data_in { TRB_DIR_IN } else { 0 };
                 ring.push(data_phys, data_len as u32, (TRB_DATA << 10) | dir);
             }
-            let status_dir = if data_len == 0 || !data_in { TRB_DIR_IN } else { 0 };
+            let status_dir = if data_len == 0 || !data_in {
+                TRB_DIR_IN
+            } else {
+                0
+            };
             ring.push(0, 0, (TRB_STATUS << 10) | TRB_IOC | status_dir);
         }
         self.db.write32(slot as usize * 4, 1);
         let (code, residual) = self.wait_transfer(slot, 1, 5000)?;
         if code != CC_SUCCESS && code != CC_SHORT_PACKET {
             // A stalled control request halts EP0; recover it so later requests work.
-            hal::log!("usb: control request {:02x?} failed, completion code {code}", &setup[..2]);
-            let _ = self.reset_endpoint(slot, 1);
+            hal::log!(
+                "usb: control request {:02x?} failed, completion code {code}",
+                &setup[..2]
+            );
+            _ = self.reset_endpoint(slot, 1);
             return Err(Error::Io);
         }
         // The status stage event reports the residual of the data stage.
@@ -647,10 +738,15 @@ impl Controller {
         let sel = (slot as u32) << 24 | (dci as u32) << 16;
         // Stop a running endpoint; reset a halted one (stall, babble, transaction error). Each
         // command is a harmless no-op, answered with a context-state error, in the other state.
-        let _ = self.command(0, (TRB_STOP_EP << 10) | sel);
-        let _ = self.command(0, (TRB_RESET_EP << 10) | sel);
-        let Some(s) = &mut self.slots[(slot - 1) as usize] else { return Err(Error::InvalidArgument) };
-        let ring = &mut s.rings[(dci - 1) as usize];
+        _ = self.command(0, (TRB_STOP_EP << 10) | sel);
+        _ = self.command(0, (TRB_RESET_EP << 10) | sel);
+        let Some(s) = self.slot_mut(slot) else {
+            return Err(Error::InvalidArgument);
+        };
+        let ring = s
+            .rings
+            .get_mut((dci as usize).wrapping_sub(1))
+            .ok_or(Error::InvalidArgument)?;
         ring.reset();
         let phys = ring.phys();
         let (_, code) = self.command(phys | 1, (TRB_SET_TR_DEQUEUE << 10) | sel)?;

@@ -5,8 +5,27 @@
 //! * `\archstaller.cfg` (the target disk's ESP, first boot): start the Arch Linux kernel, which is a
 //!   UEFI application itself, with a command line and an initramfs read from the ESP. The config
 //!   is `kernel=<path>`, `initrd=<path>`, `cmdline=<rest of line>`, one per line.
-#![no_std]
-#![no_main]
+#![cfg_attr(target_os = "uefi", no_std)]
+#![cfg_attr(target_os = "uefi", no_main)]
+#![cfg_attr(
+    not(target_os = "uefi"),
+    expect(
+        dead_code,
+        reason = "items only called by uefi_main on bare-metal target"
+    )
+)]
+#![expect(
+    clippy::multiple_unsafe_ops_per_block,
+    reason = "bare-metal UEFI protocol pointers and FFI"
+)]
+#![expect(
+    clippy::undocumented_unsafe_blocks,
+    reason = "bare-metal UEFI protocol pointers and FFI"
+)]
+#![expect(
+    clippy::panic,
+    reason = "fatal errors halt the bare-metal UEFI bootloader"
+)]
 
 use bootinfo::*;
 use core::ffi::c_void;
@@ -24,16 +43,56 @@ const UNSUPPORTED: Status = ERR | 3;
 #[repr(C)]
 struct Guid(u32, u16, u16, [u8; 8]);
 
-const LOADED_IMAGE: Guid = Guid(0x5b1b31a1, 0x9562, 0x11d2, [0x8e, 0x3f, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b]);
-const SIMPLE_FS: Guid = Guid(0x964e5b22, 0x6459, 0x11d2, [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b]);
-const FILE_INFO: Guid = Guid(0x09576e92, 0x6d3f, 0x11d2, [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b]);
-const GOP: Guid = Guid(0x9042a9de, 0x23dc, 0x4a38, [0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a]);
-const DEVICE_PATH: Guid = Guid(0x09576e91, 0x6d3f, 0x11d2, [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b]);
-const LOAD_FILE2: Guid = Guid(0x4006c0c1, 0xfcb3, 0x403e, [0x99, 0x6d, 0x4a, 0x6c, 0x87, 0x24, 0xe0, 0x6d]);
+const LOADED_IMAGE: Guid = Guid(
+    0x5b1b31a1,
+    0x9562,
+    0x11d2,
+    [0x8e, 0x3f, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b],
+);
+const SIMPLE_FS: Guid = Guid(
+    0x964e5b22,
+    0x6459,
+    0x11d2,
+    [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b],
+);
+const FILE_INFO: Guid = Guid(
+    0x09576e92,
+    0x6d3f,
+    0x11d2,
+    [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b],
+);
+const GOP: Guid = Guid(
+    0x9042a9de,
+    0x23dc,
+    0x4a38,
+    [0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a],
+);
+const DEVICE_PATH: Guid = Guid(
+    0x09576e91,
+    0x6d3f,
+    0x11d2,
+    [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b],
+);
+const LOAD_FILE2: Guid = Guid(
+    0x4006c0c1,
+    0xfcb3,
+    0x403e,
+    [0x99, 0x6d, 0x4a, 0x6c, 0x87, 0x24, 0xe0, 0x6d],
+);
 /// EFI_BLOCK_IO_PROTOCOL: raw sector access to the volume's whole disk (identifies the boot medium).
-const BLOCK_IO: Guid = Guid(0x964e5b21, 0x6459, 0x11d2, [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b]);
+const BLOCK_IO: Guid = Guid(
+    0x964e5b21,
+    0x6459,
+    0x11d2,
+    [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b],
+);
 /// The vendor-media device path the Linux EFI stub asks for to find its initramfs.
-const LINUX_INITRD_MEDIA: Guid = Guid(0x5568e427, 0x68fc, 0x4f3d, [0xac, 0x74, 0xca, 0x55, 0x52, 0x31, 0xcc, 0x68]);
+const LINUX_INITRD_MEDIA: Guid = Guid(
+    0x5568e427,
+    0x68fc,
+    0x4f3d,
+    [0xac, 0x74, 0xca, 0x55, 0x52, 0x31, 0xcc, 0x68],
+);
 
 #[repr(C)]
 struct TableHeader {
@@ -72,7 +131,8 @@ struct BootServices {
     restore_tpl: usize,
     allocate_pages: extern "efiapi" fn(u32, u32, usize, *mut u64) -> Status,
     free_pages: usize,
-    get_memory_map: extern "efiapi" fn(*mut usize, *mut u8, *mut usize, *mut usize, *mut u32) -> Status,
+    get_memory_map:
+        extern "efiapi" fn(*mut usize, *mut u8, *mut usize, *mut usize, *mut u32) -> Status,
     allocate_pool: usize,
     free_pool: usize,
     create_event: usize,
@@ -81,7 +141,8 @@ struct BootServices {
     signal_event: usize,
     close_event: usize,
     check_event: usize,
-    install_protocol_interface: extern "efiapi" fn(*mut Handle, *const Guid, u32, *mut c_void) -> Status,
+    install_protocol_interface:
+        extern "efiapi" fn(*mut Handle, *const Guid, u32, *mut c_void) -> Status,
     reinstall_protocol_interface: usize,
     uninstall_protocol_interface: usize,
     handle_protocol: extern "efiapi" fn(Handle, *const Guid, *mut *mut c_void) -> Status,
@@ -90,7 +151,8 @@ struct BootServices {
     locate_handle: usize,
     locate_device_path: usize,
     install_configuration_table: usize,
-    load_image: extern "efiapi" fn(u8, Handle, *mut c_void, *const u8, usize, *mut Handle) -> Status,
+    load_image:
+        extern "efiapi" fn(u8, Handle, *mut c_void, *const u8, usize, *mut Handle) -> Status,
     start_image: extern "efiapi" fn(Handle, *mut usize, *mut *mut u16) -> Status,
     exit: usize,
     unload_image: usize,
@@ -104,7 +166,8 @@ struct BootServices {
     close_protocol: usize,
     open_protocol_information: usize,
     protocols_per_handle: usize,
-    locate_handle_buffer: extern "efiapi" fn(u32, *const Guid, *mut c_void, *mut usize, *mut *mut Handle) -> Status,
+    locate_handle_buffer:
+        extern "efiapi" fn(u32, *const Guid, *mut c_void, *mut usize, *mut *mut Handle) -> Status,
     locate_protocol: extern "efiapi" fn(*const Guid, *mut c_void, *mut *mut c_void) -> Status,
 }
 
@@ -224,18 +287,26 @@ fn say(msg: &str) {
         let mut n = 0;
         for c in msg.chars() {
             if c == '\n' {
-                buf[n] = '\r' as u16;
+                if let Some(slot) = buf.get_mut(n) {
+                    *slot = '\r' as u16;
+                }
                 n += 1;
             }
-            buf[n] = if c.is_ascii() { c as u16 } else { '?' as u16 };
+            if let Some(slot) = buf.get_mut(n) {
+                *slot = if c.is_ascii() { c as u16 } else { '?' as u16 };
+            }
             n += 1;
             if n >= 60 {
-                buf[n] = 0;
+                if let Some(slot) = buf.get_mut(n) {
+                    *slot = 0;
+                }
                 ((*out).output_string)(out, buf.as_ptr());
                 n = 0;
             }
         }
-        buf[n] = 0;
+        if let Some(slot) = buf.get_mut(n) {
+            *slot = 0;
+        }
         ((*out).output_string)(out, buf.as_ptr());
     }
 }
@@ -247,6 +318,7 @@ fn say_status(what: &str, s: Status) {
     say("\n");
 }
 
+#[cfg(target_os = "uefi")]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     if let Some(m) = info.message().as_str() {
@@ -261,10 +333,12 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     }
 }
 
-fn utf16<const N: usize>(s: &str) -> [u16; N] {
+pub fn utf16<const N: usize>(s: &str) -> [u16; N] {
     let mut out = [0u16; N];
     for (i, c) in s.bytes().enumerate().take(N - 1) {
-        out[i] = c as u16;
+        if let Some(slot) = out.get_mut(i) {
+            *slot = c as u16;
+        }
     }
     out
 }
@@ -364,12 +438,14 @@ fn boot_medium(image: Handle) -> BootMedium {
         if ((*io).read_blocks)(io, 0, 0, 1, lba0.as_mut_ptr()) != 0 {
             return BootMedium::default();
         }
-        let lba0 = &lba0[..block_size as usize];
+        let Some(lba0) = lba0.get(..block_size as usize) else {
+            return BootMedium::default();
+        };
         BootMedium {
             source: MEDIUM_SOURCE_UEFI,
             sector_size: block_size,
             sectors,
-            lba0_hash: BootMedium::fingerprint(&lba0, block_size, sectors),
+            lba0_hash: BootMedium::fingerprint(lba0, block_size, sectors),
         }
     }
 }
@@ -421,14 +497,19 @@ fn gop_framebuffer() -> Framebuffer {
         // switch to the mode with the most pixels that we can use (a 32 bpp layout).
         let usable = |i: &GopModeInfo| match i.pixel_format {
             0 | 1 => true,
-            2 => [i.red_mask, i.green_mask, i.blue_mask].iter().all(|m| m.count_ones() == 8 && m.trailing_zeros() % 8 == 0),
+            2 => [i.red_mask, i.green_mask, i.blue_mask]
+                .iter()
+                .all(|m| m.count_ones() == 8 && m.trailing_zeros() % 8 == 0),
             _ => false,
         };
         let cur = (*(*gop).mode).mode;
         let (mut best, mut best_px) = (cur, 0u64);
         for n in 0..(*(*gop).mode).max_mode {
             let (mut size, mut info) = (0usize, null());
-            if ((*gop).query_mode)(gop, n, &mut size, &mut info) != 0 || info.is_null() || !usable(&*info) {
+            if ((*gop).query_mode)(gop, n, &mut size, &mut info) != 0
+                || info.is_null()
+                || !usable(&*info)
+            {
                 continue;
             }
             let px = (*info).horizontal as u64 * (*info).vertical as u64;
@@ -444,11 +525,17 @@ fn gop_framebuffer() -> Framebuffer {
             return fb;
         }
         let i = &*mode.info;
-        let eight = |m: u32| (m.count_ones() == 8 && m.trailing_zeros() % 8 == 0).then(|| m.trailing_zeros() as u8);
+        let eight = |m: u32| {
+            (m.count_ones() == 8 && m.trailing_zeros().is_multiple_of(8))
+                .then(|| m.trailing_zeros() as u8)
+        };
         let shifts = match i.pixel_format {
             0 => Some((0, 8, 16)),
             1 => Some((16, 8, 0)),
-            2 => eight(i.red_mask).zip(eight(i.green_mask)).zip(eight(i.blue_mask)).map(|((r, g), b)| (r, g, b)),
+            2 => eight(i.red_mask)
+                .zip(eight(i.green_mask))
+                .zip(eight(i.blue_mask))
+                .map(|((r, g), b)| (r, g, b)),
             _ => None,
         };
         if let Some((r, g, b)) = shifts {
@@ -481,13 +568,27 @@ impl Descriptors {
     fn new() -> Self {
         // The map changes between calls (our own allocations add entries), so leave generous room.
         let cap = 64 * 1024;
-        let buf = alloc_pages(cap).unwrap_or_else(|_| panic!("cannot allocate the memory map buffer")) as *mut u8;
-        Descriptors { buf, cap, size: 0, desc_size: 0, key: 0 }
+        let buf = alloc_pages(cap)
+            .unwrap_or_else(|_| panic!("cannot allocate the memory map buffer"))
+            as *mut u8;
+        Descriptors {
+            buf,
+            cap,
+            size: 0,
+            desc_size: 0,
+            key: 0,
+        }
     }
     fn refresh(&mut self) {
         let mut ver = 0u32;
         self.size = self.cap;
-        let s = (bs().get_memory_map)(&mut self.size, self.buf, &mut self.key, &mut self.desc_size, &mut ver);
+        let s = (bs().get_memory_map)(
+            &mut self.size,
+            self.buf,
+            &mut self.key,
+            &mut self.desc_size,
+            &mut ver,
+        );
         if s != 0 {
             say_status("boot: GetMemoryMap", s);
             panic!("cannot read the memory map");
@@ -499,7 +600,11 @@ impl Descriptors {
         while off + 32 <= self.size {
             unsafe {
                 let d = self.buf.add(off);
-                f(*(d as *const u32), *(d.add(8) as *const u64), *(d.add(24) as *const u64));
+                f(
+                    *(d as *const u32),
+                    *(d.add(8) as *const u64),
+                    *(d.add(24) as *const u64),
+                );
             }
             off += self.desc_size;
         }
@@ -508,12 +613,12 @@ impl Descriptors {
 
 fn translate(kind: u32) -> u32 {
     match kind {
-        1 | 2 => MEM_LOADER,         // loader code, data: us, and what the arena was allocated as
-        3 | 4 | 7 => MEM_USABLE,     // boot services code, data, conventional (free once services are gone)
+        1 | 2 => MEM_LOADER, // loader code, data: us, and what the arena was allocated as
+        3 | 4 | 7 => MEM_USABLE, // boot services code, data, conventional (free once services are gone)
         9 => MEM_ACPI_RECLAIMABLE,
         10 => MEM_ACPI_NVS,
         8 => MEM_BAD,
-        _ => MEM_RESERVED,           // runtime services, MMIO, persistent, unaccepted, ...
+        _ => MEM_RESERVED, // runtime services, MMIO, persistent, unaccepted, ...
     }
 }
 
@@ -528,8 +633,10 @@ fn boot_installer(image: Handle, payload: *mut u8, payload_len: usize) {
             top = top.max(start + pages * 4096);
         }
     });
-    let size = loadcore::arena_size(payload, top).unwrap_or_else(|| panic!("payload.bin is damaged"));
-    let arena = alloc_pages(size as usize).unwrap_or_else(|_| panic!("not enough memory for the loader"));
+    let size =
+        loadcore::arena_size(payload, top).unwrap_or_else(|| panic!("payload.bin is damaged"));
+    let arena =
+        alloc_pages(size as usize).unwrap_or_else(|_| panic!("not enough memory for the loader"));
 
     // Identify the boot medium now, while boot services (and so Block I/O) are still alive; the
     // kernel later matches this fingerprint against the disks it enumerates (see `logdump.rs`).
@@ -549,17 +656,33 @@ fn boot_installer(image: Handle, payload: *mut u8, payload_len: usize) {
             panic!("cannot exit boot services");
         }
     }
+    #[expect(clippy::deref_addrof, reason = "raw pointer deref to MAP")]
     unsafe {
         let map = &mut *(&raw mut MAP);
         d.each(|k, start, pages| map.push(start, pages * 4096, translate(k)));
         map.normalize();
-        loadcore::boot(map, Boot { firmware: FIRMWARE_UEFI, fb, payload, arena: (arena, (size + 4095) & !4095), boot_medium });
+        loadcore::boot(
+            map,
+            Boot {
+                firmware: FIRMWARE_UEFI,
+                fb,
+                payload,
+                arena: (arena, (size + 4095) & !4095),
+                boot_medium,
+            },
+        );
     }
 }
 
 static mut INITRD: (*const u8, usize) = (null(), 0);
 
-extern "efiapi" fn initrd_load(_: *mut LoadFile2, _: *const c_void, boot_policy: u8, size: *mut usize, buf: *mut u8) -> Status {
+extern "efiapi" fn initrd_load(
+    _: *mut LoadFile2,
+    _: *const c_void,
+    boot_policy: u8,
+    size: *mut usize,
+    buf: *mut u8,
+) -> Status {
     unsafe {
         if boot_policy != 0 {
             return UNSUPPORTED;
@@ -578,11 +701,22 @@ extern "efiapi" fn initrd_load(_: *mut LoadFile2, _: *const c_void, boot_policy:
     }
 }
 
-static mut INITRD_PROTO: LoadFile2 = LoadFile2 { load_file: initrd_load };
+static mut INITRD_PROTO: LoadFile2 = LoadFile2 {
+    load_file: initrd_load,
+};
 /// Vendor media node (type 4, subtype 3, 20 bytes) followed by the end node.
-static mut INITRD_PATH: [u8; 24] = [4, 3, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x7f, 0xff, 4, 0];
+static mut INITRD_PATH: [u8; 24] = [
+    4, 3, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x7f, 0xff, 4, 0,
+];
 
-fn boot_linux(image: Handle, cfg: &[u8]) {
+#[derive(Debug, PartialEq, Eq)]
+pub struct LinuxBootConfig<'a> {
+    pub kernel: &'a str,
+    pub initrd: &'a str,
+    pub cmdline: &'a str,
+}
+
+pub fn parse_linux_config(cfg: &[u8]) -> LinuxBootConfig<'_> {
     let text = core::str::from_utf8(cfg).unwrap_or("");
     let (mut kernel, mut initrd, mut cmdline) = ("", "", "");
     for line in text.lines() {
@@ -595,7 +729,17 @@ fn boot_linux(image: Handle, cfg: &[u8]) {
             cmdline = v;
         }
     }
-    let Some((root, kbuf, klen)) = find_file(image, kernel).map(|(r, p, n)| (r, p, n)) else {
+    LinuxBootConfig {
+        kernel,
+        initrd,
+        cmdline,
+    }
+}
+
+fn boot_linux(image: Handle, cfg: &[u8]) {
+    let conf = parse_linux_config(cfg);
+    let (kernel, initrd, cmdline) = (conf.kernel, conf.initrd, conf.cmdline);
+    let Some((root, kbuf, klen)) = find_file(image, kernel) else {
         say("boot: cannot read the kernel\n");
         return;
     };
@@ -606,17 +750,37 @@ fn boot_linux(image: Handle, cfg: &[u8]) {
     unsafe {
         INITRD = (ibuf, ilen);
         let key = LINUX_INITRD_MEDIA;
-        (&raw mut INITRD_PATH as *mut u8).add(4).copy_from_nonoverlapping(&key as *const Guid as *const u8, 16);
+        (&raw mut INITRD_PATH as *mut u8)
+            .add(4)
+            .copy_from_nonoverlapping(&key as *const Guid as *const u8, 16);
         let mut h: Handle = null_mut();
-        let s = (bs().install_protocol_interface)(&mut h, &DEVICE_PATH, 0, &raw mut INITRD_PATH as *mut c_void);
-        let s2 = if s == 0 { (bs().install_protocol_interface)(&mut h, &LOAD_FILE2, 0, &raw mut INITRD_PROTO as *mut c_void) } else { s };
+        let s = (bs().install_protocol_interface)(
+            &mut h,
+            &DEVICE_PATH,
+            0,
+            &raw mut INITRD_PATH as *mut c_void,
+        );
+        let s2 = if s == 0 {
+            (bs().install_protocol_interface)(
+                &mut h,
+                &LOAD_FILE2,
+                0,
+                &raw mut INITRD_PROTO as *mut c_void,
+            )
+        } else {
+            s
+        };
         if s2 != 0 {
             say_status("boot: cannot offer the initramfs", s2);
             return;
         }
 
         let mut li: *mut c_void = null_mut();
-        let own = if (bs().handle_protocol)(image, &LOADED_IMAGE, &mut li) == 0 { (*(li as *mut LoadedImage)).file_path } else { null_mut() };
+        let own = if (bs().handle_protocol)(image, &LOADED_IMAGE, &mut li) == 0 {
+            (*(li as *mut LoadedImage)).file_path
+        } else {
+            null_mut()
+        };
         let mut child: Handle = null_mut();
         let mut s = (bs().load_image)(0, image, own, kbuf, klen, &mut child);
         if s != 0 {
@@ -628,10 +792,13 @@ fn boot_linux(image: Handle, cfg: &[u8]) {
         }
         // The command line, as the UTF-16 string the Linux EFI stub reads from the load options.
         static mut OPTS: [u16; 2048] = [0; 2048];
+        #[expect(clippy::deref_addrof, reason = "raw pointer deref to OPTS")]
         let opts = &mut *(&raw mut OPTS);
         let mut n = 0;
         for b in cmdline.bytes().take(opts.len() - 1) {
-            opts[n] = b as u16;
+            if let Some(slot) = opts.get_mut(n) {
+                *slot = b as u16;
+            }
             n += 1;
         }
         let mut kli: *mut c_void = null_mut();
@@ -645,6 +812,10 @@ fn boot_linux(image: Handle, cfg: &[u8]) {
     }
 }
 
+#[cfg(not(target_os = "uefi"))]
+fn main() {}
+
+#[cfg(target_os = "uefi")]
 #[no_mangle]
 extern "efiapi" fn efi_main(image: Handle, st: *mut SystemTable) -> Status {
     unsafe { ST = st };
@@ -670,4 +841,38 @@ extern "efiapi" fn efi_main(image: Handle, st: *mut SystemTable) -> Status {
     }
     (bs().stall)(10_000_000);
     ERR | 1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_linux_config_file() {
+        let sample = b"kernel=\\vmlinuz-linux\ninitrd=\\initramfs-linux.img\ncmdline=root=UUID=123 rw quiet\n";
+        let cfg = parse_linux_config(sample);
+        assert_eq!(cfg.kernel, "\\vmlinuz-linux");
+        assert_eq!(cfg.initrd, "\\initramfs-linux.img");
+        assert_eq!(cfg.cmdline, "root=UUID=123 rw quiet");
+    }
+
+    #[test]
+    fn handles_empty_or_whitespace_config() {
+        let sample = b"  \n\n  kernel=vmlinuz \n";
+        let cfg = parse_linux_config(sample);
+        assert_eq!(cfg.kernel, "vmlinuz");
+        assert_eq!(cfg.initrd, "");
+        assert_eq!(cfg.cmdline, "");
+    }
+
+    #[test]
+    fn utf16_string_conversion() {
+        let u: [u16; 8] = utf16("hello");
+        assert_eq!(u[0], b'h' as u16);
+        assert_eq!(u[1], b'e' as u16);
+        assert_eq!(u[2], b'l' as u16);
+        assert_eq!(u[3], b'l' as u16);
+        assert_eq!(u[4], b'o' as u16);
+        assert_eq!(u[5], 0);
+    }
 }

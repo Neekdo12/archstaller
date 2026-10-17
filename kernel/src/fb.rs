@@ -31,7 +31,11 @@ pub struct FbConsole {
 unsafe impl Send for FbConsole {}
 
 fn le32(b: &[u8], off: usize) -> usize {
-    u32::from_le_bytes([b[off], b[off + 1], b[off + 2], b[off + 3]]) as usize
+    let mut arr = [0u8; 4];
+    if let Some(src) = b.get(off..off + 4) {
+        arr.copy_from_slice(src);
+    }
+    u32::from_le_bytes(arr) as usize
 }
 
 impl FbConsole {
@@ -40,7 +44,7 @@ impl FbConsole {
         if fb.addr == 0 || fb.bpp != 32 {
             return None;
         }
-        if FONT.len() < 32 || FONT[..4] != [0x72, 0xb5, 0x4a, 0x86] {
+        if FONT.len() < 32 || FONT.get(..4) != Some(&[0x72, 0xb5, 0x4a, 0x86]) {
             return None;
         }
         let header = le32(FONT, 8);
@@ -65,7 +69,7 @@ impl FbConsole {
             bg: pack(BG),
             x: 0,
             y: 0,
-            glyphs: &FONT[header..],
+            glyphs: FONT.get(header..).unwrap_or(&[]),
             char_size,
             glyph_h,
         };
@@ -84,7 +88,9 @@ impl FbConsole {
 
     fn cells(&mut self) -> &mut [u8] {
         // SAFETY: there is one console, and it is only used under the console lock.
-        unsafe { core::slice::from_raw_parts_mut((&raw mut CELLS).cast::<u8>(), self.cols * self.rows) }
+        unsafe {
+            core::slice::from_raw_parts_mut((&raw mut CELLS).cast::<u8>(), self.cols * self.rows)
+        }
     }
 
     fn clear(&mut self) {
@@ -97,10 +103,17 @@ impl FbConsole {
     /// Moves every line up by one, redrawing only the cells that change.
     fn scroll(&mut self) {
         let cols = self.cols;
-        for i in 0..cols * self.rows {
-            let below = if i + cols < cols * self.rows { self.cells()[i + cols] } else { b' ' };
-            if self.cells()[i] != below {
-                self.cells()[i] = below;
+        let total = cols * self.rows;
+        for i in 0..total {
+            let below = if i + cols < total {
+                self.cells().get(i + cols).copied().unwrap_or(b' ')
+            } else {
+                b' '
+            };
+            if self.cells().get(i).copied() != Some(below) {
+                if let Some(slot) = self.cells().get_mut(i) {
+                    *slot = below;
+                }
                 self.render(i % cols, i / cols, below);
             }
         }
@@ -121,19 +134,25 @@ impl FbConsole {
             self.newline();
         }
         let i = self.y * self.cols + self.x;
-        self.cells()[i] = ch;
+        if let Some(slot) = self.cells().get_mut(i) {
+            *slot = ch;
+        }
         self.render(self.x, self.y, ch);
         self.x += 1;
     }
 
     /// Paints `ch` into the cell at column `x`, row `y`.
     fn render(&mut self, x: usize, y: usize, ch: u8) {
-        let glyph = &self.glyphs[ch as usize * self.char_size..][..self.char_size];
+        let off = ch as usize * self.char_size;
+        let glyph = self.glyphs.get(off..off + self.char_size).unwrap_or(&[]);
         for (r, bits) in glyph.iter().enumerate().take(self.glyph_h) {
             let line = unsafe { self.base.add((y * self.glyph_h + r) * self.pitch) } as *mut u32;
             for c in 0..8 {
                 let on = bits & (0x80 >> c) != 0;
-                unsafe { line.add(x * 8 + c).write_volatile(if on { self.fg } else { self.bg }) };
+                unsafe {
+                    line.add(x * 8 + c)
+                        .write_volatile(if on { self.fg } else { self.bg })
+                };
             }
         }
     }

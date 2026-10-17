@@ -70,7 +70,9 @@ pub fn probe(dev: &PciDevice, out: &mut Devices) {
             (false, _) => (0x170, 0x376),
         };
         let bm = match dev.bar(4) {
-            Some(Bar::Io { port, .. }) if dev.prog_if & 0x80 != 0 => Some(port + 8 * channel as u16),
+            Some(Bar::Io { port, .. }) if dev.prog_if & 0x80 != 0 => {
+                Some(port + 8 * channel as u16)
+            }
             _ => None,
         };
         for drive in 0..2 {
@@ -115,14 +117,17 @@ fn ata_string(words: &[u16]) -> String {
 
 impl AtaDisk {
     fn reg_in(&self, r: u16) -> u8 {
+        // SAFETY: Reading 8-bit register from ATA command I/O port.
         unsafe { inb(self.cmd + r) }
     }
     fn reg_out(&self, r: u16, v: u8) {
+        // SAFETY: Writing 8-bit register to ATA command I/O port.
         unsafe { outb(self.cmd + r, v) }
     }
     /// The alternate status register: reading it does not clear a pending interrupt, and four reads
     /// give the device its 400 ns to settle after a drive select or a command.
     fn alt_status(&self) -> u8 {
+        // SAFETY: Reading ATA control / alternate status I/O port.
         unsafe { inb(self.ctl) }
     }
     fn settle(&self) {
@@ -159,13 +164,23 @@ impl AtaDisk {
     }
 
     fn new(cmd: u16, ctl: u16, drive: u8, bm: Option<u16>) -> Result<AtaDisk> {
-        let mut d = AtaDisk { cmd, ctl, drive, lba48: false, model: String::new(), serial: String::new(), sectors: 0, dma: None };
+        let mut d = AtaDisk {
+            cmd,
+            ctl,
+            drive,
+            lba48: false,
+            model: String::new(),
+            serial: String::new(),
+            sectors: 0,
+            dma: None,
+        };
         // A floating bus reads 0xff (or 0x7f on some boards): no controller, no device.
         let st = d.alt_status();
         if st == 0xff || st == 0x7f {
             return Err(Error::Unsupported);
         }
         d.select(0);
+        // SAFETY: Setting nIEN bit in the ATA control port to disable device interrupts.
         unsafe { outb(ctl, 0x02) }; // nIEN: no interrupts, we poll
         if d.reg_in(STATUS) == 0xff {
             return Err(Error::Unsupported);
@@ -186,18 +201,27 @@ impl AtaDisk {
         }
         d.wait_drq()?;
         let mut w = [0u16; 256];
+        // SAFETY: Reading 256 16-bit words (512 bytes) from ATA data port into `w`.
         unsafe { insw(cmd + DATA, w.as_mut_ptr(), 256) };
         d.serial = ata_string(&w[10..20]);
         d.model = ata_string(&w[27..47]);
         d.lba48 = w[83] & (1 << 10) != 0;
-        d.sectors = if d.lba48 { w[100] as u64 | (w[101] as u64) << 16 | (w[102] as u64) << 32 | (w[103] as u64) << 48 } else { w[60] as u64 | (w[61] as u64) << 16 };
+        d.sectors = if d.lba48 {
+            w[100] as u64 | (w[101] as u64) << 16 | (w[102] as u64) << 32 | (w[103] as u64) << 48
+        } else {
+            w[60] as u64 | (w[61] as u64) << 16
+        };
         // Only 512-byte logical sectors (word 106 bit 12 says they are larger).
         if d.sectors == 0 || (w[106] & 0xc000 == 0x4000 && w[106] & (1 << 12) != 0) {
             return Err(Error::Unsupported);
         }
         // DMA, if the drive says it can (word 49 bit 8) and a real transfer works; else PIO.
         if let (Some(bm), true) = (bm, w[49] & (1 << 8) != 0) {
-            let eng = DmaEngine { bm, prd: Dma::new(16, 64), data: Dma::new(MAX_SECTORS * 512, 65536) };
+            let eng = DmaEngine {
+                bm,
+                prd: Dma::new(16, 64),
+                data: Dma::new(MAX_SECTORS * 512, 65536),
+            };
             if (eng.prd.phys() | eng.data.phys()) >> 32 == 0 {
                 d.dma = Some(eng);
                 let mut probe = [0u8; 512];
@@ -207,17 +231,30 @@ impl AtaDisk {
                 }
             }
         }
-        hal::info!("ata: {} ({} sectors) at {:#x}/{}, {}", d.model, d.sectors, cmd, drive, if d.dma.is_some() { "bus-master DMA" } else { "PIO" });
+        hal::info!(
+            "ata: {} ({} sectors) at {:#x}/{}, {}",
+            d.model,
+            d.sectors,
+            cmd,
+            drive,
+            if d.dma.is_some() {
+                "bus-master DMA"
+            } else {
+                "PIO"
+            }
+        );
         Ok(d)
     }
 
     /// Soft reset of the channel (after a failed DMA test), then wait for the device to come back.
     fn reset(&self) {
+        // SAFETY: Writing 0x06 to ATA control port asserts the software reset (SRST).
         unsafe { outb(self.ctl, 0x06) };
         platform::delay_us(10);
+        // SAFETY: Writing 0x02 to ATA control port deasserts SRST with interrupts disabled (nIEN).
         unsafe { outb(self.ctl, 0x02) };
         platform::delay_us(5000);
-        let _ = self.wait_not_busy(5000);
+        let _res = self.wait_not_busy(5000);
     }
 
     /// One DMA command of up to `MAX_SECTORS` sectors through the bounce buffer. For a write the
@@ -231,29 +268,57 @@ impl AtaDisk {
         let n = len / 512;
         let (cmd_byte, bm) = {
             let e = self.dma.as_ref().ok_or(Error::Unsupported)?;
-            (if self.lba48 { if write { CMD_WRITE_DMA_EXT } else { CMD_READ_DMA_EXT } } else if write { CMD_WRITE_DMA } else { CMD_READ_DMA }, e.bm)
+            (
+                if self.lba48 {
+                    if write {
+                        CMD_WRITE_DMA_EXT
+                    } else {
+                        CMD_READ_DMA_EXT
+                    }
+                } else if write {
+                    CMD_WRITE_DMA
+                } else {
+                    CMD_READ_DMA
+                },
+                e.bm,
+            )
         };
         {
-            let e = self.dma.as_mut().unwrap();
+            let e = self.dma.as_mut().ok_or(Error::Unsupported)?;
             if let Data::Write(b) = &data {
-                e.data.as_mut_slice()[..len].copy_from_slice(b);
+                let Some(dest) = e.data.as_mut_slice().get_mut(..len) else {
+                    return Err(Error::InvalidArgument);
+                };
+                dest.copy_from_slice(b);
             }
             // One region descriptor: address, byte count (0 would mean 64 KiB), end-of-table flag.
             let prd = e.prd.as_ptr() as *mut u32;
-            unsafe {
-                prd.write_volatile(e.data.phys() as u32);
-                prd.add(1).write_volatile(len as u32 | 0x8000_0000);
-                outl_port(bm + BM_PRD, e.prd.phys() as u32);
-                // Direction, then clear the error and interrupt bits (they clear by writing 1).
-                outb(bm + BM_CMD, if write { 0 } else { BM_READ });
-                let st = inb(bm + BM_STATUS);
-                outb(bm + BM_STATUS, (st & 0x60) | BM_ERROR | BM_INTERRUPT);
-            }
+            // SAFETY: Writing PRD entry base physical address.
+            unsafe { prd.write_volatile(e.data.phys() as u32) };
+            // SAFETY: Calculating pointer to PRD entry byte count/flags field.
+            let prd_len = unsafe { prd.add(1) };
+            // SAFETY: Writing PRD entry byte count and end-of-table flag (0x8000_0000).
+            unsafe { prd_len.write_volatile(len as u32 | 0x8000_0000) };
+            // SAFETY: Programming PRD table physical address into the Bus Master PRD register.
+            unsafe { outl_port(bm + BM_PRD, e.prd.phys() as u32) };
+            // SAFETY: Setting transfer direction in the Bus Master command register.
+            unsafe { outb(bm + BM_CMD, if write { 0 } else { BM_READ }) };
+            // SAFETY: Reading Bus Master status register.
+            let st = unsafe { inb(bm + BM_STATUS) };
+            // SAFETY: Clearing error and interrupt status bits by writing 1s to Bus Master status register.
+            unsafe { outb(bm + BM_STATUS, (st & 0x60) | BM_ERROR | BM_INTERRUPT) };
         }
         self.issue_dma(lba, n, cmd_byte)?;
+        // SAFETY: Starting Bus Master DMA transfer on BM command port.
         unsafe { outb(bm + BM_CMD, (if write { 0 } else { BM_READ }) | BM_START) };
-        let done = platform::wait_until(10_000, || unsafe { inb(bm + BM_STATUS) } & BM_ACTIVE == 0 && self.alt_status() & ST_BSY == 0);
+        let done = platform::wait_until(10_000, || {
+            // SAFETY: Polling Bus Master status register for active transfer flag.
+            let st = unsafe { inb(bm + BM_STATUS) };
+            st & BM_ACTIVE == 0 && self.alt_status() & ST_BSY == 0
+        });
+        // SAFETY: Reading Bus Master status after DMA completion.
         let bm_status = unsafe { inb(bm + BM_STATUS) };
+        // SAFETY: Stopping Bus Master DMA on command port.
         unsafe { outb(bm + BM_CMD, 0) };
         done?;
         let ata = self.alt_status();
@@ -261,7 +326,13 @@ impl AtaDisk {
             return Err(Error::Io);
         }
         if let Data::Read(b) = &mut data {
-            b.copy_from_slice(&self.dma.as_ref().unwrap().data.as_slice()[..len]);
+            let Some(dma) = self.dma.as_ref() else {
+                return Err(Error::Unsupported);
+            };
+            let Some(src) = dma.data.as_slice().get(..len) else {
+                return Err(Error::Io);
+            };
+            b.copy_from_slice(src);
         }
         Ok(())
     }
@@ -318,7 +389,12 @@ impl AtaDisk {
     }
 
     fn check(&self, lba: u64, len: usize) -> Result<()> {
-        if len % 512 != 0 || lba.checked_add((len / 512) as u64).map_or(true, |e| e > self.sectors) || (!self.lba48 && lba + (len / 512) as u64 > 1 << 28) {
+        if !len.is_multiple_of(512)
+            || lba
+                .checked_add((len / 512) as u64)
+                .is_none_or(|e| e > self.sectors)
+            || (!self.lba48 && lba + (len / 512) as u64 > 1 << 28)
+        {
             return Err(Error::InvalidArgument);
         }
         Ok(())
@@ -344,8 +420,16 @@ impl hal::BlockDevice for AtaDisk {
         let mut done = 0;
         while done < buf.len() / 512 {
             let n = (buf.len() / 512 - done).min(MAX_SECTORS);
+            let start = done * 512;
+            let end = (done + n) * 512;
             if self.dma.is_some() {
-                self.dma_transfer(lba + done as u64, Data::Read(&mut buf[done * 512..(done + n) * 512]))?;
+                let Some(sub) = buf.get_mut(start..end) else {
+                    return Err(Error::InvalidArgument);
+                };
+                self.dma_transfer(
+                    lba + done as u64,
+                    Data::Read(sub),
+                )?;
                 done += n;
                 continue;
             }
@@ -353,7 +437,17 @@ impl hal::BlockDevice for AtaDisk {
             for s in 0..n {
                 self.wait_drq()?;
                 let at = (done + s) * 512;
-                unsafe { insw(self.cmd + DATA, buf[at..at + 512].as_mut_ptr() as *mut u16, 256) };
+                let Some(sector_buf) = buf.get_mut(at..at + 512) else {
+                    return Err(Error::InvalidArgument);
+                };
+                // SAFETY: insw reads 256 16-bit words (512 bytes) from ATA data port into sector_buf.
+                unsafe {
+                    insw(
+                        self.cmd + DATA,
+                        sector_buf.as_mut_ptr() as *mut u16,
+                        256,
+                    )
+                };
             }
             done += n;
         }
@@ -365,8 +459,16 @@ impl hal::BlockDevice for AtaDisk {
         let mut done = 0;
         while done < buf.len() / 512 {
             let n = (buf.len() / 512 - done).min(MAX_SECTORS);
+            let start = done * 512;
+            let end = (done + n) * 512;
             if self.dma.is_some() {
-                self.dma_transfer(lba + done as u64, Data::Write(&buf[done * 512..(done + n) * 512]))?;
+                let Some(sub) = buf.get(start..end) else {
+                    return Err(Error::InvalidArgument);
+                };
+                self.dma_transfer(
+                    lba + done as u64,
+                    Data::Write(sub),
+                )?;
                 done += n;
                 continue;
             }
@@ -374,7 +476,17 @@ impl hal::BlockDevice for AtaDisk {
             for s in 0..n {
                 self.wait_drq()?;
                 let at = (done + s) * 512;
-                unsafe { outsw(self.cmd + DATA, buf[at..at + 512].as_ptr() as *const u16, 256) };
+                let Some(sector_buf) = buf.get(at..at + 512) else {
+                    return Err(Error::InvalidArgument);
+                };
+                // SAFETY: outsw writes 256 16-bit words (512 bytes) from sector_buf to ATA data port.
+                unsafe {
+                    outsw(
+                        self.cmd + DATA,
+                        sector_buf.as_ptr() as *const u16,
+                        256,
+                    )
+                };
             }
             // The device is done with the last sector when BSY drops.
             let st = self.wait_not_busy(5000)?;

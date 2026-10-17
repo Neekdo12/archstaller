@@ -7,8 +7,16 @@ use std::rc::Rc;
 
 pub fn build(app: &Rc<App>, content: &gtk::Box) {
     let cfg = app.st.borrow().model.cfg.clone();
-    ui::heading(content, "First-boot scripts", "Run as root on the installed system, in this order, at the end of the first boot.");
-    ui::note(content, Kind::Warn, "Scripts are code. A failing script only logs a warning.");
+    ui::heading(
+        content,
+        "First-boot scripts",
+        "Run as root on the installed system, in this order, at the end of the first boot.",
+    );
+    ui::note(
+        content,
+        Kind::Warn,
+        "Scripts are code. A failing script only logs a warning.",
+    );
 
     let c = ui::card(content, Some("Scripts in this config"));
     if cfg.scripts.is_empty() {
@@ -48,18 +56,42 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         r.append(&ui::button("Add", move || {
             a.edit(move |m| {
                 if !m.cfg.scripts.iter().any(|s| s.id == bid) {
-                    m.cfg.scripts.push(config::Script { id: bid.into(), ..Default::default() });
+                    m.cfg.scripts.push(config::Script {
+                        id: bid.into(),
+                        ..Default::default()
+                    });
                 }
             });
             a.rebuild(Page::Scripts);
         }));
         c.append(&r);
-        c.append(&gtk::Label::builder().label(b.description).xalign(0.0).wrap(true).build());
-        ui::hint(&c, &format!("runs as {}, {}; needs: {}", b.runs_as, b.phase, if b.requires.is_empty() { "nothing" } else { b.requires }));
+        c.append(
+            &gtk::Label::builder()
+                .label(b.description)
+                .xalign(0.0)
+                .wrap(true)
+                .build(),
+        );
+        ui::hint(
+            &c,
+            &format!(
+                "runs as {}, {}; needs: {}",
+                b.runs_as,
+                b.phase,
+                if b.requires.is_empty() {
+                    "nothing"
+                } else {
+                    b.requires
+                }
+            ),
+        );
     }
 
     let c = ui::card(content, Some("Custom script"));
-    ui::hint(&c, "A local file, or an https URL pinned by its SHA-256 digest.");
+    ui::hint(
+        &c,
+        "A local file, or an https URL pinned by its SHA-256 digest.",
+    );
     let id = ui::entry("", |_| {});
     ui::row(&c, "Id", &id);
     let file = ui::entry("", |_| {});
@@ -74,14 +106,31 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     let add = ui::primary("Add custom script", || {});
     add.set_sensitive(false);
     let update = {
-        let (id, file, url, ack, add, digest) = (id.clone(), file.clone(), url.clone(), ack.clone(), add.clone(), digest.clone());
+        let (id, file, url, ack, add, digest) = (
+            id.clone(),
+            file.clone(),
+            url.clone(),
+            ack.clone(),
+            add.clone(),
+            digest.clone(),
+        );
         Rc::new(move || {
             let path = file.text().to_string();
-            let text = if path.is_empty() { None } else { std::fs::read(&path).ok() };
+            let text = if path.is_empty() {
+                None
+            } else {
+                std::fs::read(&path).ok()
+            };
             digest.set_text(&match &text {
                 Some(t) => {
                     use sha2::Digest;
-                    format!("sha256 {}", sha2::Sha256::digest(t).iter().map(|b| format!("{b:02x}")).collect::<String>())
+                    format!(
+                        "sha256 {}",
+                        sha2::Sha256::digest(t)
+                            .iter()
+                            .map(|b| format!("{b:02x}"))
+                            .collect::<String>()
+                    )
                 }
                 None => String::new(),
             });
@@ -102,7 +151,8 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         fr.append(&ui::button("Browse…", move || {
             let (a, file) = (a.clone(), file.clone());
             glib::spawn_future_local(async move {
-                if let Some(p) = dialogs::open_file(a.win.upcast_ref(), "Pick a script", None).await {
+                if let Some(p) = dialogs::open_file(a.win.upcast_ref(), "Pick a script", None).await
+                {
                     file.set_text(&p.display().to_string());
                 }
             });
@@ -112,8 +162,18 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     {
         let a = app.clone();
         add.connect_clicked(move |_| {
-            let (f, u, s) = (file.text().to_string(), url.text().to_string(), sha.text().to_string());
-            let script = config::Script { id: id.text().to_string(), file: (!f.is_empty()).then(|| f.clone()), url: (f.is_empty() && !u.is_empty()).then(|| u.clone()), sha256: (f.is_empty() && !s.is_empty()).then(|| s.clone()), ..Default::default() };
+            let (f, u, s) = (
+                file.text().to_string(),
+                url.text().to_string(),
+                sha.text().to_string(),
+            );
+            let script = config::Script {
+                id: id.text().to_string(),
+                file: (!f.is_empty()).then(|| f.clone()),
+                url: (f.is_empty() && !u.is_empty()).then(|| u.clone()),
+                sha256: (f.is_empty() && !s.is_empty()).then(|| s.clone()),
+                ..Default::default()
+            };
             a.edit(move |m| m.cfg.scripts.push(script));
             a.rebuild(Page::Scripts);
         });

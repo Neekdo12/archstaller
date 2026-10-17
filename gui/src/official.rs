@@ -45,16 +45,32 @@ impl Index {
         for (db, descs) in catalog.dbs.iter().zip(&catalog.descriptions) {
             for (p, d) in db.packages.iter().zip(descs) {
                 if seen.insert(p.name.clone()) {
-                    items.push(Candidate { name: p.name.clone(), version: p.version.clone(), repo: p.repo.clone(), description: d.clone(), groups: p.groups.clone(), csize: p.csize, isize: p.isize, lname: p.name.to_lowercase(), ldesc: d.to_lowercase() });
+                    items.push(Candidate {
+                        name: p.name.clone(),
+                        version: p.version.clone(),
+                        repo: p.repo.clone(),
+                        description: d.clone(),
+                        groups: p.groups.clone(),
+                        csize: p.csize,
+                        isize: p.isize,
+                        lname: p.name.to_lowercase(),
+                        ldesc: d.to_lowercase(),
+                    });
                 }
             }
         }
-        Index { items, catalog, mirror: mirror.to_string() }
+        Index {
+            items,
+            catalog,
+            mirror: mirror.to_string(),
+        }
     }
 
     /// Whether the repositories have a package or a group with this exact name (what `packages` accepts).
     pub fn knows(&self, name: &str) -> bool {
-        self.items.iter().any(|c| c.name == name || c.groups.iter().any(|g| g == name))
+        self.items
+            .iter()
+            .any(|c| c.name == name || c.groups.iter().any(|g| g == name))
     }
 }
 
@@ -80,23 +96,41 @@ pub struct Hit {
 /// Edit distance with adjacent transpositions (optimal string alignment), over characters.
 fn distance(a: &[char], b: &[char]) -> usize {
     let (n, m) = (a.len(), b.len());
-    let mut d = vec![vec![0usize; m + 1]; n + 1];
-    for (i, row) in d.iter_mut().enumerate() {
-        row[0] = i;
+    let width = m + 1;
+    let mut d = vec![0usize; (n + 1) * width];
+    for i in 0..=n {
+        if let Some(cell) = d.get_mut(i * width) {
+            *cell = i;
+        }
     }
-    for (j, cell) in d[0].iter_mut().enumerate() {
-        *cell = j;
+    for j in 0..=m {
+        if let Some(cell) = d.get_mut(j) {
+            *cell = j;
+        }
     }
     for i in 1..=n {
         for j in 1..=m {
-            let cost = usize::from(a[i - 1] != b[j - 1]);
-            d[i][j] = (d[i - 1][j] + 1).min(d[i][j - 1] + 1).min(d[i - 1][j - 1] + cost);
-            if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
-                d[i][j] = d[i][j].min(d[i - 2][j - 2] + 1);
+            let ai1 = a.get(i - 1);
+            let bj1 = b.get(j - 1);
+            let cost = usize::from(ai1 != bj1);
+            let up = d.get((i - 1) * width + j).copied().unwrap_or(0);
+            let left = d.get(i * width + (j - 1)).copied().unwrap_or(0);
+            let diag = d.get((i - 1) * width + (j - 1)).copied().unwrap_or(0);
+            let mut val = (up + 1).min(left + 1).min(diag + cost);
+            if i > 1 && j > 1 {
+                let ai2 = a.get(i - 2);
+                let bj2 = b.get(j - 2);
+                if ai1 == bj2 && ai2 == bj1 {
+                    let trans = d.get((i - 2) * width + (j - 2)).copied().unwrap_or(0);
+                    val = val.min(trans + 1);
+                }
+            }
+            if let Some(cell) = d.get_mut(i * width + j) {
+                *cell = val;
             }
         }
     }
-    d[n][m]
+    d.get(n * width + m).copied().unwrap_or(0)
 }
 
 /// Typos allowed for a query of `len` characters: none below 4 (too many short names are one edit apart).
@@ -125,7 +159,9 @@ fn classify(c: &Candidate, q: &str, qc: &[char], words: &[&str]) -> Option<(Matc
         // Against the whole name, and against its start, so a misspelt beginning (`fierf`) still finds it.
         let mut d = distance(qc, &nc);
         if nc.len() > qc.len() {
-            d = d.min(distance(qc, &nc[..qc.len()]));
+            if let Some(prefix) = nc.get(..qc.len()) {
+                d = d.min(distance(qc, prefix));
+            }
         }
         if d <= budget {
             return Some((Match::Typo, d));
@@ -134,7 +170,11 @@ fn classify(c: &Candidate, q: &str, qc: &[char], words: &[&str]) -> Option<(Matc
     if c.groups.iter().any(|g| g.to_lowercase().contains(q)) {
         return Some((Match::Group, 0));
     }
-    if !words.is_empty() && words.iter().all(|w| c.ldesc.contains(w) || c.lname.contains(w)) {
+    if !words.is_empty()
+        && words
+            .iter()
+            .all(|w| c.ldesc.contains(w) || c.lname.contains(w))
+    {
         return Some((Match::Description, 0));
     }
     None
@@ -150,10 +190,20 @@ pub fn search(items: &[Candidate], query: &str, limit: usize) -> Vec<Hit> {
         return Vec::new();
     }
     let words: Vec<&str> = q.split_whitespace().collect();
-    let mut hits: Vec<(Match, usize, usize)> = items.iter().enumerate().filter_map(|(i, c)| classify(c, &q, &qc, &words).map(|(m, d)| (m, d, i))).collect();
-    hits.sort_by(|a, b| (a.0, a.1, items[a.2].name.len(), &items[a.2].name).cmp(&(b.0, b.1, items[b.2].name.len(), &items[b.2].name)));
+    let mut hits: Vec<(Match, usize, usize)> = items
+        .iter()
+        .enumerate()
+        .filter_map(|(i, c)| classify(c, &q, &qc, &words).map(|(m, d)| (m, d, i)))
+        .collect();
+    hits.sort_by(|a, b| {
+        let name_a = items.get(a.2).map(|c| c.name.as_str()).unwrap_or("");
+        let name_b = items.get(b.2).map(|c| c.name.as_str()).unwrap_or("");
+        (a.0, a.1, name_a.len(), name_a).cmp(&(b.0, b.1, name_b.len(), name_b))
+    });
     hits.truncate(limit);
-    hits.into_iter().map(|(why, _, item)| Hit { item, why }).collect()
+    hits.into_iter()
+        .map(|(why, _, item)| Hit { item, why })
+        .collect()
 }
 
 /// `pacman -Qq...` output: one package name per line. Anything that is not a package name is dropped, and
@@ -161,7 +211,10 @@ pub fn search(items: &[Candidate], query: &str, limit: usize) -> Vec<Hit> {
 pub fn parse_package_list(text: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for l in text.lines().map(str::trim) {
-        let ok = !l.is_empty() && !l.starts_with(['-', '.']) && l.chars().all(|c| c.is_ascii_alphanumeric() || "@._+-".contains(c));
+        let ok = !l.is_empty()
+            && !l.starts_with(['-', '.'])
+            && l.chars()
+                .all(|c| c.is_ascii_alphanumeric() || "@._+-".contains(c));
         if ok && !out.iter().any(|x| x == l) {
             out.push(l.to_string());
         }
@@ -183,8 +236,16 @@ pub struct ImportReport {
 }
 
 /// Merges the native names that the repositories know into `existing` (order kept, no duplicates).
-pub fn plan_import(native: &[String], foreign: &[String], existing: &[String], knows: impl Fn(&str) -> bool) -> ImportReport {
-    let mut r = ImportReport { foreign: foreign.to_vec(), ..Default::default() };
+pub fn plan_import(
+    native: &[String],
+    foreign: &[String],
+    existing: &[String],
+    knows: impl Fn(&str) -> bool,
+) -> ImportReport {
+    let mut r = ImportReport {
+        foreign: foreign.to_vec(),
+        ..Default::default()
+    };
     for n in native {
         if existing.contains(n) || r.added.contains(n) {
             r.already += 1;
@@ -199,11 +260,19 @@ pub fn plan_import(native: &[String], foreign: &[String], existing: &[String], k
 
 /// `pacman -Qq<flags>`: the names, or why pacman could not be asked. Only package names are read.
 fn pacman_names(flags: &str) -> Reply<Vec<String>> {
-    let out = std::process::Command::new("pacman").arg(format!("-Qq{flags}")).output().map_err(|e| format!("pacman could not be run ({e}); importing needs an Arch-based system"))?;
+    let out = std::process::Command::new("pacman")
+        .arg(format!("-Qq{flags}"))
+        .output()
+        .map_err(|e| {
+            format!("pacman could not be run ({e}); importing needs an Arch-based system")
+        })?;
     let text = String::from_utf8_lossy(&out.stdout);
     // pacman exits 1 when the filter matches nothing; that is an empty list, not an error.
     if !out.status.success() && !(out.status.code() == Some(1) && text.trim().is_empty()) {
-        return Err(format!("pacman -Qq{flags} failed: {}", String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(format!(
+            "pacman -Qq{flags} failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
     }
     Ok(parse_package_list(&text))
 }
@@ -264,7 +333,11 @@ impl OfficialState {
         let (tx, rx) = channel();
         self.index_rx = Some(rx);
         std::thread::spawn(move || {
-            let _ = tx.send(hostcfg::resolve::fetch_catalog(&mirror, &cache).map(|c| Index::new(c, &mirror)).map_err(|e| e.to_string()));
+            drop(tx.send(
+                hostcfg::resolve::fetch_catalog(&mirror, &cache)
+                    .map(|c| Index::new(c, &mirror))
+                    .map_err(|e| e.to_string()),
+            ));
         });
     }
 
@@ -274,7 +347,10 @@ impl OfficialState {
         self.import_rx = Some(rx);
         self.import = None;
         std::thread::spawn(move || {
-            let _ = tx.send(pacman_names("en").and_then(|native| pacman_names("em").map(|foreign| (native, foreign))));
+            drop(tx.send(
+                pacman_names("en")
+                    .and_then(|native| pacman_names("em").map(|foreign| (native, foreign))),
+            ));
         });
     }
 
@@ -325,14 +401,23 @@ impl OfficialState {
         // The live total: resolve on a thread whenever what the installer resolves has changed. One at a
         // time; the 100 ms tick that calls this is the debounce.
         if let (Some(idx), None) = (self.loaded(), &self.total_rx) {
-            let key = format!("{:?}|{:?}|{:?}", cfg.packages, cfg.providers, cfg.aur.iter().map(|a| &a.deps).collect::<Vec<_>>());
+            let key = format!(
+                "{:?}|{:?}|{:?}",
+                cfg.packages,
+                cfg.providers,
+                cfg.aur.iter().map(|a| &a.deps).collect::<Vec<_>>()
+            );
             if self.total_key.as_deref() != Some(key.as_str()) {
                 self.total_key = Some(key);
                 let cfg = cfg.clone();
                 let (tx, rx) = channel();
                 self.total_rx = Some(rx);
                 std::thread::spawn(move || {
-                    let _ = tx.send(hostcfg::resolve::resolve(&cfg, &idx.catalog.dbs).map(|r| (r.packages.len(), r.download_bytes())).map_err(|e| e.to_string()));
+                    drop(tx.send(
+                        hostcfg::resolve::resolve(&cfg, &idx.catalog.dbs)
+                            .map(|r| (r.packages.len(), r.download_bytes()))
+                            .map_err(|e| e.to_string()),
+                    ));
                 });
                 p.changed = true;
             }
@@ -357,7 +442,17 @@ mod tests {
     use super::*;
 
     fn c(name: &str, desc: &str, groups: &[&str]) -> Candidate {
-        Candidate { name: name.into(), version: "1-1".into(), repo: "extra".into(), description: desc.into(), groups: groups.iter().map(|g| g.to_string()).collect(), csize: 0, isize: 0, lname: name.to_lowercase(), ldesc: desc.to_lowercase() }
+        Candidate {
+            name: name.into(),
+            version: "1-1".into(),
+            repo: "extra".into(),
+            description: desc.into(),
+            groups: groups.iter().map(|g| g.to_string()).collect(),
+            csize: 0,
+            isize: 0,
+            lname: name.to_lowercase(),
+            ldesc: desc.to_lowercase(),
+        }
     }
 
     fn items() -> Vec<Candidate> {
@@ -376,7 +471,10 @@ mod tests {
     }
 
     fn names(items: &[Candidate], q: &str) -> Vec<String> {
-        search(items, q, LIMIT).into_iter().map(|h| items[h.item].name.clone()).collect()
+        search(items, q, LIMIT)
+            .into_iter()
+            .map(|h| items[h.item].name.clone())
+            .collect()
     }
 
     #[test]
@@ -386,7 +484,11 @@ mod tests {
         assert_eq!(n[0], "firefox", "exact first: {n:?}");
         // Prefix matches, shorter names first, before names that only contain it and descriptions.
         assert_eq!(&n[1..3], ["firefox-i18n-de", "firefox-developer-edition"]);
-        assert_eq!(n.last().map(String::as_str), Some("librewolf"), "description last: {n:?}");
+        assert_eq!(
+            n.last().map(String::as_str),
+            Some("librewolf"),
+            "description last: {n:?}"
+        );
         let n = names(&it, "vim");
         assert_eq!(n[..3], ["vim", "gvim", "neovim"], "{n:?}");
         let hits = search(&it, "vim", LIMIT);
@@ -400,7 +502,11 @@ mod tests {
         let hits = search(&it, "xfce4", LIMIT);
         assert_eq!(it[hits[0].item].name, "xfce4-panel");
         assert_eq!(hits[0].why, Match::Prefix);
-        assert!(hits.iter().any(|h| it[h.item].name == "thunar" && h.why == Match::Group), "{hits:?}");
+        assert!(
+            hits.iter()
+                .any(|h| it[h.item].name == "thunar" && h.why == Match::Group),
+            "{hits:?}"
+        );
         // Every word must appear, in any order.
         assert_eq!(names(&it, "file manager"), ["thunar"]);
         assert_eq!(names(&it, "manager file"), ["thunar"]);
@@ -428,7 +534,10 @@ mod tests {
         assert!(names(&it, "").is_empty());
         assert!(names(&it, "   ").is_empty());
         assert!(names(&it, "v").is_empty());
-        assert!(names(&it, "中").is_empty(), "one character, even if it is a wide one");
+        assert!(
+            names(&it, "中").is_empty(),
+            "one character, even if it is a wide one"
+        );
         assert!(!names(&it, "vi").is_empty());
     }
 
@@ -438,7 +547,13 @@ mod tests {
         assert_eq!(names(&it, "日本語"), ["noto-fonts-cjk"]);
         assert_eq!(names(&it, "CJK 한국어"), ["noto-fonts-cjk"]);
         // Non-ASCII queries go through the typo path by characters, not bytes: two substitutions.
-        assert_eq!(search(&it, "ñoto-fönts", LIMIT).iter().map(|h| (it[h.item].name.as_str(), h.why)).collect::<Vec<_>>(), [("noto-fonts-cjk", Match::Typo)]);
+        assert_eq!(
+            search(&it, "ñoto-fönts", LIMIT)
+                .iter()
+                .map(|h| (it[h.item].name.as_str(), h.why))
+                .collect::<Vec<_>>(),
+            [("noto-fonts-cjk", Match::Typo)]
+        );
     }
 
     #[test]
@@ -461,27 +576,53 @@ mod tests {
         let mk = |repo: &str, name: &str, version: &str| {
             pkg::desc::Package::parse(repo, &format!("%NAME%\n{name}\n\n%VERSION%\n{version}\n\n%FILENAME%\n{name}.pkg.tar.zst\n\n%GROUPS%\nbase-devel\n\n")).unwrap()
         };
-        let core = pkg::db::Db { name: "core".into(), packages: vec![mk("core", "make", "4.4-1")] };
-        let extra = pkg::db::Db { name: "extra".into(), packages: vec![mk("extra", "make", "9-1"), mk("extra", "cmake", "3-1")] };
-        let idx = Index::new(Catalog { dbs: vec![core, extra], descriptions: vec![vec!["GNU make".into()], vec!["".into(), "".into()]] }, "m");
+        let core = pkg::db::Db {
+            name: "core".into(),
+            packages: vec![mk("core", "make", "4.4-1")],
+        };
+        let extra = pkg::db::Db {
+            name: "extra".into(),
+            packages: vec![mk("extra", "make", "9-1"), mk("extra", "cmake", "3-1")],
+        };
+        let idx = Index::new(
+            Catalog {
+                dbs: vec![core, extra],
+                descriptions: vec![vec!["GNU make".into()], vec!["".into(), "".into()]],
+            },
+            "m",
+        );
         assert_eq!(idx.items.len(), 2);
-        assert_eq!((idx.items[0].repo.as_str(), idx.items[0].version.as_str(), idx.items[0].description.as_str()), ("core", "4.4-1", "GNU make"));
+        assert_eq!(
+            (
+                idx.items[0].repo.as_str(),
+                idx.items[0].version.as_str(),
+                idx.items[0].description.as_str()
+            ),
+            ("core", "4.4-1", "GNU make")
+        );
         assert!(idx.knows("make") && idx.knows("base-devel") && !idx.knows("yay"));
     }
 
     #[test]
     fn import_parses_and_merges() {
-        let native = parse_package_list("base\nlinux\n\nfirefox\nfirefox\n  vim  \n-not-a-name\nweird name\nmy-local-pkg\n");
+        let native = parse_package_list(
+            "base\nlinux\n\nfirefox\nfirefox\n  vim  \n-not-a-name\nweird name\nmy-local-pkg\n",
+        );
         assert_eq!(native, ["base", "linux", "firefox", "vim", "my-local-pkg"]);
         let foreign = parse_package_list("yay-bin\nzen-browser-bin\n");
         let known = ["base", "linux", "firefox", "vim"];
-        let r = plan_import(&native, &foreign, &["base".into(), "vim".into()], |n| known.contains(&n));
+        let r = plan_import(&native, &foreign, &["base".into(), "vim".into()], |n| {
+            known.contains(&n)
+        });
         assert_eq!(r.added, ["linux", "firefox"]);
         assert_eq!(r.already, 2);
         assert_eq!(r.not_official, ["my-local-pkg"]);
         assert_eq!(r.foreign, ["yay-bin", "zen-browser-bin"]);
         // Nothing installed, or pacman printed nothing: an empty report.
-        assert_eq!(plan_import(&parse_package_list(""), &[], &[], |_| true), ImportReport::default());
+        assert_eq!(
+            plan_import(&parse_package_list(""), &[], &[], |_| true),
+            ImportReport::default()
+        );
     }
 
     #[test]
