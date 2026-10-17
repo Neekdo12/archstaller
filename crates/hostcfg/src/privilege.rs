@@ -266,6 +266,8 @@ pub fn collect_privileged_system_files(
         "etc/NetworkManager/system-connections",
         "var/lib/iwd",
         "var/lib/fprint",
+        "var/lib/bluetooth",
+        "etc/ssh",
         "etc/systemd/zram-generator.conf",
     ];
 
@@ -295,7 +297,7 @@ pub fn collect_privileged_system_files(
         // 1. Try `su -c ...` via PTY first. On systems where PAM sudo has pam_fprintd waiting for a
         // finger sensor, `su` directly verifies the password via pam_unix without delaying or hanging.
         let su_sh_cmd = format!(
-            "tar -c -C / --ignore-failed-read -f '{}' etc/shadow etc/NetworkManager/system-connections var/lib/iwd var/lib/fprint etc/systemd/zram-generator.conf",
+            "tar -c -C / --ignore-failed-read -f '{}' etc/shadow etc/NetworkManager/system-connections var/lib/iwd var/lib/fprint var/lib/bluetooth etc/ssh etc/systemd/zram-generator.conf",
             tmp_tar_str
         );
         let su_args = ["-c", &su_sh_cmd];
@@ -323,7 +325,7 @@ pub fn collect_privileged_system_files(
             drop(fs::set_permissions(&askpass_path, perms));
 
             let sudo_cmd = format!(
-                "SUDO_ASKPASS='{}' ARCHSTALER_AUTH_PW='{}' sudo -A -k tar -c -C / --ignore-failed-read -f '{}' etc/shadow etc/NetworkManager/system-connections var/lib/iwd var/lib/fprint etc/systemd/zram-generator.conf",
+                "SUDO_ASKPASS='{}' ARCHSTALER_AUTH_PW='{}' sudo -A -k tar -c -C / --ignore-failed-read -f '{}' etc/shadow etc/NetworkManager/system-connections var/lib/iwd var/lib/fprint var/lib/bluetooth etc/ssh etc/systemd/zram-generator.conf",
                 askpass_path.display(),
                 pass.replace('\'', "'\\''"),
                 tmp_tar_str

@@ -7,7 +7,7 @@ schema = 1
 hostname = "kubik"
 timezone = "Europe/Prague"
 locale = "en_US.UTF-8"
-keymap = "us"
+keymap = "cz"
 
 [install]
 mirrors = ["https://geo.mirror.pkgbuild.com/$repo/os/$arch"]

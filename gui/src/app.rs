@@ -100,6 +100,7 @@ impl App {
             .label("untitled")
             .ellipsize(gtk::pango::EllipsizeMode::End)
             .width_chars(8)
+            .selectable(true)
             .build();
         header.set_title_widget(Some(&title));
         let sidebar_toggle = gtk::ToggleButton::builder()
@@ -193,6 +194,7 @@ impl App {
             .ellipsize(gtk::pango::EllipsizeMode::End)
             .max_width_chars(25)
             .width_chars(8)
+            .selectable(true)
             .build();
         let problem_btn = gtk::Button::with_label("Go to the problem");
         let status = gtk::Label::builder()
@@ -201,6 +203,7 @@ impl App {
             .ellipsize(gtk::pango::EllipsizeMode::Start)
             .max_width_chars(25)
             .width_chars(8)
+            .selectable(true)
             .build();
         bar.append(&problem);
         bar.append(&problem_btn);

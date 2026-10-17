@@ -94,6 +94,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
                     .xalign(0.0)
                     .hexpand(true)
                     .wrap(true)
+                    .selectable(true)
                     .build();
                 r.append(&desc);
                 r.append(&ui::dim(d.status));

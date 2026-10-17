@@ -75,6 +75,79 @@ fn lsblk_volumes() -> Option<Vec<Volume>> {
     Some(list)
 }
 
+/// Discovered disk partition with UUID for user archives or storage.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartitionInfo {
+    pub path: String,
+    pub uuid: String,
+    pub label: String,
+    pub fstype: String,
+    pub size: u64,
+    pub mountpoint: Option<String>,
+    pub removable: bool,
+}
+
+/// Discovers disk partitions with UUIDs across all connected drives.
+pub fn partitions() -> Vec<PartitionInfo> {
+    lsblk_partitions().unwrap_or_default()
+}
+
+fn lsblk_partitions() -> Option<Vec<PartitionInfo>> {
+    let out = std::process::Command::new("lsblk")
+        .args([
+            "-J",
+            "-b",
+            "-o",
+            "PATH,LABEL,UUID,FSTYPE,SIZE,MOUNTPOINT,RM,HOTPLUG,TYPE",
+        ])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+    parse_lsblk_partitions(&v)
+}
+
+pub fn parse_lsblk_partitions(v: &serde_json::Value) -> Option<Vec<PartitionInfo>> {
+    let mut list = Vec::new();
+    fn collect(d: &serde_json::Value, out: &mut Vec<PartitionInfo>) {
+        let s = |k: &str| d.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let n = |k: &str| d.get(k).and_then(|x| x.as_u64()).unwrap_or(0);
+        let b = |k: &str| d.get(k).and_then(|x| x.as_bool()).unwrap_or(false);
+        let uuid = s("uuid");
+        let path = s("path");
+        let fs = s("fstype");
+        if !uuid.is_empty()
+            && !fs.is_empty()
+            && !["swap", "crypto_LUKS", "LVM2_member"].contains(&fs.as_str())
+            && !path.starts_with("/dev/zram")
+            && !path.starts_with("/dev/loop")
+        {
+            let mount = s("mountpoint");
+            let mountpoint = if mount.is_empty() { None } else { Some(mount) };
+            out.push(PartitionInfo {
+                path,
+                uuid,
+                label: s("label"),
+                fstype: fs,
+                size: n("size"),
+                mountpoint,
+                removable: b("rm") || b("hotplug"),
+            });
+        }
+        if let Some(children) = d.get("children").and_then(|c| c.as_array()) {
+            for child in children {
+                collect(child, out);
+            }
+        }
+    }
+    for d in v.get("blockdevices")?.as_array()? {
+        collect(d, &mut list);
+    }
+    Some(list)
+}
+
 /// Runs `udisksctl`, which comes with UDisks2 (minimal desktops such as i3 or sway often lack it).
 fn udisksctl(args: &[&str]) -> Result<std::process::Output, String> {
     std::process::Command::new("udisksctl").args(args).output().map_err(|e| match e.kind() {
@@ -649,5 +722,42 @@ mod tests {
         std::fs::create_dir(d.join("ventoy")).unwrap();
         assert!(is_ventoy(&v(&d), &[]));
         drop(std::fs::remove_dir_all(&d));
+    }
+
+    #[test]
+    fn parses_partitions_from_lsblk() {
+        let json: serde_json::Value = serde_json::json!({
+            "blockdevices": [
+                {
+                    "path": "/dev/sdb1",
+                    "label": "USB_DATA",
+                    "uuid": "1234-5678",
+                    "fstype": "exfat",
+                    "size": 32000000000u64,
+                    "mountpoint": "/run/media/u/USB_DATA",
+                    "rm": true,
+                    "hotplug": true,
+                    "type": "part"
+                },
+                {
+                    "path": "/dev/zram0",
+                    "label": "zram",
+                    "uuid": "abcd-ef01",
+                    "fstype": "swap",
+                    "size": 4000000000u64,
+                    "mountpoint": "[SWAP]",
+                    "rm": false,
+                    "hotplug": false,
+                    "type": "disk"
+                }
+            ]
+        });
+        let parts = parse_lsblk_partitions(&json).unwrap();
+        assert_eq!(parts.len(), 1);
+        assert_eq!(parts[0].uuid, "1234-5678");
+        assert_eq!(parts[0].label, "USB_DATA");
+        assert_eq!(parts[0].fstype, "exfat");
+        assert!(parts[0].removable);
+        assert_eq!(parts[0].mountpoint.as_deref(), Some("/run/media/u/USB_DATA"));
     }
 }

@@ -388,6 +388,7 @@ fn render_import(app: &Rc<App>, p: &OfficialParts) {
                     .wrap(true)
                     .wrap_mode(gtk::pango::WrapMode::WordChar)
                     .max_width_chars(50)
+                    .selectable(true)
                     .css_classes(["hint"])
                     .build();
                 foreign_box.append(&list_label);
@@ -765,6 +766,7 @@ fn review(app: &Rc<App>, c: &gtk::Box, busy: bool) {
             .label(format!("• {w}"))
             .xalign(0.0)
             .wrap(true)
+            .selectable(true)
             .css_classes(["note-warn"])
             .build();
         inner.append(&l);

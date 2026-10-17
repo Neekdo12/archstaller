@@ -127,6 +127,7 @@ pub fn heading(content: &gtk::Box, title: &str, sub: &str) {
     let t = gtk::Label::builder()
         .label(title)
         .xalign(0.0)
+        .selectable(true)
         .css_classes(["page-title"])
         .build();
     content.append(&t);
@@ -136,6 +137,7 @@ pub fn heading(content: &gtk::Box, title: &str, sub: &str) {
                 .label(sub)
                 .xalign(0.0)
                 .wrap(true)
+                .selectable(true)
                 .css_classes(["page-sub"])
                 .build(),
         );
@@ -150,6 +152,7 @@ pub fn card(content: &gtk::Box, title: Option<&str>) -> gtk::Box {
             &gtk::Label::builder()
                 .label(t)
                 .xalign(0.0)
+                .selectable(true)
                 .css_classes(["card-title"])
                 .build(),
         );
@@ -166,6 +169,7 @@ pub fn row(parent: &gtk::Box, label: &str, w: &impl IsA<gtk::Widget>) -> gtk::Bo
         .xalign(0.0)
         .width_request(130)
         .valign(gtk::Align::Center)
+        .selectable(true)
         .build();
     r.append(&l);
     w.set_hexpand(true);
@@ -185,7 +189,7 @@ pub fn hint(parent: &gtk::Box, text: &str) -> gtk::Label {
         .xalign(0.0)
         .wrap(true)
         .wrap_mode(gtk::pango::WrapMode::WordChar)
-        .selectable(false)
+        .selectable(true)
         .css_classes(["hint"])
         .build();
     parent.append(&l);
@@ -198,6 +202,7 @@ pub fn note(parent: &gtk::Box, kind: Kind, text: &str) -> gtk::Label {
         .xalign(0.0)
         .wrap(true)
         .wrap_mode(gtk::pango::WrapMode::WordChar)
+        .selectable(true)
         .css_classes([kind.class()])
         .build();
     parent.append(&l);
@@ -208,6 +213,7 @@ pub fn chip(text: &str, extra: &str) -> gtk::Label {
     let l = gtk::Label::builder()
         .label(text)
         .valign(gtk::Align::Center)
+        .selectable(true)
         .build();
     l.add_css_class("chip");
     if !extra.is_empty() {
@@ -221,6 +227,7 @@ pub fn strong(text: &str) -> gtk::Label {
         .label(format!("<b>{}</b>", gtk::glib::markup_escape_text(text)))
         .use_markup(true)
         .xalign(0.0)
+        .selectable(true)
         .build()
 }
 
@@ -228,6 +235,7 @@ pub fn dim(text: &str) -> gtk::Label {
     gtk::Label::builder()
         .label(text)
         .xalign(0.0)
+        .selectable(true)
         .css_classes(["hint"])
         .build()
 }

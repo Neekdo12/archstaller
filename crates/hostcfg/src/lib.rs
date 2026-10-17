@@ -8,6 +8,7 @@
 pub mod archives;
 pub mod asconfig;
 pub mod autoload;
+pub mod bluetooth;
 pub mod configs;
 pub mod fprint;
 pub mod host;
@@ -19,6 +20,7 @@ pub mod resolve;
 pub mod schema;
 pub mod scripts;
 pub mod services;
+pub mod ssh;
 pub mod system;
 pub mod system_files;
 pub mod toml;

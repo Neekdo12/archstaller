@@ -53,10 +53,12 @@ pub fn discover_live_system_privileged(
         }
     }
 
-    // 2. Process privileged system files (NetworkManager, iwd, fprint, zram)
+    // 2. Process privileged system files (NetworkManager, iwd, fprint, bluetooth, ssh, zram)
     let mut has_nm = false;
     let mut has_iwd = false;
     let mut has_fprint = false;
+    let mut has_bluetooth = false;
+    let mut has_ssh = false;
     let mut has_zram = false;
 
     for (path, mode, content) in snapshot.files {
@@ -86,6 +88,23 @@ pub fn discover_live_system_privileged(
                 file: None,
                 content: Some(content),
             });
+        } else if path.starts_with("var/lib/bluetooth/") {
+            has_bluetooth = true;
+            data.system_files.push(config::SystemFile {
+                path,
+                mode: (mode & 0o7777) as u16,
+                file: None,
+                content: Some(content),
+            });
+        } else if path.starts_with("etc/ssh/ssh_host_") {
+            has_ssh = true;
+            let key_mode = if path.ends_with(".pub") { 0o644 } else { 0o600 };
+            data.system_files.push(config::SystemFile {
+                path,
+                mode: key_mode,
+                file: None,
+                content: Some(content),
+            });
         } else if path == "etc/systemd/zram-generator.conf" {
             has_zram = true;
             data.system_files.push(config::SystemFile {
@@ -104,6 +123,18 @@ pub fn discover_live_system_privileged(
     if has_iwd {
         data.extra_packages.push("iwd".into());
         data.extra_services.push("iwd.service".into());
+    }
+    if has_bluetooth {
+        data.extra_packages.push("bluez".into());
+        data.extra_packages.push("bluez-utils".into());
+        data.extra_services.push("bluetooth.service".into());
+    }
+    if has_ssh {
+        data.extra_packages.push("openssh".into());
+        if std::path::Path::new("/etc/systemd/system/multi-user.target.wants/sshd.service").exists()
+        {
+            data.extra_services.push("sshd.service".into());
+        }
     }
     if has_zram {
         data.extra_packages.push("zram-generator".into());
@@ -257,6 +288,44 @@ pub fn autoload_live_system_authenticated(cfg: &mut config::Config, pw: Option<&
         for pkg in host_fprint.packages {
             if !cfg.packages.iter().any(|p| p == &pkg) {
                 cfg.packages.push(pkg);
+            }
+        }
+    }
+
+    let host_bt = crate::bluetooth::discover_host_bluetooth(None);
+    if host_bt.enabled {
+        for f in host_bt.files {
+            if !cfg.system_files.iter().any(|existing| existing.path == f.path) {
+                cfg.system_files.push(f);
+            }
+        }
+        for pkg in host_bt.packages {
+            if !cfg.packages.iter().any(|p| p == &pkg) {
+                cfg.packages.push(pkg);
+            }
+        }
+        for svc in host_bt.services {
+            if !cfg.services.iter().any(|s| s == &svc) {
+                cfg.services.push(svc);
+            }
+        }
+    }
+
+    let host_ssh = crate::ssh::discover_host_ssh(None);
+    if host_ssh.enabled {
+        for f in host_ssh.files {
+            if !cfg.system_files.iter().any(|existing| existing.path == f.path) {
+                cfg.system_files.push(f);
+            }
+        }
+        for pkg in host_ssh.packages {
+            if !cfg.packages.iter().any(|p| p == &pkg) {
+                cfg.packages.push(pkg);
+            }
+        }
+        for svc in host_ssh.services {
+            if !cfg.services.iter().any(|s| s == &svc) {
+                cfg.services.push(svc);
             }
         }
     }

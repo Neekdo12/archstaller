@@ -448,8 +448,19 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     let file_hint = ui::hint(&c, "Path to .tar.zst, .tar.xz, or .zip. Will be embedded into the ISO (max 256 MiB; not supported on floppy).");
 
     let uuid_input = ui::entry("", |_| {});
-    let uuid_row = ui::row(&c, "Disk UUID", &uuid_input);
     let path_input = ui::entry("home.tar.zst", |_| {});
+    let uuid_detect = ui::button("Detect partition…", {
+        let a = app.clone();
+        let ue = uuid_input.clone();
+        let pe = path_input.clone();
+        move || {
+            open_partition_picker_dialog(&a, &ue, &pe);
+        }
+    });
+    let uuid_box = ui::hbox(8);
+    uuid_box.append(&uuid_input);
+    uuid_box.append(&uuid_detect);
+    let uuid_row = ui::row(&c, "Disk UUID", &uuid_box);
     let path_row = ui::row(&c, "Path on disk", &path_input);
     let uuid_hint = ui::hint(&c, "Partition UUID (from `lsblk -f`) containing the archive file at the specified path (defaults to home.tar.zst in the root of the partition).");
 
@@ -798,5 +809,183 @@ pub fn open_shadow_auth_dialog(app: &Rc<App>) {
     }
 
     dialog.present();
+}
+
+pub fn open_partition_picker_dialog(
+    app: &Rc<App>,
+    uuid_entry: &gtk::Entry,
+    path_entry: &gtk::Entry,
+) {
+    let parts = crate::media::partitions();
+    if parts.is_empty() {
+        app.set_status("No disk partitions with UUIDs detected.");
+        return;
+    }
+
+    let dialog = gtk::Window::builder()
+        .title("Select Storage Partition")
+        .transient_for(&app.win)
+        .modal(true)
+        .default_width(520)
+        .default_height(380)
+        .build();
+
+    let root = ui::vbox(12);
+    root.set_margin_top(16);
+    root.set_margin_bottom(16);
+    root.set_margin_start(16);
+    root.set_margin_end(16);
+
+    ui::heading(
+        &root,
+        "Storage Partitions",
+        "Select a partition to supply the archive on first boot (e.g. a USB flash drive). If an archive is found at the partition root, its path is filled automatically.",
+    );
+
+    let list_box = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::Single)
+        .css_classes(["navigation-sidebar"])
+        .build();
+
+    let mut part_rows = Vec::new();
+    for p in &parts {
+        let r = ui::vbox(4);
+        r.set_margin_top(6);
+        r.set_margin_bottom(6);
+        r.set_margin_start(8);
+        r.set_margin_end(8);
+
+        let top_row = ui::hbox(8);
+        let title = if !p.label.is_empty() {
+            format!("{} ({})", p.label, p.fstype)
+        } else {
+            format!("{} ({})", p.path, p.fstype)
+        };
+        let t_lbl = ui::strong(&title);
+        t_lbl.set_hexpand(true);
+        top_row.append(&t_lbl);
+
+        let size_str = format_size(p.size);
+        top_row.append(&ui::dim(&size_str));
+        if p.removable {
+            let rem_badge = ui::dim("[USB / removable]");
+            top_row.append(&rem_badge);
+        }
+        r.append(&top_row);
+
+        let sub_row = ui::hbox(8);
+        let u_lbl = ui::dim(&format!("UUID: {}", p.uuid));
+        u_lbl.set_hexpand(true);
+        sub_row.append(&u_lbl);
+
+        let detected_file = p.mountpoint.as_deref().and_then(detect_archive_on_mount);
+        if let Some(ref f) = detected_file {
+            let found_badge = ui::strong(&format!("Found: {f}"));
+            found_badge.add_css_class("nav-good");
+            sub_row.append(&found_badge);
+        }
+        r.append(&sub_row);
+
+        list_box.append(&r);
+        part_rows.push((p.clone(), detected_file));
+    }
+
+    let scroll = gtk::ScrolledWindow::builder()
+        .child(&list_box)
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vexpand(true)
+        .min_content_height(200)
+        .build();
+    root.append(&scroll);
+
+    let actions = ui::hbox(8);
+    let cancel = ui::button("Cancel", {
+        let d = dialog.clone();
+        move || d.close()
+    });
+    let select_btn = ui::button("Select", {
+        let d = dialog.clone();
+        let lb = list_box.clone();
+        let ue = uuid_entry.clone();
+        let pe = path_entry.clone();
+        let rows = part_rows.clone();
+        move || {
+            if let Some(row) = lb.selected_row() {
+                if let Some((part, detected)) = usize::try_from(row.index()).ok().and_then(|idx| rows.get(idx)) {
+                    ue.set_text(&part.uuid);
+                    if let Some(f) = detected {
+                        pe.set_text(f);
+                    }
+                }
+            }
+            d.close();
+        }
+    });
+
+    // Double-click row activates selection
+    {
+        let d = dialog.clone();
+        let ue = uuid_entry.clone();
+        let pe = path_entry.clone();
+        let rows = part_rows;
+        list_box.connect_row_activated(move |_, row| {
+            if let Some((part, detected)) = usize::try_from(row.index()).ok().and_then(|idx| rows.get(idx)) {
+                ue.set_text(&part.uuid);
+                if let Some(f) = detected {
+                    pe.set_text(f);
+                }
+            }
+            d.close();
+        });
+    }
+
+    actions.append(&cancel);
+    actions.append(&select_btn);
+    root.append(&actions);
+
+    dialog.set_child(Some(&root));
+    dialog.present();
+}
+
+fn format_size(bytes: u64) -> String {
+    if bytes >= 1 << 30 {
+        format!("{:.1} GB", bytes as f64 / (1 << 30) as f64)
+    } else if bytes >= 1 << 20 {
+        format!("{} MB", bytes >> 20)
+    } else {
+        format!("{} KB", bytes >> 10)
+    }
+}
+
+fn detect_archive_on_mount(mount: &str) -> Option<String> {
+    let p = std::path::Path::new(mount);
+    for candidate in [
+        "home.tar.zst",
+        "home.tar.xz",
+        "home.tar.gz",
+        "home.zip",
+        "dotfiles.tar.zst",
+        "dotfiles.tar.xz",
+    ] {
+        if p.join(candidate).is_file() {
+            return Some(candidate.to_string());
+        }
+    }
+    if let Ok(entries) = std::fs::read_dir(p) {
+        for e in entries.flatten() {
+            if let Ok(ft) = e.file_type() {
+                if ft.is_file() {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    if name.ends_with(".tar.zst")
+                        || name.ends_with(".tar.xz")
+                        || name.ends_with(".zip")
+                    {
+                        return Some(name);
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 

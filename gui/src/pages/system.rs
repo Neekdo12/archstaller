@@ -75,18 +75,32 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
             a.edit(move |m| m.cfg.keymap = t);
         }),
     );
+    let a = app.clone();
+    let auto_lang_btn = ui::button("Autoload language & keymap from system", move || {
+        let sys = hostcfg::system::discover_host_system();
+        a.edit(|m| {
+            m.cfg.locale = sys.locale.clone();
+            m.cfg.keymap = sys.keymap.clone();
+        });
+        a.set_status("Autoloaded locale and keymap from host system.");
+        a.rebuild_all();
+    });
+    auto_lang_btn.set_tooltip_text(Some(
+        "Detects system/desktop locale (LANG/LC_ALL) and keyboard layout (Hyprland, localectl, vconsole.conf).",
+    ));
+    c.append(&auto_lang_btn);
 
     let c = ui::card(content, Some("System Overlays & Hardware Configurations"));
     ui::note(
         &c,
         ui::Kind::Warn,
-        "System overlays preserve configurations across reinstall: Wi-Fi/Ethernet network profiles (/etc/NetworkManager/system-connections/, /var/lib/iwd/), fingerprint PAM settings (/etc/pam.d/) and enrolled biometrics (/var/lib/fprint/), and zram swap (/etc/systemd/zram-generator.conf). Files are written directly to the root filesystem during installation and preserved in the first-boot overlay.",
+        "System overlays preserve configurations across reinstall: Wi-Fi/Ethernet network profiles (/etc/NetworkManager/system-connections/, /var/lib/iwd/), Bluetooth paired devices (/var/lib/bluetooth/), SSH host keys (/etc/ssh/ssh_host_*), fingerprint PAM settings (/etc/pam.d/) and enrolled biometrics (/var/lib/fprint/), and zram swap (/etc/systemd/zram-generator.conf). Files are written directly to the root filesystem during installation and preserved in the first-boot overlay.",
     );
 
     if cfg.system_files.is_empty() {
         ui::hint(
             &c,
-            "No system overlay files configured. Network connections and biometric fingerprint templates will not be restored unless autoloaded.",
+            "No system overlay files configured. Network connections, Bluetooth pairings, SSH keys, and biometric fingerprint templates will not be restored unless autoloaded.",
         );
     } else {
         for (idx, sf) in cfg.system_files.iter().enumerate() {
@@ -130,7 +144,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         },
     );
     auth_autoload_btn.set_tooltip_text(Some(
-        "Detects NetworkManager/iwd connections, PAM fprint configuration, biometric templates in /var/lib/fprint/, and zram config.",
+        "Detects NetworkManager/iwd connections, Bluetooth pairings, SSH host keys, PAM fprint configuration, biometric templates in /var/lib/fprint/, and zram config.",
     ));
     act_box.append(&auth_autoload_btn);
 

@@ -72,6 +72,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
                 .label(b.description)
                 .xalign(0.0)
                 .wrap(true)
+                .selectable(true)
                 .build(),
         );
         ui::hint(
