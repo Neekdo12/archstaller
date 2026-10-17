@@ -128,22 +128,25 @@ pub fn open(app: &Rc<App>) {
                 list.remove(&c);
             }
             let q = q.to_lowercase();
-            let mut idx: Vec<usize> = (0..cmds.len())
-                .filter(|&i| {
-                    q.split_whitespace()
-                        .all(|w| cmds[i].title.to_lowercase().contains(w))
+            let mut matches: Vec<(usize, &Command)> = cmds
+                .iter()
+                .enumerate()
+                .filter(|(_, cmd)| {
+                    let title_lower = cmd.title.to_lowercase();
+                    q.split_whitespace().all(|w| title_lower.contains(w))
                 })
                 .collect();
-            idx.sort_by_key(|&i| !cmds[i].title.to_lowercase().starts_with(&q));
-            for &i in &idx {
+            matches.sort_by_key(|(_, cmd)| !cmd.title.to_lowercase().starts_with(&q));
+            let idx: Vec<usize> = matches.iter().map(|(i, _)| *i).collect();
+            for (_, cmd) in &matches {
                 let r = ui::hbox(10);
                 let l = gtk::Label::builder()
-                    .label(&cmds[i].title)
+                    .label(&cmd.title)
                     .xalign(0.0)
                     .hexpand(true)
                     .build();
                 r.append(&l);
-                r.append(&ui::dim(&cmds[i].hint));
+                r.append(&ui::dim(&cmd.hint));
                 list.append(&r);
             }
             if let Some(first) = list.row_at_index(0) {
@@ -161,11 +164,15 @@ pub fn open(app: &Rc<App>) {
         let (cmds, list, shown, win) = (cmds.clone(), list.clone(), shown.clone(), win.clone());
         Rc::new(move || {
             if let Some(row) = list.selected_row() {
-                if let Some(&i) = shown.borrow().get(row.index() as usize) {
-                    let f = cmds[i].run.clone();
-                    win.close();
-                    // Run after the launcher is gone, so a dialog opened by the command gets the focus.
-                    glib::idle_add_local_once(move || f());
+                if let Ok(row_idx) = usize::try_from(row.index()) {
+                    if let Some(&i) = shown.borrow().get(row_idx) {
+                        if let Some(cmd) = cmds.get(i) {
+                            let f = cmd.run.clone();
+                            win.close();
+                            // Run after the launcher is gone, so a dialog opened by the command gets the focus.
+                            glib::idle_add_local_once(move || f());
+                        }
+                    }
                 }
             }
         })

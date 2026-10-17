@@ -107,7 +107,7 @@ pub fn mount(dev: &str) -> Result<PathBuf, String> {
 
 /// Flushes everything to the device, then unmounts it, so the stick can be pulled out.
 pub fn sync_and_unmount(dev: &str) -> Result<(), String> {
-    let _ = std::process::Command::new("sync").status();
+    drop(std::process::Command::new("sync").status());
     let out = udisksctl(&["unmount", "--no-user-interaction", "-b", dev])?;
     if out.status.success() {
         Ok(())
@@ -263,7 +263,7 @@ pub fn free_name(dir: &Path, iso_name: &str) -> String {
     (2u32..)
         .map(|n| format!("{stem}-{n}.iso"))
         .find(|n| !dir.join(n).exists())
-        .unwrap()
+        .unwrap_or_else(|| format!("{stem}-2.iso"))
 }
 
 /// The folder a file manager makes for deleted files on a volume: `.Trash-<uid>` in its top directory.
@@ -278,7 +278,7 @@ pub fn delete_iso(file: &Path, root: Option<&Path>) -> Result<(), String> {
     std::fs::remove_file(file).map_err(|e| format!("cannot delete {}: {e}", file.display()))?;
     if let Some(t) = root.and_then(trash_dir) {
         if t.is_dir() {
-            let _ = std::fs::remove_dir_all(&t);
+            drop(std::fs::remove_dir_all(&t));
         }
     }
     Ok(())
@@ -349,8 +349,9 @@ impl MediaTarget for FolderCopy {
                 if n == 0 {
                     break;
                 }
-                hash.update(&buf[..n]);
-                out.write_all(&buf[..n])
+                let chunk = buf.get(..n).ok_or("buffer slice out of bounds")?;
+                hash.update(chunk);
+                out.write_all(chunk)
                     .map_err(|e| format!("write failed: {e}"))?;
                 done += n as u64;
                 progress(Phase::Copying, done, total);
@@ -377,7 +378,8 @@ impl MediaTarget for FolderCopy {
                 if n == 0 {
                     break;
                 }
-                h2.update(&buf[..n]);
+                let chunk = buf.get(..n).ok_or("buffer slice out of bounds")?;
+                h2.update(chunk);
                 read += n as u64;
                 progress(Phase::Verifying, read, total);
             }
@@ -396,7 +398,7 @@ impl MediaTarget for FolderCopy {
             })
         })();
         if result.is_err() {
-            let _ = std::fs::remove_file(&part);
+            drop(std::fs::remove_file(&part));
         }
         result
     }
@@ -409,7 +411,7 @@ mod tests {
     fn tmp(name: &str) -> PathBuf {
         let d =
             std::env::temp_dir().join(format!("archstaller-media-{}-{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
+        drop(std::fs::remove_dir_all(&d));
         std::fs::create_dir_all(&d).unwrap();
         d
     }
@@ -454,17 +456,17 @@ mod tests {
         }
         .write(&src, &mut |_, _, _| {}, &AtomicBool::new(false));
         assert!(again.unwrap_err().contains("already exists"));
-        assert!(FolderCopy {
+        FolderCopy {
             dir: dest,
             available: None,
             overwrite: true,
             delete: vec![],
             trash_root: None,
-            rename_to: None
+            rename_to: None,
         }
         .write(&src, &mut |_, _, _| {}, &AtomicBool::new(false))
-        .is_ok());
-        let _ = std::fs::remove_dir_all(&d);
+        .unwrap();
+        drop(std::fs::remove_dir_all(&d));
     }
 
     #[test]
@@ -500,7 +502,7 @@ mod tests {
             0,
             "no partial file is left"
         );
-        let _ = std::fs::remove_dir_all(&d);
+        drop(std::fs::remove_dir_all(&d));
     }
 
     #[test]
@@ -530,7 +532,7 @@ mod tests {
         );
         assert_eq!(free_name(&d, "archstaller.iso"), "archstaller-3.iso");
         assert_eq!(free_name(&d, "new.iso"), "new.iso");
-        let _ = std::fs::remove_dir_all(&d);
+        drop(std::fs::remove_dir_all(&d));
     }
 
     #[test]
@@ -572,7 +574,7 @@ mod tests {
         .write(&src, &mut |_, _, _| {}, &AtomicBool::new(false))
         .unwrap();
         assert!(r.dest.ends_with("a-2.iso") && stick.join("a.iso").exists());
-        let _ = std::fs::remove_dir_all(&d);
+        drop(std::fs::remove_dir_all(&d));
     }
 
     #[test]
@@ -620,7 +622,7 @@ mod tests {
             std::fs::read(&r.dest).unwrap(),
             std::fs::read(&src).unwrap()
         );
-        let _ = std::fs::remove_dir_all(&d);
+        drop(std::fs::remove_dir_all(&d));
     }
 
     #[test]
@@ -646,6 +648,6 @@ mod tests {
         assert!(!is_ventoy(&v(&d), &[]), "an ordinary volume is not Ventoy");
         std::fs::create_dir(d.join("ventoy")).unwrap();
         assert!(is_ventoy(&v(&d), &[]));
-        let _ = std::fs::remove_dir_all(&d);
+        drop(std::fs::remove_dir_all(&d));
     }
 }

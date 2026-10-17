@@ -14,7 +14,9 @@ pub fn pin(args: &[String]) -> Result<()> {
     if names.len() != 1 {
         return Err("usage: cargo xtask aur-pin NAME [--commit COMMIT]".into());
     }
-    let name = &names[0];
+    let Some(name) = names.first() else {
+        return Err("usage: cargo xtask aur-pin NAME [--commit COMMIT]".into());
+    };
     let info = aurbuild::rpc::info(std::slice::from_ref(name))?;
     let info = info
         .first()

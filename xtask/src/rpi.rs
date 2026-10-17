@@ -98,9 +98,11 @@ pub fn build_image(opts: &Options) -> Result<PathBuf> {
     f.set_len(RPI_IMAGE_SIZE as u64)?;
     drop(f);
 
+    let out_str = out.to_str().ok_or("non-utf8 image path")?;
+
     crate::run(Command::new("mformat").args([
         "-i",
-        out.to_str().unwrap(),
+        out_str,
         "-F",
         "-v",
         "ARCHBOOT",
@@ -108,7 +110,7 @@ pub fn build_image(opts: &Options) -> Result<PathBuf> {
     ]))?;
     crate::run(
         Command::new("mcopy")
-            .args(["-i", out.to_str().unwrap()])
+            .args(["-i", out_str])
             .arg(&kernel_bin)
             .arg("::/kernel8.img"),
     )?;
@@ -119,7 +121,7 @@ pub fn build_image(opts: &Options) -> Result<PathBuf> {
     std::fs::write(&cfg_txt_path, b"# Archstaller Raspberry Pi Boot Configuration\narm_64bit=1\nenable_uart=1\nuart_2ndstage=1\ndtoverlay=disable-bt\n")?;
     crate::run(
         Command::new("mcopy")
-            .args(["-i", out.to_str().unwrap()])
+            .args(["-i", out_str])
             .arg(&cfg_txt_path)
             .arg("::/config.txt"),
     )?;
@@ -131,7 +133,7 @@ pub fn build_image(opts: &Options) -> Result<PathBuf> {
     )?;
     crate::run(
         Command::new("mcopy")
-            .args(["-i", out.to_str().unwrap()])
+            .args(["-i", out_str])
             .arg(&cmdline_txt_path)
             .arg("::/cmdline.txt"),
     )?;
@@ -140,7 +142,7 @@ pub fn build_image(opts: &Options) -> Result<PathBuf> {
     std::fs::write(&config_bin_path, &config_bin)?;
     crate::run(
         Command::new("mcopy")
-            .args(["-i", out.to_str().unwrap()])
+            .args(["-i", out_str])
             .arg(&config_bin_path)
             .arg("::/config.bin"),
     )?;
@@ -216,7 +218,7 @@ pub fn test(board: &str) -> Result<()> {
     std::thread::spawn(move || {
         let reader = BufReader::new(stdout);
         for line in reader.lines().map_while(std::result::Result::ok) {
-            let _ = tx.send(line);
+            drop(tx.send(line));
         }
     });
 
@@ -245,8 +247,8 @@ pub fn test(board: &str) -> Result<()> {
         }
 
         if saw_banner && saw_el1 && saw_uart && saw_success {
-            let _ = child.kill();
-            let _ = child.wait();
+            drop(child.kill());
+            drop(child.wait());
             println!(
                 "\nRaspberry Pi QEMU E2E test PASSED! (EL1 drop, UART, CPU and timer verified)"
             );
@@ -260,7 +262,7 @@ pub fn test(board: &str) -> Result<()> {
         std::thread::sleep(Duration::from_millis(50));
     }
 
-    let _ = child.kill();
-    let _ = child.wait();
+    drop(child.kill());
+    drop(child.wait());
     Err("Raspberry Pi QEMU E2E test timed out before seeing boot success marker".into())
 }

@@ -243,7 +243,11 @@ pub fn init() {
         );
 
         let idt = &raw mut IDT;
-        let set = |v: usize, h: u64, ist: u8| (*idt)[v] = Gate::new(h, ist);
+        let set = |v: usize, h: u64, ist: u8| {
+            if let Some(slot) = (*idt).get_mut(v) {
+                *slot = Gate::new(h, ist);
+            }
+        };
         set(0, divide_error as *const () as u64, 0);
         set(1, debug as *const () as u64, 0);
         set(2, nmi as *const () as u64, 0);

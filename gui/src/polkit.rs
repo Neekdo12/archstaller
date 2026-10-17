@@ -82,7 +82,9 @@ fn agent_running() -> bool {
 /// Starts an authentication agent unless the session already has one. Quiet when none is installed: the
 /// flash then reports the missing agent itself.
 pub fn start() {
-    let mut slot = STARTED.lock().unwrap();
+    let Ok(mut slot) = STARTED.lock() else {
+        return;
+    };
     if slot.is_some() || desktop_has_agent() || agent_running() {
         return;
     }
@@ -93,14 +95,18 @@ pub fn start() {
     cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    use std::os::unix::process::CommandExt;
+    let hook = || {
+        // SAFETY: prctl with PR_SET_PDEATHSIG is async-signal-safe.
+        unsafe {
+            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+        }
+        Ok(())
+    };
     // SAFETY: only `prctl`, which is async-signal-safe, runs between fork and exec. The agent then dies with
     // the app even when the app is killed or crashes.
     unsafe {
-        use std::os::unix::process::CommandExt;
-        cmd.pre_exec(|| {
-            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
-            Ok(())
-        });
+        cmd.pre_exec(hook);
     }
     if let Ok(child) = cmd.spawn() {
         *slot = Some(child);
@@ -109,8 +115,11 @@ pub fn start() {
 
 /// Stops the agent this app started (not one that was already running).
 pub fn stop() {
-    if let Some(mut c) = STARTED.lock().unwrap().take() {
-        let _ = c.kill();
-        let _ = c.wait();
+    let Ok(mut guard) = STARTED.lock() else {
+        return;
+    };
+    if let Some(mut c) = guard.take() {
+        drop(c.kill());
+        drop(c.wait());
     }
 }

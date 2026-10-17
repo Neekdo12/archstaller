@@ -3,7 +3,36 @@
 //! over to `loadcore` (installer ISO) or boots the installed system's Linux kernel (first boot).
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
-#![cfg_attr(not(target_os = "none"), allow(dead_code, unused_imports))]
+#![cfg_attr(
+    not(target_os = "none"),
+    expect(
+        dead_code,
+        unused_imports,
+        reason = "items only used in target_os = none"
+    )
+)]
+
+#![cfg_attr(
+    target_os = "none",
+    expect(
+        clippy::multiple_unsafe_ops_per_block,
+        reason = "bare-metal BIOS low memory, real-mode buffers, and stage 2 entry"
+    )
+)]
+#![cfg_attr(
+    target_os = "none",
+    expect(
+        clippy::undocumented_unsafe_blocks,
+        reason = "bare-metal BIOS low memory, real-mode buffers, and stage 2 entry"
+    )
+)]
+#![cfg_attr(
+    target_os = "none",
+    expect(
+        clippy::panic,
+        reason = "bare-metal BIOS early boot errors must panic and halt"
+    )
+)]
 
 use bootinfo::bios;
 use bootinfo::*;
@@ -31,11 +60,13 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     log(info.message().as_str().unwrap_or("panic"));
     log("\n");
     loop {
+        // SAFETY: Disabling interrupts and halting is the defined panic behaviour on x86 bare-metal.
         unsafe { core::arch::asm!("cli; hlt") };
     }
 }
 
 fn rd32(addr: usize) -> u32 {
+    // SAFETY: Read from known BIOS low-memory / data area.
     unsafe { core::ptr::read_volatile(addr as *const u32) }
 }
 
@@ -133,7 +164,10 @@ extern "C" fn bios_main() -> ! {
         }
         if mode == bios::MODE_LINUX {
             let cmd = core::slice::from_raw_parts(h.add(8 + 48), bios::CMDLINE_MAX);
-            let cmd = core::str::from_utf8(&cmd[..cmd.iter().position(|&b| b == 0).unwrap_or(0)])
+            let cmd_len = cmd.iter().position(|&b| b == 0).unwrap_or(0);
+            let cmd = cmd
+                .get(..cmd_len)
+                .and_then(|c| core::str::from_utf8(c).ok())
                 .unwrap_or("");
             let bz = core::slice::from_raw_parts(staged[0].0 as *const u8, staged[0].1 as usize);
             let end = staged[1].0 + ((staged[1].1 + 0xfffff) & !0xfffff);

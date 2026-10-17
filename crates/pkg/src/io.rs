@@ -10,7 +10,10 @@ pub trait Read {
             if n == 0 {
                 return Err(Error::Eof);
             }
-            buf = &mut buf[n..];
+            buf = match buf.get_mut(n..) {
+                Some(rest) => rest,
+                None => &mut [],
+            };
         }
         Ok(())
     }
@@ -19,8 +22,12 @@ pub trait Read {
 impl Read for &[u8] {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         let n = self.len().min(buf.len());
-        buf[..n].copy_from_slice(&self[..n]);
-        *self = &self[n..];
+        if let Some((src, rest)) = self.split_at_checked(n) {
+            if let Some(dst) = buf.get_mut(..n) {
+                dst.copy_from_slice(src);
+            }
+            *self = rest;
+        }
         Ok(n)
     }
 }

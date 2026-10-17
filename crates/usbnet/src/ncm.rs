@@ -20,15 +20,24 @@ pub struct Params {
     pub out_align: u16,
 }
 
+fn put_slice(buf: &mut [u8], offset: usize, data: &[u8]) -> Result<()> {
+    let end = offset.checked_add(data.len()).ok_or(Error::InvalidArgument)?;
+    let dst = buf.get_mut(offset..end).ok_or(Error::InvalidArgument)?;
+    dst.copy_from_slice(data);
+    Ok(())
+}
+
 fn le16(b: &[u8], o: usize) -> Result<u16> {
-    b.get(o..o + 2)
-        .map(|x| u16::from_le_bytes(x.try_into().unwrap()))
-        .ok_or(Error::Io)
+    match b.get(o..o + 2) {
+        Some(&[b0, b1]) => Ok(u16::from_le_bytes([b0, b1])),
+        _ => Err(Error::Io),
+    }
 }
 fn le32(b: &[u8], o: usize) -> Result<u32> {
-    b.get(o..o + 4)
-        .map(|x| u32::from_le_bytes(x.try_into().unwrap()))
-        .ok_or(Error::Io)
+    match b.get(o..o + 4) {
+        Some(&[b0, b1, b2, b3]) => Ok(u32::from_le_bytes([b0, b1, b2, b3])),
+        _ => Err(Error::Io),
+    }
 }
 
 /// Parses the 28-byte GET_NTB_PARAMETERS reply. The device must support the 16-bit format.
@@ -65,17 +74,17 @@ pub fn build_ntb(frame: &[u8], seq: u16, p: &Params) -> Result<Vec<u8>> {
         return Err(Error::InvalidArgument);
     }
     let mut b = alloc::vec![0u8; total];
-    b[0..4].copy_from_slice(&NTH16_SIG.to_le_bytes());
-    b[4..6].copy_from_slice(&(NTH16_LEN as u16).to_le_bytes());
-    b[6..8].copy_from_slice(&seq.to_le_bytes());
-    b[8..10].copy_from_slice(&(total as u16).to_le_bytes());
-    b[10..12].copy_from_slice(&(ndp as u16).to_le_bytes());
-    b[dg..dg + frame.len()].copy_from_slice(frame);
-    b[ndp..ndp + 4].copy_from_slice(&NDP16_SIG.to_le_bytes());
-    b[ndp + 4..ndp + 6].copy_from_slice(&(NDP16_LEN as u16).to_le_bytes());
+    put_slice(&mut b, 0, &NTH16_SIG.to_le_bytes())?;
+    put_slice(&mut b, 4, &(NTH16_LEN as u16).to_le_bytes())?;
+    put_slice(&mut b, 6, &seq.to_le_bytes())?;
+    put_slice(&mut b, 8, &(total as u16).to_le_bytes())?;
+    put_slice(&mut b, 10, &(ndp as u16).to_le_bytes())?;
+    put_slice(&mut b, dg, frame)?;
+    put_slice(&mut b, ndp, &NDP16_SIG.to_le_bytes())?;
+    put_slice(&mut b, ndp + 4, &(NDP16_LEN as u16).to_le_bytes())?;
     // wNextNdpIndex = 0
-    b[ndp + 8..ndp + 10].copy_from_slice(&(dg as u16).to_le_bytes());
-    b[ndp + 10..ndp + 12].copy_from_slice(&(frame.len() as u16).to_le_bytes());
+    put_slice(&mut b, ndp + 8, &(dg as u16).to_le_bytes())?;
+    put_slice(&mut b, ndp + 10, &(frame.len() as u16).to_le_bytes())?;
     // The last entry (index 0, length 0) terminates the table.
     Ok(b)
 }

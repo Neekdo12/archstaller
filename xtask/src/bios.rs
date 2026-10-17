@@ -10,19 +10,40 @@ const TARGET: &str = "x86_64-unknown-none";
 
 /// The memory image of an ELF's loadable segments from `base`.
 fn flatten(elf: &[u8], base: u64) -> Result<Vec<u8>> {
-    let u16le = |at: usize| u16::from_le_bytes(elf[at..at + 2].try_into().unwrap()) as usize;
-    let u32le = |at: usize| u32::from_le_bytes(elf[at..at + 4].try_into().unwrap());
-    let u64le = |at: usize| u64::from_le_bytes(elf[at..at + 8].try_into().unwrap());
-    let (phoff, phentsize, phnum) = (u64le(0x20) as usize, u16le(0x36), u16le(0x38));
+    let u16le = |at: usize| -> Result<usize> {
+        let bytes: [u8; 2] = elf
+            .get(at..at + 2)
+            .ok_or("ELF too short for u16")?
+            .try_into()
+            .map_err(|_e| "failed to convert u16 slice")?;
+        Ok(u16::from_le_bytes(bytes) as usize)
+    };
+    let u32le = |at: usize| -> Result<u32> {
+        let bytes: [u8; 4] = elf
+            .get(at..at + 4)
+            .ok_or("ELF too short for u32")?
+            .try_into()
+            .map_err(|_e| "failed to convert u32 slice")?;
+        Ok(u32::from_le_bytes(bytes))
+    };
+    let u64le = |at: usize| -> Result<u64> {
+        let bytes: [u8; 8] = elf
+            .get(at..at + 8)
+            .ok_or("ELF too short for u64")?
+            .try_into()
+            .map_err(|_e| "failed to convert u64 slice")?;
+        Ok(u64::from_le_bytes(bytes))
+    };
+    let (phoff, phentsize, phnum) = (u64le(0x20)? as usize, u16le(0x36)?, u16le(0x38)?);
     let mut image = Vec::new();
     for ph in (0..phnum)
         .map(|i| phoff + i * phentsize)
-        .filter(|&ph| u32le(ph) == 1)
+        .filter(|&ph| u32le(ph).is_ok_and(|v| v == 1))
     {
         let (off, vaddr, filesz) = (
-            u64le(ph + 8) as usize,
-            u64le(ph + 16),
-            u64le(ph + 32) as usize,
+            u64le(ph + 8)? as usize,
+            u64le(ph + 16)?,
+            u64le(ph + 32)? as usize,
         );
         // A segment may start below `base` (it then maps the ELF headers): keep what is at or above it.
         let skip = base.saturating_sub(vaddr) as usize;
@@ -34,7 +55,13 @@ fn flatten(elf: &[u8], base: u64) -> Result<Vec<u8>> {
         if image.len() < at + n {
             image.resize(at + n, 0);
         }
-        image[at..at + n].copy_from_slice(&elf[off + skip..off + skip + n]);
+        let src = elf
+            .get(off + skip..off + skip + n)
+            .ok_or("ELF segment out of bounds")?;
+        let dst = image
+            .get_mut(at..at + n)
+            .ok_or("image buffer too small")?;
+        dst.copy_from_slice(src);
     }
     Ok(image)
 }
@@ -74,7 +101,9 @@ pub fn build() -> Result<Bios> {
         .into());
     }
     let mut stage1 = [0u8; 512];
-    stage1[..s1.len()].copy_from_slice(&s1);
+    if let Some(dest) = stage1.get_mut(..s1.len()) {
+        dest.copy_from_slice(&s1);
+    }
     stage1[510] = 0x55;
     stage1[511] = 0xaa;
     let mut stage2 = flatten(&cargo_build("boot-bios")?, bootinfo::bios::S2_BASE as u64)?;
@@ -91,36 +120,40 @@ pub fn build() -> Result<Bios> {
 }
 
 fn le32(b: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes(b[at..at + 4].try_into().unwrap())
+    let bytes: [u8; 4] = b
+        .get(at..at + 4)
+        .and_then(|s| s.try_into().ok())
+        .unwrap_or([0; 4]);
+    u32::from_le_bytes(bytes)
 }
 
 /// Finds a file in the ISO 9660 tree: (byte offset of its data, length).
 pub fn iso_extent(img: &[u8], path: &str) -> Option<(u64, u64)> {
     const SECTOR: usize = 2048;
     // Primary volume descriptor at sector 16; the root directory record is at offset 156.
-    let pvd = &img[16 * SECTOR..17 * SECTOR];
-    if &pvd[1..6] != b"CD001" {
+    let pvd = img.get(16 * SECTOR..17 * SECTOR)?;
+    if pvd.get(1..6) != Some(b"CD001".as_slice()) {
         return None;
     }
     let (mut lba, mut len) = (le32(pvd, 156 + 2) as usize, le32(pvd, 156 + 10) as usize);
     let parts: Vec<&str> = path.split('/').collect();
     for (i, part) in parts.iter().enumerate() {
-        let dir = &img[lba * SECTOR..lba * SECTOR + len];
+        let dir = img.get(lba * SECTOR..lba * SECTOR + len)?;
         let mut at = 0;
         let mut found = None;
         while at < dir.len() {
-            let rec = dir[at] as usize;
+            let rec = *dir.get(at)? as usize;
             if rec == 0 {
                 at = (at / SECTOR + 1) * SECTOR; // records do not cross sector boundaries
                 continue;
             }
-            let name_len = dir[at + 32] as usize;
+            let name_len = *dir.get(at + 32)? as usize;
+            let raw_name = dir.get(at + 33..at + 33 + name_len)?;
             let name =
-                String::from_utf8_lossy(&dir[at + 33..at + 33 + name_len]).to_ascii_lowercase();
+                String::from_utf8_lossy(raw_name).to_ascii_lowercase();
             let name = name
                 .split(';')
-                .next()
-                .unwrap()
+                .next()?
                 .trim_end_matches('.')
                 .to_string();
             if name == *part {
@@ -160,9 +193,17 @@ pub fn patch_iso(
             "",
         )?;
     }
-    img[bios_img as usize..bios_img as usize + 512].copy_from_slice(&s1);
-    img[stage2_off as usize..stage2_off as usize + s2.len()].copy_from_slice(&s2);
+    let dest_bios = img
+        .get_mut(bios_img as usize..bios_img as usize + 512)
+        .ok_or("ISO too small for BIOS stage 1")?;
+    dest_bios.copy_from_slice(&s1);
+    let dest_s2 = img
+        .get_mut(stage2_off as usize..stage2_off as usize + s2.len())
+        .ok_or("ISO too small for BIOS stage 2")?;
+    dest_s2.copy_from_slice(&s2);
     // Hybrid image (dd to a USB stick): the same code in the MBR, which xorriso filled with a protective label.
-    img[..440].copy_from_slice(&s1[..440]);
+    let s1_mbr = s1.get(..440).ok_or("stage 1 too short for MBR")?;
+    let mbr = img.get_mut(..440).ok_or("ISO too small for MBR")?;
+    mbr.copy_from_slice(s1_mbr);
     Ok(())
 }

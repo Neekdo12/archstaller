@@ -220,7 +220,11 @@ impl NetDevice for Vmxnet3 {
         } else {
             TXF_GEN
         };
-        self.tx_bufs.as_mut_slice()[idx * BUF..idx * BUF + frame.len()].copy_from_slice(frame);
+        let off = idx * BUF;
+        let Some(dest) = self.tx_bufs.as_mut_slice().get_mut(off..off + frame.len()) else {
+            return Err(Error::InvalidArgument);
+        };
+        dest.copy_from_slice(frame);
         let desc = d.offset(TX_DESC + 16 * idx);
         desc.write64(0, self.tx_bufs.phys_at(idx * BUF));
         desc.write32(12, TXF_CQ | TXF_EOP);
@@ -265,7 +269,14 @@ impl NetDevice for Vmxnet3 {
         let len = (comp.read32(8) & 0x3fff) as usize;
         self.rx_fill = self.rx_fill.saturating_sub(1);
         let n = len.min(buf.len());
-        buf[..n].copy_from_slice(&self.rx_bufs.as_slice()[idx * BUF..idx * BUF + n]);
+        let off = idx * BUF;
+        let (Some(dest), Some(src)) = (
+            buf.get_mut(..n),
+            self.rx_bufs.as_slice().get(off..off + n),
+        ) else {
+            return None;
+        };
+        dest.copy_from_slice(src);
         self.refill_rx();
         Some(n)
     }

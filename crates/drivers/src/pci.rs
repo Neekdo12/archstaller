@@ -45,17 +45,17 @@ fn cfg_addr(a: Addr, off: u16) -> u32 {
 }
 
 pub fn read32(a: Addr, off: u16) -> u32 {
-    unsafe {
-        outl(CONFIG_ADDRESS, cfg_addr(a, off));
-        inl(CONFIG_DATA)
-    }
+    // SAFETY: Writing the target device's configuration mechanism 1 address to CONFIG_ADDRESS is safe on x86 platforms.
+    unsafe { outl(CONFIG_ADDRESS, cfg_addr(a, off)) };
+    // SAFETY: Reading from CONFIG_DATA accesses the register selected by the preceding CONFIG_ADDRESS write.
+    unsafe { inl(CONFIG_DATA) }
 }
 
 pub fn write32(a: Addr, off: u16, v: u32) {
-    unsafe {
-        outl(CONFIG_ADDRESS, cfg_addr(a, off));
-        outl(CONFIG_DATA, v);
-    }
+    // SAFETY: Writing the target device's configuration mechanism 1 address to CONFIG_ADDRESS is safe on x86 platforms.
+    unsafe { outl(CONFIG_ADDRESS, cfg_addr(a, off)) };
+    // SAFETY: Writing to CONFIG_DATA modifies the register selected by the preceding CONFIG_ADDRESS write.
+    unsafe { outl(CONFIG_DATA, v) };
 }
 
 pub fn read16(a: Addr, off: u16) -> u16 {

@@ -92,7 +92,7 @@ pub fn update() -> Result<()> {
     fetch_package(&latest.version, &file)?;
     let got = sha256_hex(&file)?;
     if got != latest.sha256 {
-        let _ = std::fs::remove_file(&file);
+        drop(std::fs::remove_file(&file));
         return Err(format!(
             "downloaded keyring has sha256 {got}, database says {}",
             latest.sha256
@@ -106,7 +106,7 @@ pub fn update() -> Result<()> {
         .as_secs();
     let verdict = (|| -> std::result::Result<[u8; 20], String> {
         let blob =
-            std::fs::read(blob_path()).map_err(|_| "no existing keyring blob".to_string())?;
+            std::fs::read(blob_path()).map_err(|_e| "no existing keyring blob".to_string())?;
         let ring = Keyring::from_bytes(&blob).ok_or("unreadable keyring blob")?;
         let sig = pgp_lite::base64_decode(&latest.pgpsig).map_err(|e| format!("{e:?}"))?;
         let mut v = pgp_lite::Verifier::from_packet(&sig).map_err(|e| format!("{e:?}"))?;
@@ -133,7 +133,10 @@ pub fn blob_path() -> PathBuf {
 
 fn unhex(s: &str) -> Vec<u8> {
     (0..s.len() / 2)
-        .map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap())
+        .filter_map(|i| {
+            let chunk = s.get(2 * i..2 * i + 2)?;
+            u8::from_str_radix(chunk, 16).ok()
+        })
         .collect()
 }
 
@@ -159,15 +162,23 @@ impl Key {
 
     fn material(&self) -> Option<KeyMaterial> {
         match self.algo {
-            1 if self.pkd.len() >= 2 => Some(KeyMaterial::Rsa {
-                n: unhex(&self.pkd[0]),
-                e: unhex(&self.pkd[1]),
-            }),
+            1 if self.pkd.len() >= 2 => {
+                let pkd0 = self.pkd.first()?;
+                let pkd1 = self.pkd.get(1)?;
+                Some(KeyMaterial::Rsa {
+                    n: unhex(pkd0),
+                    e: unhex(pkd1),
+                })
+            }
             22 if self.pkd.len() >= 2 => {
-                let oid = &self.pkd[0];
-                let point = unhex(&self.pkd[1]);
-                if oid == "092B06010401DA470F01" && point.len() == 33 && point[0] == 0x40 {
-                    Some(KeyMaterial::Ed25519(point[1..].try_into().unwrap()))
+                let oid = self.pkd.first()?;
+                let point = unhex(self.pkd.get(1)?);
+                if oid == "092B06010401DA470F01"
+                    && point.len() == 33
+                    && point.first() == Some(&0x40)
+                {
+                    let key_bytes: [u8; 32] = point.get(1..)?.try_into().ok()?;
+                    Some(KeyMaterial::Ed25519(key_bytes))
                 } else {
                     None
                 }
@@ -216,7 +227,7 @@ pub fn build() -> Result<Vec<u8>> {
         .into());
     }
     let files = dir.join("files");
-    let _ = std::fs::remove_dir_all(&files);
+    drop(std::fs::remove_dir_all(&files));
     std::fs::create_dir_all(&files)?;
     run(Command::new("tar")
         .args(["--zstd", "-xf"])
@@ -239,7 +250,7 @@ pub fn build() -> Result<Vec<u8>> {
     }
 
     let home = dir.join("gnupg");
-    let _ = std::fs::remove_dir_all(&home);
+    drop(std::fs::remove_dir_all(&home));
     std::fs::create_dir_all(&home)?;
     #[cfg(unix)]
     {
@@ -263,7 +274,8 @@ pub fn build() -> Result<Vec<u8>> {
         }
         Ok(out.stdout)
     };
-    gpg(&["--import", kr.join("archlinux.gpg").to_str().unwrap()])?;
+    let gpg_key = kr.join("archlinux.gpg");
+    gpg(&["--import", gpg_key.to_str().ok_or("non-utf8 path")?])?;
     let listing = String::from_utf8(gpg(&["--with-colons", "--with-key-data", "--check-sigs"])?)?;
 
     let is_main_id = |id: &str| {
@@ -288,7 +300,7 @@ pub fn build() -> Result<Vec<u8>> {
             can_sign: f.get(11).is_some_and(|c| c.contains('s')),
             pkd: Vec::new(),
         };
-        match f[0] {
+        match f.first().copied().unwrap_or("") {
             "pub" => {
                 primaries.push(Primary {
                     key: parse_key(&f),
@@ -308,21 +320,25 @@ pub fn build() -> Result<Vec<u8>> {
             "fpr" => {
                 if let Some(p) = primaries.last_mut() {
                     let k = if cur_is_sub {
-                        p.subs.last_mut().unwrap()
+                        p.subs.last_mut()
                     } else {
-                        &mut p.key
+                        Some(&mut p.key)
                     };
-                    k.fpr = f.get(9).and_then(|s| fpr_bytes(s));
+                    if let Some(k) = k {
+                        k.fpr = f.get(9).and_then(|s| fpr_bytes(s));
+                    }
                 }
             }
             "pkd" => {
                 if let Some(p) = primaries.last_mut() {
                     let k = if cur_is_sub {
-                        p.subs.last_mut().unwrap()
+                        p.subs.last_mut()
                     } else {
-                        &mut p.key
+                        Some(&mut p.key)
                     };
-                    k.pkd.push(f.get(3).unwrap_or(&"").to_string());
+                    if let Some(k) = k {
+                        k.pkd.push(f.get(3).unwrap_or(&"").to_string());
+                    }
                 }
             }
             "uid" => {
@@ -337,11 +353,11 @@ pub fn build() -> Result<Vec<u8>> {
             // Certifications (classes 10-13) and their revocations (class 30) of the current user id.
             "sig" | "rev" if !cur_is_sub && uid_ok && f.get(1) == Some(&"!") => {
                 let class = f.get(10).copied().unwrap_or("");
-                let is_cert = f[0] == "sig"
+                let is_cert = f.first() == Some(&"sig")
                     && ["10", "11", "12", "13"]
                         .iter()
                         .any(|c| class.starts_with(c));
-                let is_revocation = f[0] == "rev" && class.starts_with("30");
+                let is_revocation = f.first() == Some(&"rev") && class.starts_with("30");
                 if !is_cert && !is_revocation {
                     continue;
                 }

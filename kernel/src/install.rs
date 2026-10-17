@@ -49,10 +49,10 @@ struct RegionStorage<'a>(Region<'a>);
 
 impl Storage for RegionStorage<'_> {
     fn write_at(&mut self, offset: u64, data: &[u8]) -> ext4w::Result<()> {
-        self.0.write_at(offset, data).map_err(|_| ext4w::Error::Io)
+        self.0.write_at(offset, data).map_err(|_e| ext4w::Error::Io)
     }
     fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> ext4w::Result<()> {
-        self.0.read_at(offset, buf).map_err(|_| ext4w::Error::Io)
+        self.0.read_at(offset, buf).map_err(|_e| ext4w::Error::Io)
     }
 }
 
@@ -77,12 +77,14 @@ impl<S: Storage> Read for CacheReader<S> {
             self.w
                 .borrow_mut()
                 .read_file(self.ino, self.pos, &mut self.buf)
-                .map_err(|_| pkg::Error::Io)?;
+                .map_err(|_e| pkg::Error::Io)?;
             self.pos += n as u64;
             self.off = 0;
         }
         let n = (self.buf.len() - self.off).min(out.len());
-        out[..n].copy_from_slice(&self.buf[self.off..self.off + n]);
+        if let (Some(dst), Some(src)) = (out.get_mut(..n), self.buf.get(self.off..self.off + n)) {
+            dst.copy_from_slice(src);
+        }
         self.off += n;
         Ok(n)
     }
@@ -139,7 +141,10 @@ fn select_disk(cfg: &Config, devs: &mut Devices) -> R<Box<dyn BlockDevice>> {
             ))
         }
     }
-    let d = devs.block.remove(hits[0]);
+    let Some(&idx) = hits.first() else {
+        return Err("selector matches 0 disks".into());
+    };
+    let d = devs.block.remove(idx);
     if d.serial().trim() != want {
         return Err(format!(
             "selected disk has serial '{}' but confirm_serial is '{want}'; nothing was written",
@@ -167,8 +172,12 @@ fn select_largest(devs: &mut Devices) -> R<Box<dyn BlockDevice>> {
         .map(|d| size(&**d))
         .max()
         .ok_or("no disk found; nothing was written")?;
-    let biggest: Vec<usize> = (0..devs.block.len())
-        .filter(|&i| size(&*devs.block[i]) == max)
+    let biggest: Vec<usize> = devs
+        .block
+        .iter()
+        .enumerate()
+        .filter(|(_, d)| size(&***d) == max)
+        .map(|(i, _)| i)
         .collect();
     if biggest.len() != 1 {
         return Err(format!(
@@ -177,8 +186,11 @@ fn select_largest(devs: &mut Devices) -> R<Box<dyn BlockDevice>> {
             max >> 20
         ));
     }
+    let Some(&idx) = biggest.first() else {
+        return Err("no disk found; nothing was written".into());
+    };
     println!("disk.auto_largest is set: the largest disk will be ERASED");
-    Ok(devs.block.remove(biggest[0]))
+    Ok(devs.block.remove(idx))
 }
 
 pub(crate) const USER_FILE_MAX: usize = 1 << 20;
@@ -294,7 +306,9 @@ fn download_package<S: Storage>(
     };
     let mut last = String::new();
     for attempt in 0..cfg.mirrors.len() * 2 {
-        let mirror = &cfg.mirrors[attempt % cfg.mirrors.len()];
+        let Some(mirror) = cfg.mirrors.get(attempt % cfg.mirrors.len()) else {
+            continue;
+        };
         let url = format!("{}/{}", expand(mirror, &p.repo), p.filename);
         let hasher = RefCell::new(Sha256::new());
         let verifier = RefCell::new(Some(
@@ -312,7 +326,7 @@ fn download_package<S: Storage>(
             received.set(received.get() + d.len() as u64);
             w.borrow_mut()
                 .write_file(d)
-                .map_err(|_| net::Error::Http("cache write failed"))
+                .map_err(|_e| net::Error::Http("cache write failed"))
         });
         let ino = w.borrow_mut().end_file().map_err(dbg_err("cache file"))?;
         match res {
@@ -335,7 +349,7 @@ fn download_package<S: Storage>(
             last = format!("{}: SHA-256 mismatch", p.filename);
             continue;
         }
-        let v = verifier.borrow_mut().take().unwrap();
+        let v = verifier.borrow_mut().take().expect("verifier active");
         // A failed signature is not retried elsewhere: the mirror served content the maintainers did not sign.
         v.finish(keyring, time::unix_time()).map_err(|e| format!("{}: signature check failed: {e:?} (rebuild the ISO for a newer keyring if the key is unknown)", p.filename))?;
         return Ok(ino);
@@ -446,8 +460,11 @@ fn extract_package<S: Storage>(
                     if n == 0 {
                         break;
                     }
+                    let Some(chunk) = buf.get(..n) else {
+                        break;
+                    };
                     w.borrow_mut()
-                        .write_file(&buf[..n])
+                        .write_file(chunk)
                         .map_err(|er| ctx(&format!("write {er:?}")))?;
                 }
                 w.borrow_mut()
@@ -625,14 +642,11 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
     // The directory hash seed is all random, as mke2fs makes it: a predictable one lets anyone who can
     // name files force hash collisions once the kernel indexes a directory.
     let seed: [u8; 16] = random();
-    let hash_seed = core::array::from_fn(|i| {
-        u32::from_le_bytes([
-            seed[4 * i],
-            seed[4 * i + 1],
-            seed[4 * i + 2],
-            seed[4 * i + 3],
-        ])
-    });
+    let (chunks, _) = seed.as_chunks::<4>();
+    let mut hash_seed = [0u32; 4];
+    for (dst, chunk) in hash_seed.iter_mut().zip(chunks) {
+        *dst = u32::from_le_bytes(*chunk);
+    }
     let storage = RegionStorage(Region::new(disk.as_mut(), root_off, root_len));
     let writer = Ext4Writer::new(
         storage,
@@ -1093,7 +1107,7 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
     let initramfs = initrd::modules::build_initramfs(boot.tiny_init, &resolved);
 
     let rw = Rc::try_unwrap(w)
-        .map_err(|_| "internal error: filesystem still shared")?
+        .map_err(|_e| "internal error: filesystem still shared")?
         .into_inner();
     let mut rw = rw;
     rw.finish()
@@ -1107,12 +1121,13 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
     let first_boot_cmdline = format!("{cmdline} systemd.unit=archstaller-firstboot.target");
     {
         let mut region = Region::new(disk.as_mut(), esp_off, esp_len);
+        let hidden_sectors = layout.partitions.get(Layout::ESP).map_or(0, |p| p.first_lba as u32);
         let mut fat = Fat32Writer::format(
             &mut region,
             FatOptions {
                 label: "ESP".into(),
                 volume_id: esp_volume_id,
-                hidden_sectors: layout.partitions[Layout::ESP].first_lba as u32,
+                hidden_sectors,
                 now,
             },
         )
@@ -1141,7 +1156,10 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
         if boot.bios_boot.len() <= bios::SECTOR {
             return Err("the BIOS boot module is too small".into());
         }
-        let mut stage2 = boot.bios_boot[bios::SECTOR..].to_vec();
+        let Some(stage2_slice) = boot.bios_boot.get(bios::SECTOR..) else {
+            return Err("the BIOS boot module is too small".into());
+        };
+        let mut stage2 = stage2_slice.to_vec();
         stage2.resize(stage2.len().next_multiple_of(bios::SECTOR), 0);
         if stage2.len() as u64 > bios_len {
             return Err("BIOS boot partition too small for stage 2".into());
@@ -1158,9 +1176,14 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
             .map_err(dbg_err("BIOS boot code"))?;
         let mut mbr = alloc::vec![0u8; bios::SECTOR];
         region.read_at(0, &mut mbr).map_err(dbg_err("MBR"))?;
-        let mut stage1 = boot.bios_boot[..bios::SECTOR].to_vec();
+        let Some(stage1_slice) = boot.bios_boot.get(..bios::SECTOR) else {
+            return Err("the BIOS boot module is too small".into());
+        };
+        let mut stage1 = stage1_slice.to_vec();
         bios::patch_stage1(&mut stage1, bios_off, stage2.len() as u32);
-        stage1[440..].copy_from_slice(&mbr[440..]); // disk signature, partition table, 0x55AA
+        if let (Some(dst), Some(src)) = (stage1.get_mut(440..), mbr.get(440..)) {
+            dst.copy_from_slice(src); // disk signature, partition table, 0x55AA
+        }
         region.write_at(0, &stage1).map_err(dbg_err("MBR"))?;
     }
     disk.flush().map_err(dbg_err("flushing the disk"))?;
@@ -1169,13 +1192,18 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
 }
 
 fn uuid_text(u: &[u8; 16]) -> String {
+    let p0 = u.get(0..4).unwrap_or(&[]);
+    let p1 = u.get(4..6).unwrap_or(&[]);
+    let p2 = u.get(6..8).unwrap_or(&[]);
+    let p3 = u.get(8..10).unwrap_or(&[]);
+    let p4 = u.get(10..16).unwrap_or(&[]);
     format!(
         "{}-{}-{}-{}-{}",
-        hex(&u[0..4]),
-        hex(&u[4..6]),
-        hex(&u[6..8]),
-        hex(&u[8..10]),
-        hex(&u[10..16])
+        hex(p0),
+        hex(p1),
+        hex(p2),
+        hex(p3),
+        hex(p4),
     )
 }
 

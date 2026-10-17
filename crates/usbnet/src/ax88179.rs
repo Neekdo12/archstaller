@@ -115,20 +115,40 @@ pub fn parse_rx(buf: &[u8]) -> Vec<Vec<u8>> {
     if buf.len() < 4 {
         return out;
     }
-    let body = &buf[..buf.len() - 4];
-    let rx_hdr = u32::from_le_bytes(buf[buf.len() - 4..].try_into().unwrap());
+    let body_len = buf.len() - 4;
+    let Some(body) = buf.get(..body_len) else {
+        return out;
+    };
+    let Some(trailer) = buf.get(body_len..) else {
+        return out;
+    };
+    let Ok(trailer_arr) = trailer.try_into() else {
+        return out;
+    };
+    let rx_hdr = u32::from_le_bytes(trailer_arr);
     let (count, hdr_off) = ((rx_hdr & 0xffff) as usize, (rx_hdr >> 16) as usize);
-    if count == 0 || count * 4 + hdr_off > body.len() {
+    let Some(header_table_len) = count.checked_mul(4) else {
+        return out;
+    };
+    let Some(end_hdr) = hdr_off.checked_add(header_table_len) else {
+        return out;
+    };
+    if count == 0 || end_hdr > body.len() {
         return out;
     }
-    let data = &body[..hdr_off];
+    let Some(data) = body.get(..hdr_off) else {
+        return out;
+    };
     let mut pos = 0;
     for i in 0..count {
-        let h = u32::from_le_bytes(
-            body[hdr_off + 4 * i..hdr_off + 4 * i + 4]
-                .try_into()
-                .unwrap(),
-        );
+        let entry_off = hdr_off + 4 * i;
+        let Some(entry_bytes) = body.get(entry_off..entry_off + 4) else {
+            break;
+        };
+        let Ok(entry_arr) = entry_bytes.try_into() else {
+            break;
+        };
+        let h = u32::from_le_bytes(entry_arr);
         let len = ((h >> 16) & 0x1fff) as usize;
         let padded = (len + 7) & !7;
         if len == 0 {
@@ -138,7 +158,9 @@ pub fn parse_rx(buf: &[u8]) -> Vec<Vec<u8>> {
             break;
         }
         if h & (CRC_ERR | DROP_ERR) == 0 && len >= 2 + 14 {
-            out.push(data[pos + 2..pos + len].to_vec());
+            if let Some(pkt) = data.get(pos + 2..pos + len) {
+                out.push(pkt.to_vec());
+            }
         }
         pos += padded;
     }

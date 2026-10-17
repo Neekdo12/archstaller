@@ -16,22 +16,22 @@ fn spawn_test_server() -> Result<()> {
             let mut conn = conn;
             let mut req = [0u8; 2048];
             let n = conn.read(&mut req).unwrap_or(0);
-            let req = String::from_utf8_lossy(&req[..n]);
+            let req = req.get(..n).map(String::from_utf8_lossy).unwrap_or_default();
             if req.starts_with("GET /chunked.bin") {
-                let _ = conn.write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n");
+                drop(conn.write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"));
                 for c in body.chunks(7000) {
-                    let _ = conn.write_all(format!("{:x}\r\n", c.len()).as_bytes());
-                    let _ = conn.write_all(c);
-                    let _ = conn.write_all(b"\r\n");
+                    drop(conn.write_all(format!("{:x}\r\n", c.len()).as_bytes()));
+                    drop(conn.write_all(c));
+                    drop(conn.write_all(b"\r\n"));
                 }
-                let _ = conn.write_all(b"0\r\n\r\n");
+                drop(conn.write_all(b"0\r\n\r\n"));
             } else if req.starts_with("GET /pattern.bin") {
-                let _ = conn.write_all(
+                drop(conn.write_all(
                     format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len()).as_bytes(),
-                );
-                let _ = conn.write_all(&body);
+                ));
+                drop(conn.write_all(&body));
             } else {
-                let _ = conn.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+                drop(conn.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"));
             }
         }
     });

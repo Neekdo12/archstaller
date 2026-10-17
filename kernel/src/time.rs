@@ -22,7 +22,7 @@ pub fn init(boot_unix: i64) {
     };
     TSC_HZ.store(hz, Ordering::Relaxed);
     TSC_BASE.store(unsafe { _rdtsc() }, Ordering::Relaxed);
-    BOOT_UNIX.store(boot_unix.max(0) as u64, Ordering::Relaxed);
+    BOOT_UNIX.store(boot_unix.max(0).cast_unsigned(), Ordering::Relaxed);
 }
 
 /// Calibrates against PIT channel 2 (one-shot, polled). The wait is bounded in TSC cycles (about

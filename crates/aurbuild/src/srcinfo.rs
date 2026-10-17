@@ -63,7 +63,10 @@ pub fn parse(text: &str) -> Result<SrcInfo> {
                 }
                 let sec = match cur {
                     None => &mut info.base,
-                    Some(i) => &mut info.packages[i],
+                    Some(i) => info
+                        .packages
+                        .get_mut(i)
+                        .ok_or_else(|| format!(".SRCINFO line {}: invalid package index", n + 1))?,
                 };
                 sec.keys
                     .entry(k.to_string())
@@ -176,7 +179,8 @@ impl SrcInfo {
 pub fn dep_name(dep: &str) -> &str {
     let end = dep.find(['<', '>', '=']).unwrap_or(dep.len());
     // `name: description` is the optdepends form; it never reaches here, but be tolerant.
-    dep[..end].split(':').next().unwrap_or("").trim()
+    let prefix = dep.get(..end).unwrap_or(dep);
+    prefix.split(':').next().unwrap_or("").trim()
 }
 
 fn is_vcs(source: &str) -> bool {
@@ -212,11 +216,11 @@ mod tests {
 
     #[test]
     fn rejects_broken_input() {
-        assert!(parse("").is_err());
-        assert!(parse("pkgname = x\n").is_err());
-        assert!(parse("pkgbase = x\n").is_err());
-        assert!(parse("pkgbase = x\npkgbase = y\npkgname = x\n").is_err());
-        assert!(parse("pkgbase = x\nnonsense\npkgname = x\n").is_err());
+        parse("").unwrap_err();
+        parse("pkgname = x\n").unwrap_err();
+        parse("pkgbase = x\n").unwrap_err();
+        parse("pkgbase = x\npkgbase = y\npkgname = x\n").unwrap_err();
+        parse("pkgbase = x\nnonsense\npkgname = x\n").unwrap_err();
     }
 
     #[test]

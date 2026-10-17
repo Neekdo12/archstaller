@@ -251,7 +251,7 @@ impl Model {
             e.to_string()
                 .replace(tmp.to_string_lossy().as_ref(), "source.toml")
         });
-        let _ = std::fs::remove_file(&tmp);
+        drop(std::fs::remove_file(&tmp));
         r
     }
 
@@ -279,7 +279,7 @@ pub use hostcfg::configs::Preset;
 /// from the config validation carry no line and give `None`: none is invented.
 pub fn located(msg: &str) -> Option<usize> {
     if let Some(i) = msg.find(" at line ") {
-        let after = &msg[i + " at line ".len()..];
+        let after = msg.get(i + " at line ".len()..).unwrap_or("");
         let digits: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
         if let Ok(line) = digits.parse() {
             return Some(line);
@@ -288,12 +288,10 @@ pub fn located(msg: &str) -> Option<usize> {
     for marker in [".toml:", "]:"] {
         let mut rest = msg;
         while let Some(i) = rest.find(marker) {
-            let after = &rest[i + marker.len()..];
+            let after = rest.get(i + marker.len()..).unwrap_or("");
             let digits: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
-            if !digits.is_empty()
-                && (after[digits.len()..].starts_with(':')
-                    || after[digits.len()..].starts_with(' '))
-            {
+            let remainder = after.get(digits.len()..).unwrap_or("");
+            if !digits.is_empty() && (remainder.starts_with(':') || remainder.starts_with(' ')) {
                 return digits.parse().ok();
             }
             rest = after;
@@ -327,7 +325,7 @@ fn write_replacing(path: &Path, data: &[u8]) -> std::io::Result<()> {
         std::fs::rename(&tmp, &target)
     })();
     if result.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+        drop(std::fs::remove_file(&tmp));
     }
     result
 }
@@ -375,7 +373,7 @@ mod tests {
         assert_eq!(format!("{:?}", back.cfg), format!("{:?}", m.cfg));
         assert_eq!(back.host, m.host);
         assert_eq!(back.host.drivers(), vec!["virtio-blk", "nvme", "e1000"]);
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
     }
 
     #[test]
@@ -386,7 +384,7 @@ mod tests {
         let m = Model::open(&path).unwrap();
         assert!(m.raw.is_some());
         assert!(!m.problems().is_empty());
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
     }
 
     #[test]
@@ -400,7 +398,7 @@ mod tests {
         m.save(&path).unwrap();
         let cli = hostcfg::toml::load(&path).err().map(|e| e.to_string());
         assert_eq!(gui.first().map(|p| p.message.clone()), cli);
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
     }
 
     #[test]
@@ -439,7 +437,7 @@ mod tests {
                 p.name
             );
             assert_eq!(back.host, m.host, "{}", p.name);
-            let _ = std::fs::remove_dir_all(&dir);
+            drop(std::fs::remove_dir_all(&dir));
         }
     }
 

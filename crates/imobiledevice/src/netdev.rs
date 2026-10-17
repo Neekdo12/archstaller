@@ -125,9 +125,11 @@ impl NetDevice for IphoneNet {
                 if n <= RX_PAD {
                     return None;
                 }
-                let frame = &self.rx.as_slice()[RX_PAD..n];
+                let frame = self.rx.as_slice().get(RX_PAD..n)?;
                 let len = frame.len().min(buf.len());
-                buf[..len].copy_from_slice(&frame[..len]);
+                if let (Some(dst), Some(src)) = (buf.get_mut(..len), frame.get(..len)) {
+                    dst.copy_from_slice(src);
+                }
                 Some(len)
             }
             Err(_) => {

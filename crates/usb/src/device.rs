@@ -122,7 +122,7 @@ impl Controller {
                 &mut sbuf,
             )
             .ok()?;
-        desc::parse_string(&sbuf[..n])
+        desc::parse_string(sbuf.get(..n)?)
     }
 
     fn control_in_type(
@@ -146,7 +146,9 @@ impl Controller {
             true,
         )?;
         let n = n.min(buf.len());
-        buf[..n].copy_from_slice(&dma.as_slice()[..n]);
+        if let (Some(dst), Some(src)) = (buf.get_mut(..n), dma.as_slice().get(..n)) {
+            dst.copy_from_slice(src);
+        }
         Ok(n)
     }
 
@@ -312,16 +314,19 @@ impl Controller {
             if self
                 .get_descriptor(&probe, desc::DT_CONFIG, config_index, &mut cblob)
                 .is_err()
-                || cblob[1] != desc::DT_CONFIG
+                || cblob.get(1).copied() != Some(desc::DT_CONFIG)
             {
                 continue;
             }
+            let Some(&configuration) = cblob.get(5) else {
+                continue;
+            };
             devices.push(Device {
                 slot,
                 vendor,
                 product,
                 serial: serial.clone(),
-                configuration: cblob[5],
+                configuration,
                 interfaces: desc::parse_config(&cblob),
             });
         }
@@ -399,7 +404,7 @@ impl Controller {
         if code == 1 || code == 13 {
             Some(Ok(len.saturating_sub(residual as usize)))
         } else {
-            let _ = self.reset_endpoint(dev.slot, dci);
+            _ = self.reset_endpoint(dev.slot, dci);
             Some(Err(Error::Io))
         }
     }
@@ -436,7 +441,9 @@ impl Controller {
         let n = self
             .transfer(dev.slot, dci, dma.phys(), buf.len(), timeout_ms)?
             .min(buf.len());
-        buf[..n].copy_from_slice(&dma.as_slice()[..n]);
+        if let (Some(dst), Some(src)) = (buf.get_mut(..n), dma.as_slice().get(..n)) {
+            dst.copy_from_slice(src);
+        }
         Ok(n)
     }
 }

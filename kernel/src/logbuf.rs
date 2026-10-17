@@ -31,7 +31,9 @@ static DROPPED: AtomicBool = AtomicBool::new(false);
 pub fn write(args: core::fmt::Arguments) {
     match RING.try_lock() {
         Some(mut ring) => {
-            let _ = ring.write_fmt(args);
+            match ring.write_fmt(args) {
+                Ok(()) | Err(_) => {}
+            }
         }
         None => DROPPED.store(true, Ordering::Release),
     }

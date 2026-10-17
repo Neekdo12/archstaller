@@ -32,11 +32,11 @@ impl Dep {
             (">", Op::Gt),
             ("<", Op::Lt),
         ] {
-            if let Some(i) = s.find(tok) {
+            if let Some((name, version)) = s.split_once(tok) {
                 return Dep {
-                    name: s[..i].into(),
+                    name: name.into(),
                     op,
-                    version: s[i + tok.len()..].into(),
+                    version: version.into(),
                 };
             }
         }

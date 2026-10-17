@@ -77,8 +77,8 @@ pub fn net_driver_for(vendor: u16, device: u16) -> Option<&'static str> {
 
 /// Enumerates PCI and initializes every supported device.
 pub fn probe_all() -> Devices {
-    #[allow(unused_mut)]
     let mut devs = Devices::default();
+    let _ = &mut devs;
     for dev in pci::enumerate() {
         let _ = &dev;
         #[cfg(any(feature = "virtio-blk", feature = "virtio-net"))]

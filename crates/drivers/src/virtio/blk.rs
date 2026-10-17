@@ -1,5 +1,6 @@
 use super::{Transport, VirtQueue, DESC_F_NEXT, DESC_F_WRITE};
 use crate::dma::Dma;
+use crate::mmio::Mmio;
 use crate::platform;
 use alloc::string::String;
 use hal::{BlockDevice, Error, Result};
@@ -40,9 +41,13 @@ impl VirtioBlk {
         };
         let mut id = [0u8; 20];
         if d.request(T_GET_ID, 0, 20, true).is_ok() {
-            id.copy_from_slice(&d.data.as_slice()[..20]);
-            let end = id.iter().position(|&b| b == 0).unwrap_or(20);
-            d.serial = String::from_utf8_lossy(&id[..end]).trim().into();
+            if let Some(src) = d.data.as_slice().get(..20) {
+                id.copy_from_slice(src);
+                let end = id.iter().position(|&b| b == 0).unwrap_or(20);
+                if let Some(slice) = id.get(..end) {
+                    d.serial = String::from_utf8_lossy(slice).trim().into();
+                }
+            }
         }
         Ok(d)
     }
@@ -50,13 +55,11 @@ impl VirtioBlk {
     /// Runs one request; data goes through `self.data`. `dev_writes` is true if the device fills
     /// the data buffer.
     fn request(&mut self, ty: u32, sector: u64, len: usize, dev_writes: bool) -> Result<()> {
-        let h = self.hdr.as_ptr();
-        unsafe {
-            (h as *mut u32).write_volatile(ty);
-            (h.add(4) as *mut u32).write_volatile(0);
-            (h.add(8) as *mut u64).write_volatile(sector);
-            h.add(16).write_volatile(0xff);
-        }
+        let m = Mmio::new(self.hdr.as_ptr());
+        m.write32(0, ty);
+        m.write32(4, 0);
+        m.write64(8, sector);
+        m.write8(16, 0xff);
         self.q.set_desc(
             0,
             self.hdr.phys(),
@@ -71,7 +74,7 @@ impl VirtioBlk {
         self.q.set_desc(2, self.hdr.phys_at(16), 1, DESC_F_WRITE, 0);
         self.q.submit(0);
         platform::wait_until(5000, || self.q.pop_used().is_some())?;
-        match unsafe { h.add(16).read_volatile() } {
+        match m.read8(16) {
             0 => Ok(()),
             2 => Err(Error::Unsupported),
             _ => Err(Error::Io),
@@ -109,7 +112,10 @@ impl BlockDevice for VirtioBlk {
         for (i, chunk) in buf.chunks_mut(CHUNK).enumerate() {
             let sector = lba + (i * CHUNK / SECTOR) as u64;
             self.request(T_IN, sector, chunk.len(), true)?;
-            chunk.copy_from_slice(&self.data.as_slice()[..chunk.len()]);
+            let Some(src) = self.data.as_slice().get(..chunk.len()) else {
+                return Err(Error::Io);
+            };
+            chunk.copy_from_slice(src);
         }
         Ok(())
     }
@@ -118,7 +124,10 @@ impl BlockDevice for VirtioBlk {
         self.check(lba, buf.len())?;
         for (i, chunk) in buf.chunks(CHUNK).enumerate() {
             let sector = lba + (i * CHUNK / SECTOR) as u64;
-            self.data.as_mut_slice()[..chunk.len()].copy_from_slice(chunk);
+            let Some(dest) = self.data.as_mut_slice().get_mut(..chunk.len()) else {
+                return Err(Error::Io);
+            };
+            dest.copy_from_slice(chunk);
             self.request(T_OUT, sector, chunk.len(), false)?;
         }
         Ok(())

@@ -176,9 +176,9 @@ fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Repo
         let head = d.read(0, &mut first);
         let tail = d.read(d.sector_count() - 1, &mut last);
         if head.is_ok() && tail.is_ok() {
-            let table = if &first[ss..ss + 8] == b"EFI PART" {
+            let table = if first.get(ss..ss + 8) == Some(b"EFI PART") {
                 "GPT"
-            } else if first[510] == 0x55 && first[511] == 0xaa {
+            } else if first.get(510) == Some(&0x55) && first.get(511) == Some(&0xaa) {
                 "MBR"
             } else {
                 "no partition table"
@@ -190,8 +190,9 @@ fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Repo
             ));
         }
         // Writes must be refused; this proves the guard, and touches nothing.
+        let write_slice = first.get(..ss).unwrap_or(&[]);
         r.check(
-            d.write(0, &first[..ss]).is_err(),
+            d.write(0, write_slice).is_err(),
             "  write guard refuses writes",
         );
     }

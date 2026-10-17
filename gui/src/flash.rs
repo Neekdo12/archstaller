@@ -585,7 +585,7 @@ pub fn probe_virtual_cd() -> Option<RawDevice> {
     let p = std::path::Path::new("/tmp/virtual-cd.iso");
     if p.exists() || std::env::var_os("ARCHSTALLER_VIRTUAL_MEDIA").is_some() {
         if !p.exists() {
-            let _ = std::fs::write(p, vec![0u8; 1 << 20]);
+            drop(std::fs::write(p, vec![0u8; 1 << 20]));
         }
         let size = std::fs::metadata(p).map(|m| m.len()).unwrap_or(700_000_000);
         Some(RawDevice {
@@ -618,7 +618,7 @@ pub fn probe_virtual_floppy() -> Option<RawDevice> {
     let p = std::path::Path::new("/tmp/virtual-floppy.img");
     if p.exists() || std::env::var_os("ARCHSTALLER_VIRTUAL_MEDIA").is_some() {
         if !p.exists() {
-            let _ = std::fs::write(p, vec![0u8; 1_474_560]);
+            drop(std::fs::write(p, vec![0u8; 1_474_560]));
         }
         Some(RawDevice {
             path: "/tmp/virtual-floppy.img".to_string(),
@@ -646,7 +646,7 @@ pub fn probe_virtual_rpi() -> Option<RawDevice> {
     let p = std::path::Path::new("/tmp/virtual-rpi.img");
     if p.exists() || std::env::var_os("ARCHSTALLER_VIRTUAL_MEDIA").is_some() {
         if !p.exists() {
-            let _ = std::fs::write(p, vec![0u8; 32 * 1024 * 1024]);
+            drop(std::fs::write(p, vec![0u8; 32 * 1024 * 1024]));
         }
         let size = std::fs::metadata(p)
             .map(|m| m.len())
@@ -867,9 +867,9 @@ impl MediaTarget for OpticalBurn {
             if cancel.load(Ordering::Relaxed) {
                 return Err("cancelled; nothing was written".into());
             }
-            let _ = std::process::Command::new("udisksctl")
+            drop(std::process::Command::new("udisksctl")
                 .args(["unmount", "--no-user-interaction", "-b", &path])
-                .output();
+                .output());
         }
         progress(Phase::Unmounting, 1, 1);
         if cancel.load(Ordering::Relaxed) {
@@ -904,7 +904,7 @@ impl MediaTarget for OpticalBurn {
             use std::io::BufRead;
             for line in std::io::BufReader::new(err).lines().map_while(Result::ok) {
                 if cancel.load(Ordering::Relaxed) {
-                    let _ = child.kill();
+                    drop(child.kill());
                     return Err("cancelled burning optical disc".into());
                 }
                 if let Some(pct) = parse_xorriso_progress(&line) {
@@ -919,7 +919,10 @@ impl MediaTarget for OpticalBurn {
             .map_err(|e| format!("waiting for xorriso failed: {e}"))?;
         if !status.success() {
             let last_logs = if log_lines.len() > 5 {
-                log_lines[log_lines.len() - 5..].join("\n")
+                log_lines
+                    .get(log_lines.len().saturating_sub(5)..)
+                    .unwrap_or(&[])
+                    .join("\n")
             } else {
                 log_lines.join("\n")
             };
@@ -938,7 +941,9 @@ impl MediaTarget for OpticalBurn {
             if n == 0 {
                 break;
             }
-            hash.update(&buf[..n]);
+            if let Some(chunk) = buf.get(..n) {
+                hash.update(chunk);
+            }
         }
         let sha256 = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
 
@@ -954,14 +959,20 @@ impl MediaTarget for OpticalBurn {
 
 pub fn parse_xorriso_progress(line: &str) -> Option<u64> {
     if let Some(pos) = line.find(" of ") {
-        let before = &line[..pos];
-        let after = &line[pos + 4..];
+        let before = line.get(..pos)?;
+        let after = line.get(pos + 4..)?;
         let cur_str = before.split_whitespace().last()?;
         let total_str = after.split_whitespace().next()?;
         let cur: f64 = cur_str.parse().ok()?;
         let total: f64 = total_str.parse().ok()?;
-        if total > 0.0 {
-            return Some(((cur / total) * 100.0).round().min(100.0) as u64);
+        if total > 0.0 && cur >= 0.0 {
+            let pct = ((cur / total) * 100.0).round().clamp(0.0, 100.0);
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "percentage is clamped to 0.0..=100.0"
+            )]
+            return Some(pct as u64);
         }
     }
     None
@@ -990,7 +1001,7 @@ impl MediaTarget for FloppyFlash {
             if cancel.load(Ordering::Relaxed) {
                 return Err("cancelled; nothing was written".into());
             }
-            let _ = self.backend.unmount(&kname);
+            drop(self.backend.unmount(&kname));
         }
         progress(Phase::Unmounting, 1, 1);
         if cancel.load(Ordering::Relaxed) {
@@ -1007,7 +1018,7 @@ impl MediaTarget for FloppyFlash {
         })?;
         drop(f);
         progress(Phase::Ejecting, 0, 1);
-        let _ = self.backend.power_off(&now);
+        drop(self.backend.power_off(&now));
         progress(Phase::Ejecting, 1, 1);
         Ok(Report {
             dest: PathBuf::from(&now.path),
@@ -1041,7 +1052,7 @@ pub fn write_verify(
     let mut done = 0u64;
     loop {
         if cancel.load(Ordering::Relaxed) {
-            let _ = dev.sync_all();
+            drop(dev.sync_all());
             return Err(format!("cancelled: {}", partial(done)));
         }
         let n = src
@@ -1056,9 +1067,10 @@ pub fn write_verify(
                 partial(done)
             ));
         }
-        hash.update(&buf[..n]);
+        let chunk = buf.get(..n).ok_or_else(|| partial(done))?;
+        hash.update(chunk);
         // write_all retries short writes and fails on a write of zero bytes.
-        dev.write_all(&buf[..n])
+        dev.write_all(chunk)
             .map_err(|e| format!("write failed at byte {done}: {e}; {}", partial(done)))?;
         done += n as u64;
         progress(Phase::Writing, done, total);
@@ -1087,12 +1099,13 @@ pub fn write_verify(
             );
         }
         let n = CHUNK.min((total - read) as usize);
-        dev.read_exact(&mut buf[..n]).map_err(|e| {
+        let slice = buf.get_mut(..n).ok_or("buffer slice out of bounds")?;
+        dev.read_exact(slice).map_err(|e| {
             format!(
                 "reading back failed at byte {read}: {e}; the device is written but not verified"
             )
         })?;
-        back.update(&buf[..n]);
+        back.update(slice);
         read += n as u64;
         progress(Phase::Verifying, read, total);
     }
@@ -1357,7 +1370,7 @@ impl Backend for UDisks {
             || dev.path.starts_with("/tmp/")
             || dev.kname.starts_with("virtual")
         {
-            let _ = std::process::Command::new("eject").arg(&dev.path).status();
+            drop(std::process::Command::new("eject").arg(&dev.path).status());
             return Ok(());
         }
         let c = Self::bus()?;
@@ -1591,7 +1604,7 @@ mod tests {
     fn tmp(name: &str) -> PathBuf {
         let d =
             std::env::temp_dir().join(format!("archstaller-flash-{}-{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
+        drop(std::fs::remove_dir_all(&d));
         std::fs::create_dir_all(&d).unwrap();
         d
     }
@@ -1644,7 +1657,7 @@ mod tests {
         assert!([Phase::Writing, Phase::Flushing, Phase::Verifying]
             .iter()
             .all(|p| phases.contains(p)));
-        let _ = std::fs::remove_dir_all(&d);
+        drop(std::fs::remove_dir_all(&d));
     }
 
     #[test]
@@ -1681,7 +1694,7 @@ mod tests {
         )
         .unwrap_err();
         assert!(e.contains("verification failed"), "{e}");
-        let _ = std::fs::remove_dir_all(&d);
+        drop(std::fs::remove_dir_all(&d));
     }
 
     /// A device that is a file; records what the flash asked of it.
@@ -1695,7 +1708,7 @@ mod tests {
 
     impl Backend for Fake {
         fn rescan(&self, _: &str) -> Result<RawDevice, String> {
-            let mut log = self.log.lock().unwrap();
+            let mut log = self.log.lock().map_err(|e| e.to_string())?;
             let n = log.iter().filter(|l| *l == "rescan").count();
             log.push("rescan".into());
             let mut d = self.dev.clone();
@@ -1708,16 +1721,16 @@ mod tests {
             Ok(d)
         }
         fn unmount(&self, kname: &str) -> Result<(), String> {
-            self.log.lock().unwrap().push(format!("unmount {kname}"));
+            self.log.lock().map_err(|e| e.to_string())?.push(format!("unmount {kname}"));
             Ok(())
         }
         fn open(&self, _: &RawDevice) -> Result<File, String> {
-            self.log.lock().unwrap().push("open".into());
+            self.log.lock().map_err(|e| e.to_string())?.push("open".into());
             Ok(rw(&self.file))
         }
         fn drop_cache(&self, _: &File) {}
         fn power_off(&self, _: &RawDevice) -> Result<(), String> {
-            self.log.lock().unwrap().push("power off".into());
+            self.log.lock().map_err(|e| e.to_string())?.push("power off".into());
             Ok(())
         }
     }
@@ -1766,7 +1779,7 @@ mod tests {
                 "power off"
             ]
         );
-        let _ = std::fs::remove_dir_all(&d);
+        drop(std::fs::remove_dir_all(&d));
     }
 
     #[test]
@@ -1794,7 +1807,7 @@ mod tests {
             );
             assert!(std::fs::read(&file).unwrap().iter().all(|&x| x == 0xee));
         }
-        let _ = std::fs::remove_dir_all(&d);
+        drop(std::fs::remove_dir_all(&d));
     }
 
     #[test]
@@ -1804,7 +1817,7 @@ mod tests {
         std::fs::write(&p, vec![0u8; 0x9000]).unwrap();
         assert!(Source::of(&p).unwrap_err().contains("not an ISO"));
         assert_eq!(Source::of(&iso(&d, 0x9000)).unwrap().len, 0x9000);
-        let _ = std::fs::remove_dir_all(&d);
+        drop(std::fs::remove_dir_all(&d));
     }
 
     #[test]
@@ -1818,7 +1831,7 @@ mod tests {
         let src = Source::of(&p).unwrap();
         assert_eq!(src.len, 1_474_560);
         assert_eq!(src.kind, SourceKind::Floppy);
-        let _ = std::fs::remove_dir_all(&d);
+        drop(std::fs::remove_dir_all(&d));
     }
 
     #[test]
@@ -1848,9 +1861,9 @@ mod tests {
         };
         assert!(problems_for(&vrpi, &rpi_src, MediaKind::RaspberryPi).is_empty());
 
-        let _ = std::fs::remove_file("/tmp/virtual-cd.iso");
-        let _ = std::fs::remove_file("/tmp/virtual-floppy.img");
-        let _ = std::fs::remove_file("/tmp/virtual-rpi.img");
+        drop(std::fs::remove_file("/tmp/virtual-cd.iso"));
+        drop(std::fs::remove_file("/tmp/virtual-floppy.img"));
+        drop(std::fs::remove_file("/tmp/virtual-rpi.img"));
         std::env::remove_var("ARCHSTALLER_VIRTUAL_MEDIA");
     }
 
@@ -1863,6 +1876,6 @@ mod tests {
         let src = Source::of(&p).unwrap();
         assert_eq!(src.len, 1024 * 1024);
         assert_eq!(src.kind, SourceKind::RawImg);
-        let _ = std::fs::remove_dir_all(&d);
+        drop(std::fs::remove_dir_all(&d));
     }
 }

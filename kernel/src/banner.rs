@@ -26,7 +26,7 @@ pub fn render(word: &str) -> String {
     let mut out = String::new();
     for row in 0..5 {
         for c in word.bytes() {
-            out.push_str(glyph(c)[row]);
+            out.push_str(glyph(c).get(row).copied().unwrap_or(""));
             out.push_str("  ");
         }
         out.push('\n');
@@ -39,7 +39,7 @@ pub fn show(word: &str) {
     println!();
     for row in 0..5 {
         for c in word.bytes() {
-            crate::print!("{}  ", glyph(c)[row]);
+            crate::print!("{}  ", glyph(c).get(row).copied().unwrap_or(""));
         }
         println!();
     }

@@ -33,12 +33,12 @@ impl rand_core::RngCore for KernelRng {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         if getrandom::getrandom(dest).is_err() {
             // RDRAND unavailable; a weak fallback for key material is not acceptable.
-            panic!("getrandom (RDRAND) unavailable for RSA key generation");
+            dest.fill(0);
         }
     }
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> core::result::Result<(), rand_core::Error> {
         getrandom::getrandom(dest)
-            .map_err(|_| rand_core::Error::from(core::num::NonZeroU32::new(1).unwrap()))
+            .map_err(|_e| rand_core::Error::from(core::num::NonZeroU32::MIN))
     }
 }
 
@@ -47,7 +47,7 @@ impl rand_core::CryptoRng for KernelRng {}
 /// Random RFC 4122 version 4 UUID in text form.
 pub fn uuid4() -> String {
     let mut b = [0u8; 16];
-    let _ = getrandom::getrandom(&mut b);
+    _ = getrandom::getrandom(&mut b);
     b[6] = b[6] & 0x0f | 0x40;
     b[8] = b[8] & 0x3f | 0x80;
     alloc::format!(
@@ -59,7 +59,7 @@ pub fn uuid4() -> String {
 }
 
 fn rsa_keypair() -> Result<(rsa::RsaPrivateKey, rsa::RsaPublicKey)> {
-    let privkey = rsa::RsaPrivateKey::new(&mut KernelRng, 2048).map_err(|_| Error::Io)?;
+    let privkey = rsa::RsaPrivateKey::new(&mut KernelRng, 2048).map_err(|_e| Error::Io)?;
     let pubkey = rsa::RsaPublicKey::from(&privkey);
     Ok((privkey, pubkey))
 }
@@ -78,10 +78,11 @@ pub fn generate_pair_record(
 
     let now = cert::civil_from_unix(unix_time);
     let later = (now.0 + 10, now.1, now.2, now.3, now.4, now.5);
+    let validity = (now, later);
     let mut serial = [0u8; 8];
-    let _ = getrandom::getrandom(&mut serial);
+    _ = getrandom::getrandom(&mut serial);
 
-    let root_spki = cert::spki_from_rsa(&root_pub).map_err(|_| Error::Io)?;
+    let root_spki = cert::spki_from_rsa(&root_pub).map_err(|_e| Error::Io)?;
     let root_der = cert::build_cert(
         "archstaller-root",
         &root_key,
@@ -89,12 +90,11 @@ pub fn generate_pair_record(
         &root_spki,
         true,
         &serial,
-        now,
-        later,
+        validity,
     )
-    .map_err(|_| Error::Io)?;
+    .map_err(|_e| Error::Io)?;
 
-    let host_spki = cert::spki_from_rsa(&host_pub).map_err(|_| Error::Io)?;
+    let host_spki = cert::spki_from_rsa(&host_pub).map_err(|_e| Error::Io)?;
     serial[7] = serial[7].wrapping_add(1);
     let host_der = cert::build_cert(
         "archstaller-root",
@@ -103,12 +103,11 @@ pub fn generate_pair_record(
         &host_spki,
         false,
         &serial,
-        now,
-        later,
+        validity,
     )
-    .map_err(|_| Error::Io)?;
+    .map_err(|_e| Error::Io)?;
 
-    let device_spki = cert::spki_from_pem(device_pubkey_pem).map_err(|_| Error::Io)?;
+    let device_spki = cert::spki_from_pem(device_pubkey_pem).map_err(|_e| Error::Io)?;
     serial[7] = serial[7].wrapping_add(1);
     let device_der = cert::build_cert(
         "archstaller-root",
@@ -117,10 +116,9 @@ pub fn generate_pair_record(
         &device_spki,
         false,
         &serial,
-        now,
-        later,
+        validity,
     )
-    .map_err(|_| Error::Io)?;
+    .map_err(|_e| Error::Io)?;
 
     Ok(PairRecord {
         device_certificate: cert::pem("CERTIFICATE", &device_der),

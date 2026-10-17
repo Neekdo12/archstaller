@@ -105,7 +105,7 @@ impl<'a> Reader<'a> {
         if depth > 64 || idx >= self.offsets.len() {
             return Err(Error::Malformed);
         }
-        let mut p = self.offsets[idx];
+        let mut p = *self.offsets.get(idx).ok_or(Error::Malformed)?;
         let marker = *self.buf.get(p).ok_or(Error::Malformed)?;
         p += 1;
         let (ty, mut info) = (marker >> 4, (marker & 0x0f) as usize);
@@ -152,14 +152,14 @@ impl<'a> Reader<'a> {
                             .get(p..p + 4)
                             .ok_or(Error::Malformed)?
                             .try_into()
-                            .map_err(|_| Error::Malformed)?,
+                            .map_err(|_e| Error::Malformed)?,
                     )),
                     3 => f64::from_be_bytes(
                         self.buf
                             .get(p..p + 8)
                             .ok_or(Error::Malformed)?
                             .try_into()
-                            .map_err(|_| Error::Malformed)?,
+                            .map_err(|_e| Error::Malformed)?,
                     ),
                     _ => return Err(Error::Malformed),
                 };
@@ -225,13 +225,28 @@ fn parse_binary(buf: &[u8]) -> Result<Value> {
     if buf.len() < 8 + 32 {
         return Err(Error::Malformed);
     }
-    let t = &buf[buf.len() - 32..];
-    let off_size = t[6] as usize;
-    let ref_size = t[7] as usize;
-    let num = u64::from_be_bytes(t[8..16].try_into().map_err(|_| Error::Malformed)?) as usize;
-    let top = u64::from_be_bytes(t[16..24].try_into().map_err(|_| Error::Malformed)?) as usize;
-    let off_start =
-        u64::from_be_bytes(t[24..32].try_into().map_err(|_| Error::Malformed)?) as usize;
+    let trailer_start = buf.len().saturating_sub(32);
+    let t = buf.get(trailer_start..).ok_or(Error::Malformed)?;
+    let off_size = *t.get(6).ok_or(Error::Malformed)? as usize;
+    let ref_size = *t.get(7).ok_or(Error::Malformed)? as usize;
+    let num = match t.get(8..16) {
+        Some(&[b0, b1, b2, b3, b4, b5, b6, b7]) => {
+            u64::from_be_bytes([b0, b1, b2, b3, b4, b5, b6, b7]) as usize
+        }
+        _ => return Err(Error::Malformed),
+    };
+    let top = match t.get(16..24) {
+        Some(&[b0, b1, b2, b3, b4, b5, b6, b7]) => {
+            u64::from_be_bytes([b0, b1, b2, b3, b4, b5, b6, b7]) as usize
+        }
+        _ => return Err(Error::Malformed),
+    };
+    let off_start = match t.get(24..32) {
+        Some(&[b0, b1, b2, b3, b4, b5, b6, b7]) => {
+            u64::from_be_bytes([b0, b1, b2, b3, b4, b5, b6, b7]) as usize
+        }
+        _ => return Err(Error::Malformed),
+    };
     if off_size == 0
         || off_size > 8
         || ref_size == 0
@@ -244,7 +259,8 @@ fn parse_binary(buf: &[u8]) -> Result<Value> {
     for i in 0..num {
         let p = off_start + i * off_size;
         let mut v = 0usize;
-        for b in &buf[p..p + off_size] {
+        let slice = buf.get(p..p + off_size).ok_or(Error::Malformed)?;
+        for b in slice {
             v = v << 8 | *b as usize;
         }
         if v >= buf.len() {

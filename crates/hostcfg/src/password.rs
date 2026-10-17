@@ -26,7 +26,7 @@ mod tests {
             groups: vec![],
             shell: "/bin/bash".into(),
         }];
-        assert!(c.validate().is_ok());
+        c.validate().unwrap();
         assert_ne!(
             h,
             super::hash("correct horse").unwrap(),

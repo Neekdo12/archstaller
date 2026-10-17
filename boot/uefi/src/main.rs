@@ -7,7 +7,25 @@
 //!   is `kernel=<path>`, `initrd=<path>`, `cmdline=<rest of line>`, one per line.
 #![cfg_attr(target_os = "uefi", no_std)]
 #![cfg_attr(target_os = "uefi", no_main)]
-#![cfg_attr(not(target_os = "uefi"), allow(dead_code, unused_imports))]
+#![cfg_attr(
+    not(target_os = "uefi"),
+    expect(
+        dead_code,
+        reason = "items only called by uefi_main on bare-metal target"
+    )
+)]
+#![expect(
+    clippy::multiple_unsafe_ops_per_block,
+    reason = "bare-metal UEFI protocol pointers and FFI"
+)]
+#![expect(
+    clippy::undocumented_unsafe_blocks,
+    reason = "bare-metal UEFI protocol pointers and FFI"
+)]
+#![expect(
+    clippy::panic,
+    reason = "fatal errors halt the bare-metal UEFI bootloader"
+)]
 
 use bootinfo::*;
 use core::ffi::c_void;
@@ -269,18 +287,26 @@ fn say(msg: &str) {
         let mut n = 0;
         for c in msg.chars() {
             if c == '\n' {
-                buf[n] = '\r' as u16;
+                if let Some(slot) = buf.get_mut(n) {
+                    *slot = '\r' as u16;
+                }
                 n += 1;
             }
-            buf[n] = if c.is_ascii() { c as u16 } else { '?' as u16 };
+            if let Some(slot) = buf.get_mut(n) {
+                *slot = if c.is_ascii() { c as u16 } else { '?' as u16 };
+            }
             n += 1;
             if n >= 60 {
-                buf[n] = 0;
+                if let Some(slot) = buf.get_mut(n) {
+                    *slot = 0;
+                }
                 ((*out).output_string)(out, buf.as_ptr());
                 n = 0;
             }
         }
-        buf[n] = 0;
+        if let Some(slot) = buf.get_mut(n) {
+            *slot = 0;
+        }
         ((*out).output_string)(out, buf.as_ptr());
     }
 }
@@ -310,7 +336,9 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 pub fn utf16<const N: usize>(s: &str) -> [u16; N] {
     let mut out = [0u16; N];
     for (i, c) in s.bytes().enumerate().take(N - 1) {
-        out[i] = c as u16;
+        if let Some(slot) = out.get_mut(i) {
+            *slot = c as u16;
+        }
     }
     out
 }
@@ -410,7 +438,9 @@ fn boot_medium(image: Handle) -> BootMedium {
         if ((*io).read_blocks)(io, 0, 0, 1, lba0.as_mut_ptr()) != 0 {
             return BootMedium::default();
         }
-        let lba0 = &lba0[..block_size as usize];
+        let Some(lba0) = lba0.get(..block_size as usize) else {
+            return BootMedium::default();
+        };
         BootMedium {
             source: MEDIUM_SOURCE_UEFI,
             sector_size: block_size,
@@ -766,7 +796,9 @@ fn boot_linux(image: Handle, cfg: &[u8]) {
         let opts = &mut *(&raw mut OPTS);
         let mut n = 0;
         for b in cmdline.bytes().take(opts.len() - 1) {
-            opts[n] = b as u16;
+            if let Some(slot) = opts.get_mut(n) {
+                *slot = b as u16;
+            }
             n += 1;
         }
         let mut kli: *mut c_void = null_mut();
@@ -779,6 +811,9 @@ fn boot_linux(image: Handle, cfg: &[u8]) {
         say_status("boot: the kernel returned", s);
     }
 }
+
+#[cfg(not(target_os = "uefi"))]
+fn main() {}
 
 #[cfg(target_os = "uefi")]
 #[no_mangle]
@@ -841,6 +876,3 @@ mod tests {
         assert_eq!(u[5], 0);
     }
 }
-
-#[cfg(not(target_os = "uefi"))]
-fn main() {}

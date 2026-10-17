@@ -101,21 +101,21 @@ impl<'a> Resolver<'a> {
                 }
             }
         }
-        match cands.len() {
-            0 => Err(Error::Unsatisfied(dep.name.clone())),
-            1 => Ok(cands[0]),
-            _ => {
-                let names: Vec<String> = cands.iter().map(|p| p.name.clone()).collect();
-                if !amb.iter().any(|a| a.dep == dep.name) {
-                    amb.push(Ambiguity {
-                        dep: dep.name.clone(),
-                        chosen: names[0].clone(),
-                        candidates: names,
-                    });
-                }
-                Ok(cands[0])
+        let Some(&first) = cands.first() else {
+            return Err(Error::Unsatisfied(dep.name.clone()));
+        };
+        if cands.len() > 1 {
+            let names: Vec<String> = cands.iter().map(|p| p.name.clone()).collect();
+            if !amb.iter().any(|a| a.dep == dep.name) {
+                let chosen = names.first().cloned().unwrap_or_default();
+                amb.push(Ambiguity {
+                    dep: dep.name.clone(),
+                    chosen,
+                    candidates: names,
+                });
             }
         }
+        Ok(first)
     }
 
     /// Resolves `requested` (package or group names). The result lists dependencies before their
@@ -137,7 +137,10 @@ impl<'a> Resolver<'a> {
         let mut ambiguities = Vec::new();
         let mut i = 0;
         while i < selected.len() {
-            let pkg = selected[i].pkg;
+            let Some(sel_item) = selected.get(i) else {
+                break;
+            };
+            let pkg = sel_item.pkg;
             for dep in &pkg.depends {
                 let p = self.pick_for_dep(dep, &selected, &mut ambiguities)?;
                 if !selected.iter().any(|s| s.pkg.name == p.name) {
@@ -178,22 +181,32 @@ impl<'a> Resolver<'a> {
         let mut state = alloc::vec![0u8; n]; // 0 new, 1 visiting, 2 done
         let mut out: Vec<usize> = Vec::with_capacity(n);
         fn visit(i: usize, sel: &[Selected<'_>], state: &mut [u8], out: &mut Vec<usize>) {
-            if state[i] != 0 {
+            let Some(st) = state.get_mut(i) else {
+                return;
+            };
+            if *st != 0 {
                 return;
             }
-            state[i] = 1;
-            for dep in &sel[i].pkg.depends {
-                if let Some(j) = sel.iter().position(|s| s.pkg.satisfies(dep)) {
+            *st = 1;
+            let Some(s) = sel.get(i) else {
+                return;
+            };
+            for dep in &s.pkg.depends {
+                if let Some(j) = sel.iter().position(|cand| cand.pkg.satisfies(dep)) {
                     visit(j, sel, state, out);
                 }
             }
-            state[i] = 2;
+            if let Some(st) = state.get_mut(i) {
+                *st = 2;
+            }
             out.push(i);
         }
         for i in 0..n {
             visit(i, &sel, &mut state, &mut out);
         }
         let mut slots: Vec<Option<Selected<'a>>> = sel.into_iter().map(Some).collect();
-        out.into_iter().map(|i| slots[i].take().unwrap()).collect()
+        out.into_iter()
+            .filter_map(|i| slots.get_mut(i).and_then(|slot| slot.take()))
+            .collect()
     }
 }

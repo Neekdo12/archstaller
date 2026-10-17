@@ -113,15 +113,23 @@ pub fn resolve(cfg: &Config, base: &Path) -> Result<Config> {
 
 /// One line per script for the build summary: source, phase, privileges and (where known) the digest.
 pub fn summary(cfg: &Config) -> Vec<String> {
-    use std::fmt::Write;
     cfg.scripts
         .iter()
         .map(|s| {
             let mut l = format!("script {}: ", s.id);
             match source(s) {
-                Source::Builtin => write!(l, "built-in, ").unwrap(),
-                Source::File(f) => write!(l, "local file {f}, ").unwrap(),
-                Source::Remote { url, sha256 } => write!(l, "{url} (sha256 {sha256}), ").unwrap(),
+                Source::Builtin => l.push_str("built-in, "),
+                Source::File(f) => {
+                    l.push_str("local file ");
+                    l.push_str(&f);
+                    l.push_str(", ");
+                }
+                Source::Remote { url, sha256 } => {
+                    l.push_str(&url);
+                    l.push_str(" (sha256 ");
+                    l.push_str(&sha256);
+                    l.push_str("), ");
+                }
             }
             l.push_str("runs as root at the end of the first boot");
             l
@@ -151,7 +159,7 @@ mod tests {
     fn unknown_builtin_is_rejected() {
         let mut cfg = crate::toml::tests_support::minimal_config();
         cfg.scripts = vec![script("enable-sshd")];
-        assert!(validate(&cfg).is_ok());
+        validate(&cfg).unwrap();
         cfg.scripts = vec![script("no-such-thing")];
         assert!(validate(&cfg).unwrap_err().contains("not a built-in"));
     }
@@ -209,7 +217,7 @@ mod tests {
             args: vec!["--now".into()],
             ..Default::default()
         }];
-        assert!(cfg.validate().is_ok());
+        cfg.validate().unwrap();
     }
 
     #[test]

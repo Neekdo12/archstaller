@@ -28,11 +28,11 @@ fn parse(url: &str) -> Result<Url<'_>> {
         return Err(Error::Http("unsupported URL scheme"));
     };
     let (authority, path) = match rest.find('/') {
-        Some(i) => (&rest[..i], &rest[i..]),
+        Some(i) => rest.split_at_checked(i).unwrap_or((rest, "/")),
         None => (rest, "/"),
     };
     let (host, port) = match authority.rsplit_once(':') {
-        Some((h, p)) => (h, p.parse().map_err(|_| Error::Http("bad port"))?),
+        Some((h, p)) => (h, p.parse().map_err(|_e| Error::Http("bad port"))?),
         None => (authority, if https { 443 } else { 80 }),
     };
     if host.is_empty() {
@@ -57,7 +57,9 @@ fn redirect_target(https: bool, host: &str, path: &str, loc: String) -> String {
         alloc::format!("{scheme}://{host}{loc}")
     } else {
         // Relative to the directory of the current path (RFC 3986 reference resolution, simplified).
-        let dir = &path[..path.rfind('/').map_or(0, |i| i + 1)];
+        let dir = path
+            .get(..path.rfind('/').map_or(0, |i| i + 1))
+            .unwrap_or("");
         alloc::format!("{scheme}://{host}{dir}{loc}")
     }
 }
@@ -149,7 +151,7 @@ impl Client {
             } else {
                 let mut c = conn;
                 let r = http::get(&mut c, &host_header, u.path, sink)?;
-                let _ = c.read(&mut []);
+                let _res = c.read(&mut []);
                 r
             };
             if matches!(resp.status, 301 | 302 | 303 | 307 | 308) {

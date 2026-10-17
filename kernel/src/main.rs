@@ -1,7 +1,21 @@
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(target_os = "none", no_main)]
 #![feature(abi_x86_interrupt)]
-#![cfg_attr(not(target_os = "none"), allow(dead_code, unused_imports))]
+#![cfg_attr(
+    not(target_os = "none"),
+    expect(
+        dead_code,
+        reason = "items only called by kernel entry in bare-metal target"
+    )
+)]
+#![expect(
+    clippy::multiple_unsafe_ops_per_block,
+    reason = "bare-metal kernel requires MMIO, port I/O and raw pointer dereferencing"
+)]
+#![expect(
+    clippy::undocumented_unsafe_blocks,
+    reason = "bare-metal kernel requires MMIO, port I/O and raw pointer dereferencing"
+)]
 
 extern crate alloc;
 
@@ -23,8 +37,11 @@ mod rng;
 mod serial;
 mod time;
 
+#[cfg(target_os = "none")]
 use alloc::{boxed::Box, vec::Vec};
-use bootinfo::{BootInfo, MEM_USABLE};
+use bootinfo::BootInfo;
+#[cfg(target_os = "none")]
+use bootinfo::MEM_USABLE;
 use core::arch::asm;
 use core::sync::atomic::{AtomicPtr, Ordering};
 
@@ -153,7 +170,7 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
     let b = Box::new(v.iter().sum::<u64>());
     println!(
         "heap test: {}",
-        if *b == 499_500 && v[0] == 999 {
+        if *b == 499_500 && v.first() == Some(&999) {
             "OK"
         } else {
             "FAILED"
@@ -223,7 +240,8 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
         match d.read(0, &mut buf) {
             Ok(()) => println!(
                 "  blk{i}: LBA0 read OK, sig {:02x}{:02x}",
-                buf[510], buf[511]
+                buf.get(510).copied().unwrap_or(0),
+                buf.get(511).copied().unwrap_or(0)
             ),
             Err(e) => println!("  blk{i}: LBA0 read failed: {e:?}"),
         }

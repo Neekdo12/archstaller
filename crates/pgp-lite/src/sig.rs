@@ -35,17 +35,20 @@ impl<'a> Reader<'a> {
         Ok(a)
     }
     fn u8(&mut self) -> Result<u8> {
-        Ok(self.take(1)?[0])
+        let b = self.take(1)?;
+        b.first().copied().ok_or(Error::Malformed)
     }
     fn u16(&mut self) -> Result<u16> {
         let b = self.take(2)?;
-        Ok(u16::from_be_bytes([b[0], b[1]]))
+        let arr: [u8; 2] = b.try_into().map_err(|_e| Error::Malformed)?;
+        Ok(u16::from_be_bytes(arr))
     }
     fn mpi(&mut self) -> Result<Vec<u8>> {
         let bits = self.u16()? as usize;
         let bytes = self.take(bits.div_ceil(8))?;
         let skip = bytes.iter().take_while(|b| **b == 0).count();
-        Ok(bytes[skip..].to_vec())
+        let slice = bytes.get(skip..).unwrap_or(&[]);
+        Ok(slice.to_vec())
     }
 }
 
@@ -63,7 +66,8 @@ fn signature_body(data: &[u8]) -> Result<&[u8]> {
             192..=223 => ((l - 192) << 8) + r.u8()? as usize + 192,
             255 => {
                 let b = r.take(4)?;
-                u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as usize
+                let arr: [u8; 4] = b.try_into().map_err(|_e| Error::Malformed)?;
+                u32::from_be_bytes(arr) as usize
             }
             _ => return Err(Error::Unsupported), // partial lengths
         };
@@ -74,7 +78,8 @@ fn signature_body(data: &[u8]) -> Result<&[u8]> {
             1 => r.u16()? as usize,
             2 => {
                 let b = r.take(4)?;
-                u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as usize
+                let arr: [u8; 4] = b.try_into().map_err(|_e| Error::Malformed)?;
+                u32::from_be_bytes(arr) as usize
             }
             _ => return Err(Error::Unsupported),
         };
@@ -104,7 +109,7 @@ impl Signature {
         let unhashed_len = r.u16()? as usize;
         let unhashed = r.take(unhashed_len)?;
         let prefix_bytes = r.take(2)?;
-        let prefix = [prefix_bytes[0], prefix_bytes[1]];
+        let prefix: [u8; 2] = prefix_bytes.try_into().map_err(|_e| Error::Malformed)?;
 
         let mut s = Signature {
             pk_algo,
@@ -144,7 +149,8 @@ impl Signature {
                 192..=254 => ((l - 192) << 8) + r.u8()? as usize + 192,
                 _ => {
                     let b = r.take(4)?;
-                    u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as usize
+                    let arr: [u8; 4] = b.try_into().map_err(|_e| Error::Malformed)?;
+                    u32::from_be_bytes(arr) as usize
                 }
             };
             let body = r.take(len)?;
@@ -154,14 +160,23 @@ impl Signature {
             };
             match ty & 0x7f {
                 2 if val.len() == 4 => {
-                    self.created = Some(u32::from_be_bytes(val.try_into().unwrap()) as u64)
+                    let arr: [u8; 4] = val.try_into().map_err(|_e| Error::Malformed)?;
+                    self.created = Some(u32::from_be_bytes(arr) as u64)
                 }
                 3 if val.len() == 4 => {
-                    self.expires_after = Some(u32::from_be_bytes(val.try_into().unwrap()) as u64)
+                    let arr: [u8; 4] = val.try_into().map_err(|_e| Error::Malformed)?;
+                    self.expires_after = Some(u32::from_be_bytes(arr) as u64)
                 }
-                16 if val.len() == 8 => self.issuer_key_id = Some(val.try_into().unwrap()),
-                33 if val.len() == 21 && val[0] == 4 => {
-                    self.issuer_fingerprint = Some(val[1..].try_into().unwrap())
+                16 if val.len() == 8 => {
+                    let arr: [u8; 8] = val.try_into().map_err(|_e| Error::Malformed)?;
+                    self.issuer_key_id = Some(arr);
+                }
+                33 if val.len() == 21 && val.first() == Some(&4) => {
+                    let arr: [u8; 20] = val
+                        .get(1..)
+                        .and_then(|s| s.try_into().ok())
+                        .ok_or(Error::Malformed)?;
+                    self.issuer_fingerprint = Some(arr);
                 }
                 _ => {}
             }
@@ -240,7 +255,7 @@ impl Verifier {
             Hasher::Sha256(h) => h.finalize().to_vec(),
             Hasher::Sha512(h) => h.finalize().to_vec(),
         };
-        if digest[..2] != self.sig.prefix {
+        if digest.get(..2) != Some(&self.sig.prefix) {
             return Err(Error::BadSignature);
         }
         verify_raw(&self.sig, key, &digest)?;
@@ -253,35 +268,45 @@ fn verify_raw(sig: &Signature, key: &KeyEntry, digest: &[u8]) -> Result<()> {
         (KeyMaterial::Rsa { n, e }, ALGO_RSA) => {
             use rsa::{BigUint, Pkcs1v15Sign, RsaPublicKey};
             let pk = RsaPublicKey::new(BigUint::from_bytes_be(n), BigUint::from_bytes_be(e))
-                .map_err(|_| Error::BadSignature)?;
+                .map_err(|_e| Error::BadSignature)?;
             // Signature must be left-padded to the modulus length.
             let mut padded = alloc::vec![0u8; n.len()];
-            let raw = &sig.mpis[0];
+            let Some(raw) = sig.mpis.first() else {
+                return Err(Error::BadSignature);
+            };
             if raw.len() > padded.len() {
                 return Err(Error::BadSignature);
             }
             let off = padded.len() - raw.len();
-            padded[off..].copy_from_slice(raw);
+            if let Some(dest) = padded.get_mut(off..) {
+                dest.copy_from_slice(raw);
+            }
             let scheme = if sig.hash_algo == HASH_SHA256 {
                 Pkcs1v15Sign::new::<Sha256>()
             } else {
                 Pkcs1v15Sign::new::<Sha512>()
             };
             pk.verify(scheme, digest, &padded)
-                .map_err(|_| Error::BadSignature)
+                .map_err(|_e| Error::BadSignature)
         }
         (KeyMaterial::Ed25519(pk), ALGO_EDDSA) => {
             use ed25519_dalek::{Signature as EdSig, VerifyingKey};
-            let (r, s) = (&sig.mpis[0], &sig.mpis[1]);
+            let (Some(r), Some(s)) = (sig.mpis.first(), sig.mpis.get(1)) else {
+                return Err(Error::BadSignature);
+            };
             if r.len() > 32 || s.len() > 32 {
                 return Err(Error::BadSignature);
             }
             let mut raw = [0u8; 64];
-            raw[32 - r.len()..32].copy_from_slice(r);
-            raw[64 - s.len()..].copy_from_slice(s);
-            let vk = VerifyingKey::from_bytes(pk).map_err(|_| Error::BadSignature)?;
+            if let Some(slot) = raw.get_mut(32 - r.len()..32) {
+                slot.copy_from_slice(r);
+            }
+            if let Some(slot) = raw.get_mut(64 - s.len()..) {
+                slot.copy_from_slice(s);
+            }
+            let vk = VerifyingKey::from_bytes(pk).map_err(|_e| Error::BadSignature)?;
             vk.verify_strict(digest, &EdSig::from_bytes(&raw))
-                .map_err(|_| Error::BadSignature)
+                .map_err(|_e| Error::BadSignature)
         }
         _ => Err(Error::Unsupported),
     }

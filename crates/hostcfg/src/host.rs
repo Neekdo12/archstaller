@@ -122,7 +122,7 @@ impl HostConfig {
                         i + 1
                     ));
                 }
-                if list[..i].contains(id) {
+                if list.iter().take(i).any(|x| x == id) {
                     return Err(format!(
                         "installer_drivers[{}]: {id:?} is listed twice",
                         i + 1
@@ -235,11 +235,9 @@ mod tests {
                 profile: None,
                 tethering,
             },
-            ..Default::default()
         };
-        assert!(with(&["virtio-blk", "virtio-net"], false)
-            .validate()
-            .is_ok());
+        with(&["virtio-blk", "virtio-net"], false)
+            .validate().unwrap();
         assert!(with(&["virtio-blk", "bogus"], false)
             .validate()
             .unwrap_err()
@@ -256,6 +254,6 @@ mod tests {
             .validate()
             .unwrap_err()
             .contains("no network driver"));
-        assert!(with(&["nvme"], true).validate().is_ok());
+        with(&["nvme"], true).validate().unwrap();
     }
 }

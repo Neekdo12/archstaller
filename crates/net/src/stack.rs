@@ -42,24 +42,43 @@ impl Counts {
         if f.len() < 14 {
             return;
         }
-        if f[0] & 1 == 0 {
-            self.unicast += 1;
+        if let Some(&first) = f.first() {
+            if first & 1 == 0 {
+                self.unicast += 1;
+            }
         }
-        let ethertype = u16::from_be_bytes([f[12], f[13]]);
+        let ethertype = match f.get(12..14) {
+            Some(&[b0, b1]) => u16::from_be_bytes([b0, b1]),
+            _ => return,
+        };
         match (ethertype, f.get(23)) {
             (0x0806, _) => {
                 self.arp += 1;
                 if self.arp_logged < 12 && f.len() >= 42 {
                     self.arp_logged += 1;
-                    hal::log!(
-                        "net: {dir} ARP {} from {:02x?} {}.{}.{}.{} to {}.{}.{}.{} (frame {:02x?} -> {:02x?})",
-                        if f[21] == 1 { "request" } else { "reply" },
-                        &f[22..28],
-                        f[28], f[29], f[30], f[31],
-                        f[38], f[39], f[40], f[41],
-                        &f[6..12],
-                        &f[0..6]
-                    );
+                    if let (
+                        Some(&op),
+                        Some(sender_mac),
+                        Some(&[s0, s1, s2, s3]),
+                        Some(&[t0, t1, t2, t3]),
+                        Some(src_mac),
+                        Some(dst_mac),
+                    ) = (
+                        f.get(21),
+                        f.get(22..28),
+                        f.get(28..32).and_then(|s| <&[u8; 4]>::try_from(s).ok()),
+                        f.get(38..42).and_then(|s| <&[u8; 4]>::try_from(s).ok()),
+                        f.get(6..12),
+                        f.get(0..6),
+                    ) {
+                        hal::log!(
+                            "net: {dir} ARP {} from {:02x?} {s0}.{s1}.{s2}.{s3} to {t0}.{t1}.{t2}.{t3} (frame {:02x?} -> {:02x?})",
+                            if op == 1 { "request" } else { "reply" },
+                            sender_mac,
+                            src_mac,
+                            dst_mac
+                        );
+                    }
                 }
             }
             (0x0800, Some(17)) => self.udp += 1,
@@ -103,7 +122,7 @@ impl phy::TxToken for TxTok<'_> {
         let mut buf = vec![0u8; len];
         let r = f(&mut buf);
         self.1.note("sent", &buf);
-        let _ = self.0.transmit(&buf);
+        let _res = self.0.transmit(&buf);
         r
     }
 }
@@ -119,11 +138,18 @@ impl Device for Adapter {
         self.rx.note("received", &buf);
         if let Some(ip) = self.watch_ip {
             // ARP: [14..22] fixed fields, sender MAC [22..28], sender IP [28..32], target IP [38..42].
-            if buf.len() >= 42 && buf[12..14] == [0x08, 0x06] {
-                let (sender_ip, target_ip) = (&buf[28..32], &buf[38..42]);
-                let probe = sender_ip == [0u8; 4] && target_ip == ip;
-                if (sender_ip == ip || probe) && buf[22..28] != self.dev.mac() {
-                    self.conflict = Some(buf[22..28].try_into().unwrap());
+            if buf.len() >= 42 && buf.get(12..14) == Some(&[0x08, 0x06]) {
+                if let (Some(sender_ip), Some(target_ip), Some(sender_mac)) = (
+                    buf.get(28..32),
+                    buf.get(38..42),
+                    buf.get(22..28),
+                ) {
+                    let probe = sender_ip == [0u8; 4] && target_ip == ip;
+                    if (sender_ip == ip || probe) && sender_mac != self.dev.mac() {
+                        if let Ok(mac) = sender_mac.try_into() {
+                            self.conflict = Some(mac);
+                        }
+                    }
                 }
             }
         }
@@ -287,10 +313,10 @@ impl Stack {
                 self.dns_servers = dhcp_dns.iter().map(|d| d.octets()).collect();
                 self.iface.update_ip_addrs(|a| {
                     a.clear();
-                    let _ = a.push(IpCidr::Ipv4(cidr));
+                    let _res = a.push(IpCidr::Ipv4(cidr));
                 });
                 if let Some(r) = router {
-                    let _ = self.iface.routes_mut().add_default_ipv4_route(r);
+                    let _res = self.iface.routes_mut().add_default_ipv4_route(r);
                 }
                 self.resolvers = dns;
                 self.resolver = 0;
@@ -323,7 +349,7 @@ impl Stack {
         while (self.now_ms)() - start < PROBE_MS && self.dev.conflict.is_none() {
             if sent < 3 && (self.now_ms)() - start >= sent * 300 {
                 self.dev.tx.note("sent", &f);
-                let _ = self.dev.dev.transmit(&f);
+                let _res = self.dev.dev.transmit(&f);
                 sent += 1;
             }
             self.poll();
@@ -337,11 +363,15 @@ impl Stack {
     fn dhcp_decline(&mut self, ip: [u8; 4], server: [u8; 4]) {
         let mac = self.dev.dev.mac();
         let mut bootp = vec![0u8; 236];
-        bootp[0] = 1; // BOOTREQUEST
-        bootp[1] = 1; // Ethernet
-        bootp[2] = 6;
-        bootp[4..8].copy_from_slice(&((self.now_ms)() as u32 ^ 0x5a5a_a5a5).to_be_bytes()); // xid
-        bootp[28..34].copy_from_slice(&mac); // chaddr
+        if let Some(dst) = bootp.get_mut(0..3) {
+            dst.copy_from_slice(&[1, 1, 6]);
+        }
+        if let Some(dst) = bootp.get_mut(4..8) {
+            dst.copy_from_slice(&((self.now_ms)() as u32 ^ 0x5a5a_a5a5).to_be_bytes()); // xid
+        }
+        if let Some(dst) = bootp.get_mut(28..34) {
+            dst.copy_from_slice(&mac); // chaddr
+        }
         bootp.extend_from_slice(&[99, 130, 83, 99]); // magic cookie
         bootp.extend_from_slice(&[53, 1, 4]); // DHCPDECLINE
         bootp.extend_from_slice(&[50, 4]);
@@ -375,21 +405,25 @@ impl Stack {
         f.extend_from_slice(&[0, 0, 0, 0]); // source 0.0.0.0
         f.extend_from_slice(&[255, 255, 255, 255]);
         let mut sum = 0u32;
-        for w in f[ip_start..ip_start + 20].chunks(2) {
-            sum += u16::from_be_bytes([w[0], w[1]]) as u32;
+        if let Some(ip_header) = f.get(ip_start..ip_start + 20) {
+            for &[w0, w1] in ip_header.as_chunks::<2>().0 {
+                sum += u16::from_be_bytes([w0, w1]) as u32;
+            }
         }
         while sum >> 16 != 0 {
             sum = (sum & 0xffff) + (sum >> 16);
         }
         let ck = !(sum as u16);
-        f[ip_start + 10..ip_start + 12].copy_from_slice(&ck.to_be_bytes());
+        if let Some(dst) = f.get_mut(ip_start + 10..ip_start + 12) {
+            dst.copy_from_slice(&ck.to_be_bytes());
+        }
         f.extend_from_slice(&68u16.to_be_bytes());
         f.extend_from_slice(&67u16.to_be_bytes());
         f.extend_from_slice(&(udp_len as u16).to_be_bytes());
         f.extend_from_slice(&[0, 0]); // UDP checksum omitted (allowed for IPv4)
         f.extend_from_slice(&bootp);
         self.dev.tx.note("sent", &f);
-        let _ = self.dev.dev.transmit(&f);
+        let _res = self.dev.dev.transmit(&f);
     }
 
     /// Resolves an IPv4 address (dotted quads are parsed directly). The resolvers are tried one at a
@@ -411,7 +445,9 @@ impl Stack {
                 break;
             }
             let i = (self.resolver + k) % n;
-            let server = self.resolvers[i];
+            let Some(&server) = self.resolvers.get(i) else {
+                continue;
+            };
             match self.query(name, server, now + (end - now) / (n - k) as u64) {
                 Ok(ip) => {
                     if i != self.resolver {
@@ -448,7 +484,7 @@ impl Stack {
         sock.update_servers(&[IpAddress::Ipv4(Ipv4Address::from(server))]);
         let h = sock
             .start_query(self.iface.context(), name, DnsQueryType::A)
-            .map_err(|_| Error::Dns)?;
+            .map_err(|_e| Error::Dns)?;
         while (self.now_ms)() < until {
             self.poll();
             match self
@@ -484,7 +520,7 @@ impl Stack {
         f[28..32].copy_from_slice(&ip);
         f[38..42].copy_from_slice(&ip);
         self.dev.tx.note("sent", &f);
-        let _ = self.dev.dev.transmit(&f);
+        let _res = self.dev.dev.transmit(&f);
     }
 
     /// The default gateway from the DHCP lease.
@@ -634,7 +670,7 @@ impl Stream for TcpConn<'_> {
             self.stack.poll();
             let s = self.sock();
             if s.can_recv() {
-                return s.recv_slice(buf).map_err(|_| Error::Closed);
+                return s.recv_slice(buf).map_err(|_e| Error::Closed);
             }
             if !s.may_recv() {
                 return Ok(0);
@@ -655,8 +691,8 @@ impl Stream for TcpConn<'_> {
                 return Err(Error::Closed);
             }
             if s.can_send() {
-                let n = s.send_slice(buf).map_err(|_| Error::Closed)?;
-                buf = &buf[n..];
+                let n = s.send_slice(buf).map_err(|_e| Error::Closed)?;
+                buf = buf.get(n..).unwrap_or(&[]);
                 end = self.stack.deadline(self.timeout_ms);
             } else if (self.stack.now_ms)() >= end {
                 return Err(Error::Timeout);
@@ -919,9 +955,9 @@ mod tests {
     fn resolve_falls_back_to_the_next_server_and_keeps_using_it() {
         let (mut s, wire) = stack();
         s.iface.update_ip_addrs(|a| {
-            let _ = a.push(IpCidr::new(IpAddress::v4(10, 0, 0, 2), 24));
+            let _res = a.push(IpCidr::new(IpAddress::v4(10, 0, 0, 2), 24));
         });
-        let _ = s
+        let _res = s
             .iface
             .routes_mut()
             .add_default_ipv4_route(Ipv4Address::new(10, 0, 0, 1));
@@ -961,9 +997,9 @@ mod tests {
     fn resolve_without_any_answer_times_out_after_asking_every_server() {
         let (mut s, wire) = stack();
         s.iface.update_ip_addrs(|a| {
-            let _ = a.push(IpCidr::new(IpAddress::v4(10, 0, 0, 2), 24));
+            let _res = a.push(IpCidr::new(IpAddress::v4(10, 0, 0, 2), 24));
         });
-        let _ = s
+        let _res = s
             .iface
             .routes_mut()
             .add_default_ipv4_route(Ipv4Address::new(10, 0, 0, 1));

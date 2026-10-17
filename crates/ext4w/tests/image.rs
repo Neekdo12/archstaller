@@ -10,19 +10,19 @@ struct FileStorage(File);
 
 impl Storage for FileStorage {
     fn write_at(&mut self, off: u64, data: &[u8]) -> Result<(), Error> {
-        self.0.seek(SeekFrom::Start(off)).map_err(|_| Error::Io)?;
-        self.0.write_all(data).map_err(|_| Error::Io)
+        self.0.seek(SeekFrom::Start(off)).map_err(|_e| Error::Io)?;
+        self.0.write_all(data).map_err(|_e| Error::Io)
     }
     fn read_at(&mut self, off: u64, buf: &mut [u8]) -> Result<(), Error> {
-        self.0.seek(SeekFrom::Start(off)).map_err(|_| Error::Io)?;
-        self.0.read_exact(buf).map_err(|_| Error::Io)
+        self.0.seek(SeekFrom::Start(off)).map_err(|_e| Error::Io)?;
+        self.0.read_exact(buf).map_err(|_e| Error::Io)
     }
 }
 
 fn scratch(name: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("ext4w-{}-{name}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&d);
-    std::fs::create_dir_all(&d).unwrap();
+    drop(std::fs::remove_dir_all(&d));
+    std::fs::create_dir_all(&d).expect("create scratch dir");
     d
 }
 
@@ -51,45 +51,45 @@ fn meta_of(e: &pkg::tar::Entry) -> Meta {
 
 /// Installs a package's file tree (skipping package metadata files).
 fn install(w: &mut Ext4Writer<FileStorage>, pkg_path: &Path) {
-    let data = std::fs::read(pkg_path).unwrap();
-    let mut tar = TarReader::new(pkg::compress::open(data.as_slice()).unwrap());
+    let data = std::fs::read(pkg_path).expect("read pkg");
+    let mut tar = TarReader::new(pkg::compress::open(data.as_slice()).expect("open pkg"));
     let mut buf = vec![0u8; 65536];
-    while let Some(e) = tar.next_entry().unwrap() {
+    while let Some(e) = tar.next_entry().expect("next entry") {
         if e.path.starts_with('.') && !e.path.starts_with("./") {
             continue; // .PKGINFO, .MTREE, .BUILDINFO, .INSTALL
         }
         let m = meta_of(&e);
         match e.kind {
             Kind::Dir => {
-                w.mkdir(&e.path, &m).unwrap();
+                w.mkdir(&e.path, &m).expect("mkdir");
             }
             Kind::File => {
-                w.begin_file(&e.path, &m).unwrap();
+                w.begin_file(&e.path, &m).expect("begin_file");
                 loop {
-                    let n = tar.read_data(&mut buf).unwrap();
+                    let n = tar.read_data(&mut buf).expect("read_data");
                     if n == 0 {
                         break;
                     }
-                    w.write_file(&buf[..n]).unwrap();
+                    w.write_file(buf.get(..n).unwrap_or(&[])).expect("write_file");
                 }
-                w.end_file().unwrap();
+                w.end_file().expect("end_file");
             }
             Kind::Symlink => {
-                w.symlink(&e.path, &e.link, &m).unwrap();
+                w.symlink(&e.path, &e.link, &m).expect("symlink");
             }
             Kind::Hardlink => {
-                w.hardlink(&e.path, &e.link).unwrap();
+                w.hardlink(&e.path, &e.link).expect("hardlink");
             }
             Kind::CharDev => {
                 w.mknod(&e.path, FileKind::CharDev, e.dev_major, e.dev_minor, &m)
-                    .unwrap();
+                    .expect("mknod char");
             }
             Kind::BlockDev => {
                 w.mknod(&e.path, FileKind::BlockDev, e.dev_major, e.dev_minor, &m)
-                    .unwrap();
+                    .expect("mknod block");
             }
             Kind::Fifo => {
-                w.mknod(&e.path, FileKind::Fifo, 0, 0, &m).unwrap();
+                w.mknod(&e.path, FileKind::Fifo, 0, 0, &m).expect("mknod fifo");
             }
         }
     }
@@ -110,9 +110,9 @@ fn find_pkgs(prefixes: &[&str]) -> Vec<PathBuf> {
         let mut m: Vec<&PathBuf> = all
             .iter()
             .filter(|p| {
-                let n = p.file_name().unwrap().to_string_lossy().to_string();
+                let n = p.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
                 n.strip_prefix(pre).is_some_and(|r| {
-                    r.starts_with('-') && r[1..].starts_with(|c: char| c.is_ascii_digit())
+                    r.strip_prefix('-').is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
                 })
             })
             .collect();
@@ -125,7 +125,7 @@ fn find_pkgs(prefixes: &[&str]) -> Vec<PathBuf> {
 }
 
 fn run_ok(cmd: &mut Command) -> String {
-    let out = cmd.output().unwrap();
+    let out = cmd.output().expect("execute command");
     let text = format!(
         "{}{}",
         String::from_utf8_lossy(&out.stdout),
@@ -141,7 +141,7 @@ fn fsck_clean(img: &Path) {
         .args(["-fn"])
         .arg(img)
         .output()
-        .unwrap();
+        .expect("e2fsck");
     let text = format!(
         "{}{}",
         String::from_utf8_lossy(&out.stdout),
@@ -162,13 +162,13 @@ fn build_image(dir: &Path, size: u64, pkgs: &[PathBuf]) -> PathBuf {
         .create(true)
         .truncate(true)
         .open(&img)
-        .unwrap();
-    f.set_len(size).unwrap();
-    let mut w = Ext4Writer::new(FileStorage(f), size, opts()).unwrap();
+        .expect("open image file");
+    f.set_len(size).expect("set image length");
+    let mut w = Ext4Writer::new(FileStorage(f), size, opts()).expect("new Ext4Writer");
     for p in pkgs {
         install(&mut w, p);
     }
-    w.finish().unwrap();
+    w.finish().expect("finish Ext4Writer");
     img
 }
 
@@ -182,7 +182,7 @@ fn empty_filesystem_is_clean() {
         info.contains("Filesystem features:") && info.contains("metadata_csum"),
         "{info}"
     );
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(std::fs::remove_dir_all(&dir));
 }
 
 #[test]
@@ -235,7 +235,7 @@ fn package_tree_matches_tar_and_fsck_is_clean() {
         .arg(&reference)
         .arg(&dumped)
         .output()
-        .unwrap();
+        .expect("diff command");
     assert!(
         d.status.success(),
         "diff:\n{}",
@@ -244,7 +244,7 @@ fn package_tree_matches_tar_and_fsck_is_clean() {
             .take(3000)
             .collect::<String>()
     );
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(std::fs::remove_dir_all(&dir));
 }
 
 #[test]
@@ -262,7 +262,7 @@ fn xattrs_and_special_files_survive() {
             .arg(&img),
     );
     assert!(out.contains("security.capability"), "{out}");
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(std::fs::remove_dir_all(&dir));
 }
 
 #[test]
@@ -275,49 +275,49 @@ fn read_back_and_replace() {
         .create(true)
         .truncate(true)
         .open(&img)
-        .unwrap();
-    f.set_len(64 << 20).unwrap();
-    let mut w = Ext4Writer::new(FileStorage(f), 64 << 20, opts()).unwrap();
+        .expect("open image file");
+    f.set_len(64 << 20).expect("set image length");
+    let mut w = Ext4Writer::new(FileStorage(f), 64 << 20, opts()).expect("new Ext4Writer");
     let data: Vec<u8> = (0..300_000u32).map(|i| (i * 31 + 7) as u8).collect();
     let m = Meta {
         mode: 0o644,
         mtime: 1_700_000_000,
         ..Default::default()
     };
-    w.begin_file("var/cache/pkg/a.bin", &m).unwrap();
-    w.write_file(&data[..100_000]).unwrap();
-    w.write_file(&data[100_000..]).unwrap();
-    let ino = w.end_file().unwrap();
+    w.begin_file("var/cache/pkg/a.bin", &m).expect("begin_file");
+    w.write_file(data.get(..100_000).unwrap_or(&[])).expect("write_file 1");
+    w.write_file(data.get(100_000..).unwrap_or(&[])).expect("write_file 2");
+    let ino = w.end_file().expect("end_file");
     let mut back = vec![0u8; 300_000];
-    assert_eq!(w.read_file(ino, 0, &mut back).unwrap(), 300_000);
+    assert_eq!(w.read_file(ino, 0, &mut back).expect("read_file"), 300_000);
     assert_eq!(back, data);
     let mut part = [0u8; 10];
-    assert_eq!(w.read_file(ino, 4090, &mut part).unwrap(), 10);
-    assert_eq!(&part, &data[4090..4100]);
+    assert_eq!(w.read_file(ino, 4090, &mut part).expect("read_file part"), 10);
+    assert_eq!(&part, data.get(4090..4100).unwrap_or(&[]));
     // Replace with shorter content.
-    w.begin_file("var/cache/pkg/a.bin", &m).unwrap();
-    w.write_file(b"hello").unwrap();
-    w.end_file().unwrap();
-    w.symlink("usr/lib/link", &"x".repeat(100), &m).unwrap();
-    w.symlink("usr/lib/short", "target", &m).unwrap();
-    w.finish().unwrap();
+    w.begin_file("var/cache/pkg/a.bin", &m).expect("begin_file replace");
+    w.write_file(b"hello").expect("write_file replace");
+    w.end_file().expect("end_file replace");
+    w.symlink("usr/lib/link", &"x".repeat(100), &m).expect("symlink long");
+    w.symlink("usr/lib/short", "target", &m).expect("symlink short");
+    w.finish().expect("finish replace");
     fsck_clean(&img);
     let out = Command::new("debugfs")
         .args(["-R", "cat /var/cache/pkg/a.bin"])
         .arg(&img)
         .output()
-        .unwrap();
+        .expect("debugfs cat");
     assert_eq!(String::from_utf8_lossy(&out.stdout), "hello");
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(std::fs::remove_dir_all(&dir));
 }
 
 #[test]
 fn huge_file_needs_extent_tree_and_big_directory() {
     let dir = std::env::current_dir()
-        .unwrap()
+        .expect("current_dir")
         .join("../../target/ext4w-test");
-    std::fs::create_dir_all(&dir).unwrap();
-    let dir = dir.canonicalize().unwrap();
+    std::fs::create_dir_all(&dir).expect("create_dir_all");
+    let dir = dir.canonicalize().expect("canonicalize");
     let img = dir.join("big.img");
     let size = 1500u64 << 20;
     let f = std::fs::OpenOptions::new()
@@ -326,9 +326,9 @@ fn huge_file_needs_extent_tree_and_big_directory() {
         .create(true)
         .truncate(true)
         .open(&img)
-        .unwrap();
-    f.set_len(size).unwrap();
-    let mut w = Ext4Writer::new(FileStorage(f), size, opts()).unwrap();
+        .expect("open big.img");
+    f.set_len(size).expect("set_len big.img");
+    let mut w = Ext4Writer::new(FileStorage(f), size, opts()).expect("new Ext4Writer");
     let m = Meta {
         mode: 0o644,
         mtime: 1_700_000_000,
@@ -340,19 +340,20 @@ fn huge_file_needs_extent_tree_and_big_directory() {
     let chunk: Vec<u8> = (0..(1u32 << 20))
         .map(|i| (i / 4096) as u8 ^ (i as u8))
         .collect();
-    w.begin_file("big/data.bin", &m).unwrap();
+    w.begin_file("big/data.bin", &m).expect("begin_file big/data.bin");
     for _ in 0..900 {
-        w.write_file(&chunk).unwrap();
+        w.write_file(&chunk).expect("write_file chunk");
     }
-    let ino = w.end_file().unwrap();
+    let ino = w.end_file().expect("end_file big/data.bin");
     assert_eq!(w.file_size(ino), 900 << 20);
-    for i in 0..6000 {
+    for i in 0u16..6000u16 {
         w.begin_file(&format!("big/many/file-with-a-fairly-long-name-{i:05}"), &m)
-            .unwrap();
-        w.write_file(&[i as u8; 100]).unwrap();
-        w.end_file().unwrap();
+            .expect("begin_file many");
+        let b = (i % 256) as u8;
+        w.write_file(&[b; 100]).expect("write_file many");
+        w.end_file().expect("end_file many");
     }
-    w.finish().unwrap();
+    w.finish().expect("finish huge");
     fsck_clean(&img);
     let ex = run_ok(
         Command::new("debugfs")
@@ -380,13 +381,13 @@ fn huge_file_needs_extent_tree_and_big_directory() {
             .args(["-R", &format!("dump /big/data.bin {}", dump.display())])
             .arg(&img),
     );
-    let got = std::fs::read(&dump).unwrap();
+    let got = std::fs::read(&dump).expect("read dump");
     assert_eq!(got.len(), 900 << 20);
     for (i, c) in got.chunks(1 << 20).enumerate() {
         assert!(c == chunk.as_slice(), "mismatch in MiB {i}");
     }
-    let _ = std::fs::remove_file(&dump);
-    let _ = std::fs::remove_file(&img);
+    drop(std::fs::remove_file(&dump));
+    drop(std::fs::remove_file(&img));
 }
 
 /// The journal is created with the filesystem (mke2fs layout), not added later: the superblock names
@@ -418,7 +419,7 @@ fn internal_journal_is_valid() {
         let log = run_ok(Command::new("debugfs").args(["-R", "logdump"]).arg(&img));
         assert!(!log.to_lowercase().contains("error"), "{log}");
         assert!(!info.contains("needs_recovery"), "{info}");
-        let _ = std::fs::remove_file(&img);
+        drop(std::fs::remove_file(&img));
     }
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(std::fs::remove_dir_all(&dir));
 }

@@ -35,9 +35,15 @@ pub fn build(opts: &Options) -> Result<PathBuf> {
     )?;
 
     let mut img = vec![0u8; FLOPPY_SIZE];
-    img[..512].copy_from_slice(&s1);
-    img[s2_off as usize..s2_off as usize + s2.len()].copy_from_slice(&s2);
-    img[payload_off as usize..payload_off as usize + payload.len()].copy_from_slice(&payload);
+    img.get_mut(..512)
+        .ok_or("floppy image too small for stage 1")?
+        .copy_from_slice(&s1);
+    img.get_mut(s2_off as usize..s2_off as usize + s2.len())
+        .ok_or("floppy image too small for stage 2")?
+        .copy_from_slice(&s2);
+    img.get_mut(payload_off as usize..payload_off as usize + payload.len())
+        .ok_or("floppy image too small for payload")?
+        .copy_from_slice(&payload);
 
     let out = opts
         .out
@@ -148,7 +154,7 @@ pub fn test(opts: &Options) -> Result<()> {
     std::thread::spawn(move || {
         let reader = BufReader::new(stdout);
         for line in reader.lines().map_while(std::result::Result::ok) {
-            let _ = tx.send(line);
+            drop(tx.send(line));
         }
     });
 
@@ -173,8 +179,8 @@ pub fn test(opts: &Options) -> Result<()> {
         }
 
         if saw_s2 && saw_long && saw_kernel {
-            let _ = child.kill();
-            let _ = child.wait();
+            drop(child.kill());
+            drop(child.wait());
             println!("\nFloppy boot test PASSED! (Stage 1 CHS read, Stage 2 CHS payload load, long mode, kernel entry verified)");
             return Ok(());
         }
@@ -186,7 +192,7 @@ pub fn test(opts: &Options) -> Result<()> {
         std::thread::sleep(Duration::from_millis(50));
     }
 
-    let _ = child.kill();
-    let _ = child.wait();
+    drop(child.kill());
+    drop(child.wait());
     Err("Floppy boot test timed out before seeing kernel banner".into())
 }

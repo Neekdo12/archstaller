@@ -104,7 +104,7 @@ impl AhciDisk {
         // active (PxCMD.ICC = 1) instead of being skipped as if no disk were there.
         if (port.read32(P_SSTS) >> 8) & 0xf != 1 {
             port.write32(P_CMD, (port.read32(P_CMD) & !(0xf << 28)) | 1 << 28);
-            let _ = platform::wait_until(10, || (port.read32(P_SSTS) >> 8) & 0xf == 1);
+            let _res = platform::wait_until(10, || (port.read32(P_SSTS) >> 8) & 0xf == 1);
         }
         if (port.read32(P_SSTS) >> 8) & 0xf != 1 || port.read32(P_SIG) != SIG_ATA {
             return Err(Error::Unsupported);
@@ -140,8 +140,9 @@ impl AhciDisk {
     fn identify(&mut self) -> Result<()> {
         self.command(ATA_IDENTIFY, 0, 0, 512, false)?;
         let mut w = [0u16; 256];
-        for (i, v) in w.iter_mut().enumerate() {
-            *v = u16::from_le_bytes([self.data.as_slice()[2 * i], self.data.as_slice()[2 * i + 1]]);
+        let chunks = self.data.as_slice().as_chunks::<2>().0;
+        for (dst, src) in w.iter_mut().zip(chunks) {
+            *dst = u16::from_le_bytes(*src);
         }
         self.serial = ata_string(&w[10..20]);
         self.model = ata_string(&w[27..47]);
@@ -250,7 +251,10 @@ impl BlockDevice for AhciDisk {
                 chunk.len(),
                 false,
             )?;
-            chunk.copy_from_slice(&self.data.as_slice()[..chunk.len()]);
+            let Some(src) = self.data.as_slice().get(..chunk.len()) else {
+                return Err(Error::Io);
+            };
+            chunk.copy_from_slice(src);
         }
         Ok(())
     }
@@ -260,7 +264,10 @@ impl BlockDevice for AhciDisk {
         let ss = self.sector_size as usize;
         for (i, chunk) in buf.chunks(CHUNK).enumerate() {
             let l = lba + (i * CHUNK / ss) as u64;
-            self.data.as_mut_slice()[..chunk.len()].copy_from_slice(chunk);
+            let Some(dest) = self.data.as_mut_slice().get_mut(..chunk.len()) else {
+                return Err(Error::Io);
+            };
+            dest.copy_from_slice(chunk);
             self.command(
                 ATA_WRITE_DMA_EXT,
                 l,

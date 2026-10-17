@@ -91,18 +91,23 @@ pub struct Rtl8139 {
 
 impl Rtl8139 {
     fn r8(&self, off: u16) -> u8 {
+        // SAFETY: Reading 8-bit register from device I/O base port.
         unsafe { port::inb(self.io + off) }
     }
     fn w8(&self, off: u16, v: u8) {
+        // SAFETY: Writing 8-bit register to device I/O base port.
         unsafe { port::outb(self.io + off, v) }
     }
     fn r32(&self, off: u16) -> u32 {
+        // SAFETY: Reading 32-bit register from device I/O base port.
         unsafe { port::inl(self.io + off) }
     }
     fn w32(&self, off: u16, v: u32) {
+        // SAFETY: Writing 32-bit register to device I/O base port.
         unsafe { port::outl(self.io + off, v) }
     }
     fn w16(&self, off: u16, v: u16) {
+        // SAFETY: Writing 16-bit register to device I/O base port.
         unsafe { port::outw(self.io + off, v) }
     }
 
@@ -124,9 +129,11 @@ impl Rtl8139 {
         d.w8(CONFIG1, 0); // power on
         d.w8(CR, CR_RST);
         platform::wait_until(100, || d.r8(CR) & CR_RST == 0)?;
-        for i in 0..6 {
-            d.mac[i] = d.r8(IDR0 + i as u16);
+        let mut mac = [0; 6];
+        for (i, byte) in mac.iter_mut().enumerate() {
+            *byte = d.r8(IDR0 + i as u16);
         }
+        d.mac = mac;
         d.w32(RBSTART, d.rx.phys() as u32);
         d.w16(IMR, 0);
         d.w16(ISR, 0xffff);
@@ -158,7 +165,11 @@ impl NetDevice for Rtl8139 {
         let slot = self.tx_next;
         self.tx_next = (self.tx_next + 1) % 4;
         let buf = self.tx.as_mut_slice();
-        buf[slot * TX_SLOT..slot * TX_SLOT + frame.len()].copy_from_slice(frame);
+        let off = slot * TX_SLOT;
+        let Some(dest) = buf.get_mut(off..off + frame.len()) else {
+            return Err(Error::InvalidArgument);
+        };
+        dest.copy_from_slice(frame);
         let len = frame.len().max(60); // the chip does not pad
         self.w32(
             TSAD0 + 4 * slot as u16,
@@ -176,14 +187,22 @@ impl NetDevice for Rtl8139 {
         }
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
         let ring = self.rx.as_slice();
-        let hdr = u32::from_le_bytes(ring[self.rx_off..self.rx_off + 4].try_into().unwrap());
+        let hdr_bytes = ring.get(self.rx_off..self.rx_off + 4)?.first_chunk::<4>()?;
+        let hdr = u32::from_le_bytes(*hdr_bytes);
         let len = (hdr >> 16) as usize; // includes the 4-byte CRC
         let ok = hdr & RX_ROK != 0 && (8..=1792).contains(&len);
         let n = if ok { (len - 4).min(buf.len()) } else { 0 };
+        let mut copied = false;
         if ok {
-            buf[..n].copy_from_slice(&ring[self.rx_off + 4..self.rx_off + 4 + n]);
+            if let (Some(dest), Some(src)) = (
+                buf.get_mut(..n),
+                ring.get(self.rx_off + 4..self.rx_off + 4 + n),
+            ) {
+                dest.copy_from_slice(src);
+                copied = true;
+            }
         }
-        if !ok {
+        if !ok || !copied {
             // Lost sync with the ring: restart the receiver.
             self.w8(CR, CR_TE);
             self.rx_off = 0;

@@ -387,7 +387,10 @@ fn source_mode(app: &Rc<App>, content: &gtk::Box, text: &str, foreign: bool) {
             let Some(row) = comp.list.selected_row() else {
                 return;
             };
-            let Some(item) = comp.items.borrow().get(row.index() as usize).cloned() else {
+            let Ok(idx) = usize::try_from(row.index()) else {
+                return;
+            };
+            let Some(item) = comp.items.borrow().get(idx).cloned() else {
                 return;
             };
             comp.pop.popdown();

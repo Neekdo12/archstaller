@@ -326,7 +326,7 @@ impl Config {
                 return bad("user name", &u.name);
             }
             // The first-boot script runs `useradd` once per entry and stops at the second one for a name.
-            if self.users[..i].iter().any(|o| o.name == u.name) {
+            if self.users.iter().take(i).any(|o| o.name == u.name) {
                 return bad("duplicate user name", &u.name);
             }
             if !crypt_hash(&u.password_hash) {
@@ -410,7 +410,7 @@ impl Config {
             if !hex(&a.sha256, 64) {
                 return at("sha256 must be 64 lower-case hex digits");
             }
-            if self.aur[..i].iter().any(|o| o.name == a.name) {
+            if self.aur.iter().take(i).any(|o| o.name == a.name) {
                 return at(&format!("{:?} is listed twice", a.name));
             }
             if a.deps.len() > 256 || a.deps.iter().any(|d| !pkg_name(d)) {
@@ -439,7 +439,7 @@ impl Config {
             if !ident(&sc.id, "._-") {
                 return at(&format!("invalid id {:?}", sc.id));
             }
-            if self.scripts[..i].iter().any(|o| o.id == sc.id) {
+            if self.scripts.iter().take(i).any(|o| o.id == sc.id) {
                 return at(&format!("id {:?} is used twice", sc.id));
             }
             if sc.args.len() > 16 || sc.args.iter().any(|a| !ident(a, "._=:/@+,-")) {
@@ -483,8 +483,10 @@ impl Config {
             if !valid_unit_name(&cs.name) {
                 return at(&format!("invalid unit name {:?}", cs.name));
             }
-            if self.custom_services[..i]
+            if self
+                .custom_services
                 .iter()
+                .take(i)
                 .any(|o| o.name == cs.name && o.user == cs.user)
             {
                 return at(&format!(
@@ -585,7 +587,7 @@ mod tests {
         };
         let mut c = base();
         c.users = vec![user("alice"), user("bob")];
-        assert!(c.validate().is_ok());
+        c.validate().unwrap();
         c.users.push(user("alice"));
         let e = c.validate().unwrap_err().to_string();
         assert!(
@@ -606,8 +608,8 @@ mod tests {
             users: vec![user(n)],
             ..base()
         };
-        assert!(with_user("alice_2-x").validate().is_ok());
-        assert!(with_user(&"a".repeat(32)).validate().is_ok());
+        with_user("alice_2-x").validate().unwrap();
+        with_user(&"a".repeat(32)).validate().unwrap();
         for bad in ["1234", &"a".repeat(33), "-x", "root"] {
             assert!(with_user(bad).validate().is_err(), "user name {bad:?}");
         }
@@ -615,8 +617,8 @@ mod tests {
             hostname: h.into(),
             ..base()
         };
-        assert!(with_host("box").validate().is_ok());
-        assert!(with_host("my-box.lan").validate().is_ok());
+        with_host("box").validate().unwrap();
+        with_host("my-box.lan").validate().unwrap();
         for bad in [".box", "box.", "a..b", "-box", "a.-b"] {
             assert!(with_host(bad).validate().is_err(), "hostname {bad:?}");
         }
@@ -629,7 +631,7 @@ mod tests {
             kernel_params: vec!["x".repeat(n)],
             ..base()
         };
-        assert!(with(KERNEL_PARAMS_MAX - 1).validate().is_ok());
+        with(KERNEL_PARAMS_MAX - 1).validate().unwrap();
         assert!(with(KERNEL_PARAMS_MAX)
             .validate()
             .unwrap_err()
@@ -650,7 +652,7 @@ mod tests {
     fn aur_entry_rules() {
         let mut c = base();
         c.aur = vec![pkg()];
-        assert!(c.validate().is_ok());
+        c.validate().unwrap();
         assert!(err_of(|p| p.commit = "master".into()).contains("40-digit"));
         assert!(err_of(|p| p.commit = "A".repeat(40)).contains("40-digit"));
         assert!(err_of(|p| p.sha256 = "b".repeat(63)).contains("sha256"));
@@ -695,11 +697,11 @@ mod tests {
             file: None,
             content: Some(b"[Unit]\nDescription=Test\n".to_vec()),
         }];
-        assert!(c.validate().is_ok());
+        c.validate().unwrap();
 
         // Valid user
         c.custom_services[0].user = Some("kubik".into());
-        assert!(c.validate().is_ok());
+        c.validate().unwrap();
 
         // Unknown user
         c.custom_services[0].user = Some("nonexistent".into());
@@ -707,7 +709,7 @@ mod tests {
 
         // User "root" explicitly
         c.custom_services[0].user = Some("root".into());
-        assert!(c.validate().is_ok());
+        c.validate().unwrap();
 
         // Invalid unit names
         c.custom_services[0].name = "bad_unit".into();
@@ -730,7 +732,7 @@ mod tests {
 
         // Valid file
         c.custom_services[0].file = Some("services/good.service".into());
-        assert!(c.validate().is_ok());
+        c.validate().unwrap();
 
         // Content size limit
         c.custom_services[0].file = None;

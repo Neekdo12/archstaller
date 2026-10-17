@@ -32,8 +32,8 @@ fn ncm_parameters_parse() {
         (16384, 8192, 4, 0, 4)
     );
     b[2] = 0; // no NTB16
-    assert!(ncm::parse_params(&b).is_err());
-    assert!(ncm::parse_params(&b[..10]).is_err());
+    ncm::parse_params(&b).unwrap_err();
+    ncm::parse_params(&b[..10]).unwrap_err();
 }
 
 #[test]
@@ -73,7 +73,7 @@ fn ncm_respects_divisor_and_remainder() {
         out_max: 64,
         ..params(4, 0, 4)
     };
-    assert!(ncm::build_ntb(&frame, 1, &small).is_err());
+    ncm::build_ntb(&frame, 1, &small).unwrap_err();
 }
 
 #[test]

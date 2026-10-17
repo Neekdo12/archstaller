@@ -25,25 +25,39 @@ const HUGE: u64 = 2 << 20;
 /// Writes to COM1 (no setup: QEMU and most firmware leave it usable; a machine without it ignores the writes).
 pub fn log(msg: &str) {
     for b in msg.bytes() {
+        // SAFETY: 0x3f8 is the legacy COM1 UART data port; byte output does not violate memory safety.
         unsafe { asm!("out dx, al", in("dx") 0x3f8u16, in("al") b, options(nomem, nostack)) };
     }
 }
 
 pub fn log_hex(mut v: u64) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut buf = [0u8; 16];
-    for i in (0..16).rev() {
-        buf[i] = b"0123456789abcdef"[(v & 15) as usize];
+    for slot in buf.iter_mut().rev() {
+        if let Some(&ch) = HEX.get((v & 15) as usize) {
+            *slot = ch;
+        }
         v >>= 4;
     }
     log("0x");
-    log(core::str::from_utf8(&buf).unwrap());
+    if let Ok(s) = core::str::from_utf8(&buf) {
+        log(s);
+    }
 }
 
 fn le32(b: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes(b[at..at + 4].try_into().unwrap())
+    let mut arr = [0u8; 4];
+    if let Some(slice) = b.get(at..at + 4) {
+        arr.copy_from_slice(slice);
+    }
+    u32::from_le_bytes(arr)
 }
 fn le64(b: &[u8], at: usize) -> u64 {
-    u64::from_le_bytes(b[at..at + 8].try_into().unwrap())
+    let mut arr = [0u8; 8];
+    if let Some(slice) = b.get(at..at + 8) {
+        arr.copy_from_slice(slice);
+    }
+    u64::from_le_bytes(arr)
 }
 fn up(v: u64, to: u64) -> u64 {
     (v + to - 1) & !(to - 1)
@@ -75,7 +89,7 @@ impl<'a> Payload<'a> {
     /// (name, stored data, raw length, deflated)
     fn entry(&self, i: usize) -> (&'a [u8], &'a [u8], usize, bool) {
         let at = PAYLOAD_HEADER + 16 + i * PAYLOAD_ENTRY;
-        let name = &self.bytes[at..at + 16];
+        let name = self.bytes.get(at..at + 16).unwrap_or(&[]);
         let (off, stored, raw, flags) = (
             le32(self.bytes, at + 16) as usize,
             le32(self.bytes, at + 20) as usize,
@@ -84,7 +98,7 @@ impl<'a> Payload<'a> {
         );
         (
             name,
-            &self.bytes[off..off + stored],
+            self.bytes.get(off..off + stored).unwrap_or(&[]),
             raw,
             flags & FLAG_DEFLATE != 0,
         )
@@ -110,12 +124,14 @@ struct Arena {
 }
 
 impl Arena {
+    #[expect(clippy::panic, reason = "fatal bootloader error when arena exhausted")]
     fn take(&mut self, len: u64, align: u64) -> u64 {
         let at = up(self.next, align);
         if at + len > self.end {
             panic!("loader arena exhausted");
         }
         self.next = at + len;
+        // SAFETY: [at, at + len) is within allocated arena bounds in identity-mapped memory.
         unsafe { core::ptr::write_bytes(at as *mut u8, 0, len as usize) };
         at
     }
@@ -133,10 +149,14 @@ pub struct Boot<'a> {
     pub boot_medium: bootinfo::BootMedium,
 }
 
+#[expect(clippy::panic, reason = "fatal bootloader error on corrupt payload")]
 fn unpack(stored: &[u8], raw: usize, deflated: bool, dest: u64) {
+    // SAFETY: dest points to an identity-mapped destination buffer with room for `raw` bytes.
     let out = unsafe { core::slice::from_raw_parts_mut(dest as *mut u8, raw) };
     if !deflated {
-        out.copy_from_slice(&stored[..raw]);
+        if let Some(src) = stored.get(..raw) {
+            out.copy_from_slice(src);
+        }
         return;
     }
     let mut d = DecompressorOxide::new();
@@ -199,6 +219,7 @@ extern "C" {
 ///
 /// # Safety
 /// The caller is the boot loader at its last step: everything in `map` and the arena is identity mapped and unused.
+#[expect(clippy::panic, reason = "fatal error in bare-metal bootloader")]
 pub unsafe fn boot(map: &mut Map, b: Boot) -> ! {
     let payload = Payload::parse(b.payload).expect("payload bundle is missing or damaged");
     if payload.kernel_mem == 0 || payload.kernel_mem > KERNEL_MAX {
@@ -222,7 +243,7 @@ pub unsafe fn boot(map: &mut Map, b: Boot) -> ! {
     for i in 0..payload.count {
         let (name, stored, raw, deflated) = payload.entry(i);
         let n = name.iter().position(|&c| c == 0).unwrap_or(16);
-        if &name[..n] == b"kernel" {
+        if name.get(..n) == Some(b"kernel") {
             if raw as u64 > payload.kernel_mem {
                 panic!("kernel image is larger than its memory size");
             }
@@ -234,11 +255,18 @@ pub unsafe fn boot(map: &mut Map, b: Boot) -> ! {
             }
             let dest = arena.take(raw as u64, PAGE);
             unpack(stored, raw, deflated, dest);
-            modules[nmod] = Module {
-                name: name.try_into().unwrap(),
-                addr: HHDM_BASE + dest,
-                len: raw as u64,
-            };
+            let mut mod_name = [0u8; 16];
+            let copy_len = name.len().min(16);
+            if let (Some(dst), Some(src)) = (mod_name.get_mut(..copy_len), name.get(..copy_len)) {
+                dst.copy_from_slice(src);
+            }
+            if let Some(slot) = modules.get_mut(nmod) {
+                *slot = Module {
+                    name: mod_name,
+                    addr: HHDM_BASE + dest,
+                    len: raw as u64,
+                };
+            }
             nmod += 1;
         }
     }

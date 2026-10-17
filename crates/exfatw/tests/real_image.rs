@@ -9,10 +9,10 @@ struct FileStore(std::fs::File);
 
 impl Storage for FileStore {
     fn read_at(&mut self, o: u64, b: &mut [u8]) -> exfatw::Result<()> {
-        self.0.read_exact_at(b, o).map_err(|_| exfatw::Error::Io)
+        self.0.read_exact_at(b, o).map_err(|_e| exfatw::Error::Io)
     }
     fn write_at(&mut self, o: u64, d: &[u8]) -> exfatw::Result<()> {
-        self.0.write_all_at(d, o).map_err(|_| exfatw::Error::Io)
+        self.0.write_all_at(d, o).map_err(|_e| exfatw::Error::Io)
     }
 }
 
@@ -32,30 +32,30 @@ fn run_case(cluster: u32, files: usize) {
         .create(true)
         .truncate(true)
         .open(&path)
-        .unwrap();
-    f.set_len(64 << 20).unwrap();
+        .expect("open image file");
+    f.set_len(64 << 20).expect("set image length");
     let c = cluster.to_string();
     let st = Command::new("mkfs.exfat")
         .args(["-c", c.as_str()])
         .arg(&path)
         .status()
-        .unwrap();
+        .expect("mkfs.exfat");
     assert!(st.success(), "mkfs.exfat failed");
     {
         let mut s = FileStore(f);
-        let mut a = Appender::open(&mut s).unwrap();
+        let mut a = Appender::open(&mut s).expect("Appender::open");
         for k in 0..files {
             let name = format!("archstaller-log-{k}.txt");
             let data = vec![b'x'; 1000 + k * 37];
-            a.append(&name, &data).unwrap();
+            a.append(&name, &data).expect("append");
         }
     }
     let st = Command::new("fsck.exfat")
         .arg("-n")
         .arg(&path)
         .status()
-        .unwrap();
-    std::fs::remove_file(&path).ok();
+        .expect("fsck.exfat");
+    drop(std::fs::remove_file(&path));
     assert!(
         st.success(),
         "fsck.exfat rejected the image (cluster size {cluster})"

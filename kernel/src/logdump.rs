@@ -55,8 +55,10 @@ impl exfatw::Storage for PartitionStorage<'_> {
             let mut sector = vec![0u8; ss as usize];
             self.dev
                 .read(lba, &mut sector)
-                .map_err(|_| exfatw::Error::Io)?;
-            buf[done..done + n].copy_from_slice(&sector[skip..skip + n]);
+                .map_err(|_e| exfatw::Error::Io)?;
+            if let (Some(dst), Some(src)) = (buf.get_mut(done..done + n), sector.get(skip..skip + n)) {
+                dst.copy_from_slice(src);
+            }
             done += n;
             pos += n as u64;
         }
@@ -81,12 +83,14 @@ impl exfatw::Storage for PartitionStorage<'_> {
             if skip != 0 || n != ss as usize {
                 self.dev
                     .read(lba, &mut sector)
-                    .map_err(|_| exfatw::Error::Io)?;
+                    .map_err(|_e| exfatw::Error::Io)?;
             }
-            sector[skip..skip + n].copy_from_slice(&data[done..done + n]);
+            if let (Some(dst), Some(src)) = (sector.get_mut(skip..skip + n), data.get(done..done + n)) {
+                dst.copy_from_slice(src);
+            }
             self.dev
                 .write(lba, &sector)
-                .map_err(|_| exfatw::Error::Io)?;
+                .map_err(|_e| exfatw::Error::Io)?;
             done += n;
             pos += n as u64;
         }
@@ -135,10 +139,24 @@ fn partitions(dev: &mut dyn BlockDevice) -> Vec<Part> {
 
     // GPT: LBA1 starts with "EFI PART".
     if let Some(gpt) = read_lba(dev, 1) {
-        if gpt.len() >= 92 && &gpt[0..8] == b"EFI PART" {
-            let entries_lba = u64::from_le_bytes(gpt[72..80].try_into().unwrap());
-            let count = u32::from_le_bytes(gpt[80..84].try_into().unwrap()).min(128) as u64;
-            let entry_size = u32::from_le_bytes(gpt[84..88].try_into().unwrap()).max(128) as u64;
+        if gpt.len() >= 92 && gpt.get(0..8) == Some(b"EFI PART") {
+            let entries_lba = gpt
+                .get(72..80)
+                .and_then(|s| s.try_into().ok())
+                .map(u64::from_le_bytes)
+                .unwrap_or(0);
+            let count = gpt
+                .get(80..84)
+                .and_then(|s| s.try_into().ok())
+                .map(u32::from_le_bytes)
+                .unwrap_or(0)
+                .min(128) as u64;
+            let entry_size = gpt
+                .get(84..88)
+                .and_then(|s| s.try_into().ok())
+                .map(u32::from_le_bytes)
+                .unwrap_or(0)
+                .max(128) as u64;
             let mut out = Vec::new();
             for i in 0..count {
                 let off = entries_lba * ss + i * entry_size;
@@ -146,12 +164,20 @@ fn partitions(dev: &mut dyn BlockDevice) -> Vec<Part> {
                 if read_at(dev, off, &mut e).is_none() {
                     break;
                 }
-                let type_guid = &e[0..16];
+                let type_guid = e.get(0..16).unwrap_or(&[]);
                 if type_guid.iter().all(|&b| b == 0) {
                     continue;
                 }
-                let first = u64::from_le_bytes(e[32..40].try_into().unwrap());
-                let last = u64::from_le_bytes(e[40..48].try_into().unwrap());
+                let first = e
+                    .get(32..40)
+                    .and_then(|s| s.try_into().ok())
+                    .map(u64::from_le_bytes)
+                    .unwrap_or(0);
+                let last = e
+                    .get(40..48)
+                    .and_then(|s| s.try_into().ok())
+                    .map(u64::from_le_bytes)
+                    .unwrap_or(0);
                 if last < first {
                     continue;
                 }
@@ -168,12 +194,20 @@ fn partitions(dev: &mut dyn BlockDevice) -> Vec<Part> {
     let mut out = Vec::new();
     for i in 0..4 {
         let e = 446 + i * 16;
-        let ptype = mbr[e + 4];
+        let ptype = mbr.get(e + 4).copied().unwrap_or(0);
         if ptype == 0 {
             continue;
         }
-        let start = u32::from_le_bytes(mbr[e + 8..e + 12].try_into().unwrap()) as u64;
-        let sectors = u32::from_le_bytes(mbr[e + 12..e + 16].try_into().unwrap()) as u64;
+        let start = mbr
+            .get(e + 8..e + 12)
+            .and_then(|s| s.try_into().ok())
+            .map(u32::from_le_bytes)
+            .unwrap_or(0) as u64;
+        let sectors = mbr
+            .get(e + 12..e + 16)
+            .and_then(|s| s.try_into().ok())
+            .map(u32::from_le_bytes)
+            .unwrap_or(0) as u64;
         if start == 0 || sectors == 0 {
             continue;
         }
@@ -196,7 +230,9 @@ fn read_at(dev: &mut dyn BlockDevice, off: u64, buf: &mut [u8]) -> Option<()> {
         let n = (ss as usize - skip).min(buf.len() - done);
         let mut sector = vec![0u8; ss as usize];
         dev.read(lba, &mut sector).ok()?;
-        buf[done..done + n].copy_from_slice(&sector[skip..skip + n]);
+        if let (Some(dst), Some(src)) = (buf.get_mut(done..done + n), sector.get(skip..skip + n)) {
+            dst.copy_from_slice(src);
+        }
         done += n;
         pos += n as u64;
     }

@@ -112,7 +112,8 @@ fn parse_head(body: &[u8]) -> Option<String> {
     // pkt-lines: 4 hex digits of length (including themselves) then the payload; 0000 is a flush.
     let mut pos = 0;
     while pos + 4 <= body.len() {
-        let len = usize::from_str_radix(std::str::from_utf8(&body[pos..pos + 4]).ok()?, 16).ok()?;
+        let len_slice = body.get(pos..pos + 4)?;
+        let len = usize::from_str_radix(std::str::from_utf8(len_slice).ok()?, 16).ok()?;
         if len == 0 {
             pos += 4;
             continue;

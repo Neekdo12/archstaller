@@ -19,7 +19,7 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .unwrap()
+        .unwrap_or_else(|| Path::new("."))
         .to_path_buf()
 }
 

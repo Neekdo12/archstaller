@@ -62,8 +62,10 @@ pub fn target_dir(root: &Path) -> PathBuf {
     }
     use std::os::unix::ffi::OsStrExt;
     let writable = || {
-        std::ffi::CString::new(root.as_os_str().as_bytes())
-            .is_ok_and(|p| unsafe { libc::access(p.as_ptr(), libc::W_OK) } == 0)
+        std::ffi::CString::new(root.as_os_str().as_bytes()).is_ok_and(|p| {
+            // SAFETY: `p` is a valid null-terminated C string created from root path bytes.
+            unsafe { libc::access(p.as_ptr(), libc::W_OK) == 0 }
+        })
     };
     if !root.starts_with("/usr") && writable() {
         root.join("target")
@@ -121,36 +123,40 @@ impl Build {
             .spawn()
             .map_err(|e| format!("cannot run cargo: {e}"))?;
         let (tx, rx) = channel();
-        let out = child.stdout.take().unwrap();
-        let err = child.stderr.take().unwrap();
+        let out = child.stdout.take().ok_or("cannot capture stdout")?;
+        let err = child.stderr.take().ok_or("cannot capture stderr")?;
         let (t1, t2) = (tx.clone(), tx.clone());
         std::thread::spawn(move || {
             for line in BufReader::new(out).lines().map_while(Result::ok) {
-                let _ = t1.send(match Event::parse(&line) {
+                drop(t1.send(match Event::parse(&line) {
                     Some(e) => Msg::Event(e),
                     None => Msg::Log(line),
-                });
+                }));
             }
         });
         std::thread::spawn(move || {
             for line in BufReader::new(err).lines().map_while(Result::ok) {
-                let _ = t2.send(Msg::Log(line));
+                drop(t2.send(Msg::Log(line)));
             }
         });
         let child = Arc::new(Mutex::new(child));
         let waiter = child.clone();
         std::thread::spawn(move || loop {
-            let status = waiter.lock().unwrap().try_wait();
+            let Ok(mut child) = waiter.lock() else {
+                break;
+            };
+            let status = child.try_wait();
+            drop(child);
             match status {
                 Ok(Some(s)) => {
                     // Let the readers drain what is left in the pipes first.
                     std::thread::sleep(std::time::Duration::from_millis(200));
-                    let _ = tx.send(Msg::Exit(s.success()));
+                    drop(tx.send(Msg::Exit(s.success())));
                     break;
                 }
                 Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
                 Err(_) => {
-                    let _ = tx.send(Msg::Exit(false));
+                    drop(tx.send(Msg::Exit(false)));
                     break;
                 }
             }
@@ -166,13 +172,16 @@ impl Build {
     /// Stops the build: cargo, the xtask it runs and everything that starts (compilers, xorriso). Only this
     /// build's workspace is removed; the log stays.
     pub fn cancel(&self) {
-        let mut child = self.child.lock().unwrap();
+        let Ok(mut child) = self.child.lock() else {
+            return;
+        };
         if child.try_wait().is_ok_and(|s| s.is_none()) {
             // The group's id is cargo's pid (process_group(0)); killing only cargo left xtask running.
+            // SAFETY: child.id() is a valid pid and casting to negative i32 targets the process group created with process_group(0).
             unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) };
         }
-        let _ = child.kill();
-        let _ = std::fs::remove_dir_all(&self.workdir);
+        drop(child.kill());
+        drop(std::fs::remove_dir_all(&self.workdir));
     }
 }
 
@@ -191,7 +200,7 @@ mod tests {
         std::fs::write(&p, b"12345").unwrap();
         assert!(usable(&p, 5));
         assert!(!usable(&p, 6));
-        let _ = std::fs::remove_file(&p);
+        drop(std::fs::remove_file(&p));
         assert!(!usable(&p, 5));
     }
 
@@ -224,6 +233,6 @@ mod tests {
             ),
             Some(checkout)
         );
-        let _ = std::fs::remove_dir_all(&base);
+        drop(std::fs::remove_dir_all(&base));
     }
 }

@@ -38,10 +38,12 @@ pub fn get<S: Stream>(
         if n == 0 {
             return Err(Error::Closed);
         }
-        buf.extend_from_slice(&tmp[..n]);
+        let slice = tmp.get(..n).unwrap_or(&[]);
+        buf.extend_from_slice(slice);
     };
     // Only ASCII headers are read; a stray non-UTF-8 byte in another one (a Latin-1 file name) must not fail the download.
-    let head = String::from_utf8_lossy(&buf[..head_end]).into_owned();
+    let head_bytes = buf.get(..head_end).unwrap_or(&[]);
+    let head = String::from_utf8_lossy(head_bytes).into_owned();
     let mut lines = head.split("\r\n");
     let status_line = lines.next().ok_or(Error::Http("no status line"))?;
     let status: u16 = status_line
@@ -69,7 +71,7 @@ pub fn get<S: Stream>(
         }
     }
     let body_start = head_end + 4;
-    let leftover: Vec<u8> = buf[body_start..].to_vec();
+    let leftover: Vec<u8> = buf.get(body_start..).unwrap_or_default().to_vec();
     drop(buf);
     if !(200..300).contains(&status) {
         return Ok(resp);
@@ -81,7 +83,10 @@ pub fn get<S: Stream>(
         let mut remaining = resp.content_length;
         let mut deliver = |data: &[u8], remaining: &mut Option<u64>| -> Result<()> {
             let data = match remaining {
-                Some(r) => &data[..data.len().min(*r as usize)],
+                Some(r) => {
+                    let end = data.len().min(*r as usize);
+                    data.get(..end).unwrap_or(data)
+                }
                 None => data,
             };
             if let Some(r) = remaining {
@@ -101,7 +106,9 @@ pub fn get<S: Stream>(
                 }
                 break;
             }
-            deliver(&tmp[..n], &mut remaining)?;
+            if let Some(chunk) = tmp.get(..n) {
+                deliver(chunk, &mut remaining)?;
+            }
         }
     }
     Ok(resp)
@@ -122,7 +129,8 @@ fn read_chunked<S: Stream>(
         if n == 0 {
             return Err(Error::Closed);
         }
-        pending.extend_from_slice(&tmp[..n]);
+        let slice = tmp.get(..n).unwrap_or(&[]);
+        pending.extend_from_slice(slice);
         Ok(())
     };
     loop {
@@ -133,11 +141,12 @@ fn read_chunked<S: Stream>(
             }
             fill(&mut pending, s)?;
         };
+        let line_bytes = pending.get(..line_end).ok_or(Error::Http("bad chunk"))?;
         let size_str =
-            core::str::from_utf8(&pending[..line_end]).map_err(|_| Error::Http("bad chunk"))?;
+            core::str::from_utf8(line_bytes).map_err(|_e| Error::Http("bad chunk"))?;
         let size_str = size_str.split(';').next().unwrap_or("").trim();
         let size =
-            usize::from_str_radix(size_str, 16).map_err(|_| Error::Http("bad chunk size"))?;
+            usize::from_str_radix(size_str, 16).map_err(|_e| Error::Http("bad chunk size"))?;
         pending.drain(..line_end + 2);
         if size == 0 {
             return Ok(());
@@ -148,7 +157,8 @@ fn read_chunked<S: Stream>(
                 fill(&mut pending, s)?;
             }
             let n = pending.len().min(left);
-            sink(&pending[..n])?;
+            let chunk = pending.get(..n).ok_or(Error::Http("bad chunk"))?;
+            sink(chunk)?;
             pending.drain(..n);
             left -= n;
         }

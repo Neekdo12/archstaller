@@ -276,7 +276,7 @@ pub fn password(on_change: impl Fn(&str) + 'static) -> gtk::PasswordEntry {
 
 /// A text entry with a completion popup over `options`. With `list`, the value is a comma-separated
 /// list and the completion works on the last item. Free text stays allowed: the options are hints.
-#[allow(deprecated)]
+#[expect(deprecated, reason = "gtk4 EntryCompletion is deprecated in GTK 4.10+")]
 pub fn suggest(
     initial: &str,
     options: Rc<Vec<String>>,
@@ -304,7 +304,9 @@ pub fn suggest(
     let opts = options.clone();
     c.set_match_func(move |comp, key, iter| {
         let _ = (comp, key);
-        let model = comp.model().unwrap();
+        let Some(model) = comp.model() else {
+            return false;
+        };
         let text: String = model.get(iter, 0);
         let typed = last(
             &comp
@@ -321,7 +323,7 @@ pub fn suggest(
             let text = entry.text().to_string();
             let new = if list {
                 match text.rfind(',') {
-                    Some(i) => format!("{}, {picked}", &text[..i]),
+                    Some(i) => format!("{}, {picked}", text.get(..i).unwrap_or("")),
                     None => picked,
                 }
             } else {
@@ -337,10 +339,13 @@ pub fn suggest(
 }
 
 pub fn spin(value: u32, min: u32, max: u32, on_change: impl Fn(u32) + 'static) -> gtk::SpinButton {
-    let s = gtk::SpinButton::with_range(min as f64, max as f64, 1.0);
-    s.set_value(value as f64);
+    let s = gtk::SpinButton::with_range(f64::from(min), f64::from(max), 1.0);
+    s.set_value(f64::from(value));
     s.set_hexpand(false);
-    s.connect_value_changed(move |s| on_change(s.value() as u32));
+    s.connect_value_changed(move |s| {
+        let v = u32::try_from(s.value_as_int()).unwrap_or(0);
+        on_change(v);
+    });
     s
 }
 

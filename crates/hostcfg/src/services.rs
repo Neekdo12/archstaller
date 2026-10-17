@@ -199,7 +199,7 @@ mod tests {
     #[test]
     fn resolve_loads_file_content() {
         let temp_dir = std::env::temp_dir().join("archstaller_test_svc");
-        let _ = fs::remove_dir_all(&temp_dir);
+        drop(fs::remove_dir_all(&temp_dir));
         fs::create_dir_all(&temp_dir).unwrap();
         let svc_file = temp_dir.join("test.service");
         fs::write(&svc_file, "[Unit]\nDescription=Test\n").unwrap();
@@ -243,6 +243,6 @@ mod tests {
             Some(b"[Unit]\nDescription=Test\n".to_vec())
         );
 
-        let _ = fs::remove_dir_all(&temp_dir);
+        drop(fs::remove_dir_all(&temp_dir));
     }
 }

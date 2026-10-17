@@ -71,19 +71,19 @@ pub fn phy_read(regs: &Mmio, reg: u32) -> Option<u16> {
 
 pub fn phy_write(regs: &Mmio, reg: u32, val: u16) {
     regs.write32(PHYAR, 1 << 31 | reg << 16 | val as u32);
-    let _ = platform::wait_until(10, || regs.read32(PHYAR) & (1 << 31) == 0);
+    let _res = platform::wait_until(10, || regs.read32(PHYAR) & (1 << 31) == 0);
 }
 
 /// Extended register interface (ERI): MAC-internal registers behind ERIAR/ERIDR.
 pub fn eri_write(regs: &Mmio, addr: u32, mask: u32, val: u32) {
     regs.write32(ERIDR, val);
     regs.write32(ERIAR, 1 << 31 | mask << 12 | addr);
-    let _ = platform::wait_until(10, || regs.read32(ERIAR) & (1 << 31) == 0);
+    let _res = platform::wait_until(10, || regs.read32(ERIAR) & (1 << 31) == 0);
 }
 
 pub fn eri_read(regs: &Mmio, addr: u32, mask: u32) -> u32 {
     regs.write32(ERIAR, mask << 12 | addr);
-    let _ = platform::wait_until(10, || regs.read32(ERIAR) & (1 << 31) != 0);
+    let _res = platform::wait_until(10, || regs.read32(ERIAR) & (1 << 31) != 0);
     regs.read32(ERIDR)
 }
 
@@ -96,13 +96,13 @@ pub fn eri_update(regs: &Mmio, addr: u32, clear: u32, set: u32) {
 /// PCIe PHY (EPHY) registers.
 pub fn ephy_read(regs: &Mmio, reg: u32) -> u16 {
     regs.write32(EPHYAR, (reg & 0x1f) << 16);
-    let _ = platform::wait_until(10, || regs.read32(EPHYAR) & (1 << 31) != 0);
+    let _res = platform::wait_until(10, || regs.read32(EPHYAR) & (1 << 31) != 0);
     regs.read32(EPHYAR) as u16
 }
 
 pub fn ephy_write(regs: &Mmio, reg: u32, val: u16) {
     regs.write32(EPHYAR, 1 << 31 | (reg & 0x1f) << 16 | val as u32);
-    let _ = platform::wait_until(10, || regs.read32(EPHYAR) & (1 << 31) == 0);
+    let _res = platform::wait_until(10, || regs.read32(EPHYAR) & (1 << 31) == 0);
 }
 
 /// Applies EPHY changes: (register, bits to clear, bits to set).
@@ -148,7 +148,7 @@ fn csi_write(c: &Ctx, addr: u32, val: u32) {
         CSIAR,
         1 << 31 | (addr & 0xfff) | 0xf000 | (c.dev.addr.func as u32) << 16,
     );
-    let _ = platform::wait_until(5, || c.regs.read32(CSIAR) & (1 << 31) == 0);
+    let _res = platform::wait_until(5, || c.regs.read32(CSIAR) & (1 << 31) == 0);
 }
 
 /// L0s/L1 entrance latency (config space byte 0x70f; Realtek says so).
@@ -835,7 +835,7 @@ fn hw_8168h_1(c: &Ctx) {
 
 fn stop_cmac(r: &Mmio) {
     mod8(r, IBCR2, 0x01, 0);
-    let _ = platform::wait_until(50, || r.read8(IBISR0) & 0x02 != 0);
+    let _res = platform::wait_until(50, || r.read8(IBISR0) & 0x02 != 0);
     mod8(r, IBISR0, 0, 0x20);
     mod8(r, IBCR0, 0x01, 0);
 }

@@ -7,19 +7,32 @@ use sourceview5::prelude::*;
 use std::rc::Rc;
 
 /// A list card: an "add" field with suggestions on top of the list editor.
-#[allow(clippy::too_many_arguments)]
-fn list_card(
-    app: &Rc<App>,
-    content: &gtk::Box,
-    title: &str,
-    label: &str,
-    hint: &str,
+struct ListCard<'a> {
+    app: &'a Rc<App>,
+    content: &'a gtk::Box,
+    title: &'a str,
+    label: &'a str,
+    hint: &'a str,
     options: Rc<Vec<String>>,
     items: Vec<String>,
     height: i32,
     set: fn(&mut Model, Vec<String>),
     get: fn(&Model) -> Vec<String>,
-) {
+}
+
+fn list_card(args: ListCard<'_>) {
+    let ListCard {
+        app,
+        content,
+        title,
+        label,
+        hint,
+        options,
+        items,
+        height,
+        set,
+        get,
+    } = args;
     let c = ui::card(content, Some(title));
     let add = ui::suggest("", options, false, |_| {});
     let r = ui::row(&c, label, &add);
@@ -296,8 +309,8 @@ fn open_custom_service_editor(
 
             app.edit(move |m| {
                 if let Some(idx) = existing_index {
-                    if idx < m.cfg.custom_services.len() {
-                        m.cfg.custom_services[idx] = service;
+                    if let Some(slot) = m.cfg.custom_services.get_mut(idx) {
+                        *slot = service;
                     }
                 } else {
                     m.cfg.custom_services.push(service);
@@ -349,18 +362,18 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     }
 
     // 1. Package services card
-    list_card(
+    list_card(ListCard {
         app,
         content,
-        "Services enabled on first boot",
-        "Unit",
-        "One systemd unit per line, for example sshd.service.",
-        services,
-        cfg.services.clone(),
-        130,
-        |m, v| m.cfg.services = v,
-        |m| m.cfg.services.clone(),
-    );
+        title: "Services enabled on first boot",
+        label: "Unit",
+        hint: "One systemd unit per line, for example sshd.service.",
+        options: services,
+        items: cfg.services.clone(),
+        height: 130,
+        set: |m, v| m.cfg.services = v,
+        get: |m| m.cfg.services.clone(),
+    });
 
     // 2. Custom services card
     let c = ui::card(content, Some("Custom systemd services"));
@@ -502,16 +515,16 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     c.append(&actions_row);
 
     // 3. Extra kernel parameters card
-    list_card(
+    list_card(ListCard {
         app,
         content,
-        "Extra kernel parameters",
-        "Parameter",
-        "One word per line, appended to the installed system's kernel command line.",
-        params,
-        cfg.kernel_params.clone(),
-        110,
-        |m, v| m.cfg.kernel_params = v,
-        |m| m.cfg.kernel_params.clone(),
-    );
+        title: "Extra kernel parameters",
+        label: "Parameter",
+        hint: "One word per line, appended to the installed system's kernel command line.",
+        options: params,
+        items: cfg.kernel_params.clone(),
+        height: 110,
+        set: |m, v| m.cfg.kernel_params = v,
+        get: |m| m.cfg.kernel_params.clone(),
+    });
 }

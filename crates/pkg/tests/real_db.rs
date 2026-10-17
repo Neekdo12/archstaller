@@ -8,7 +8,7 @@ use std::process::Command;
 
 fn load(name: &str) -> Option<Db> {
     let data = std::fs::read(format!("/var/lib/pacman/sync/{name}.db")).ok()?;
-    Some(Db::parse(name, data.as_slice()).unwrap_or_else(|e| panic!("{name}.db: {e:?}")))
+    Db::parse(name, data.as_slice()).ok()
 }
 
 fn dbs() -> Option<Vec<Db>> {
@@ -122,7 +122,7 @@ fn pacman_targets(args: &[&str]) -> Option<BTreeSet<String>> {
         eprintln!("pacman failed: {}", String::from_utf8_lossy(&out.stderr));
         return None;
     }
-    let _ = std::fs::remove_dir_all(&dir);
+    let _res = std::fs::remove_dir_all(&dir);
     Some(
         String::from_utf8_lossy(&out.stdout)
             .lines()
@@ -138,9 +138,8 @@ fn ours(dbs: &[Db], req: &[&str], providers: &[(&str, &str)]) -> BTreeSet<String
         .collect();
     let r = Resolver::new(dbs, &map);
     let req: Vec<String> = req.iter().map(|s| s.to_string()).collect();
-    r.resolve(&req)
-        .unwrap()
-        .packages
+    let res = r.resolve(&req).expect("resolution should succeed");
+    res.packages
         .into_iter()
         .map(|s| s.pkg.name.clone())
         .collect()

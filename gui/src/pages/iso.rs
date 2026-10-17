@@ -172,7 +172,9 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         if to_stick {
             let mut first: Option<gtk::CheckButton> = None;
             for &i in &vv {
-                let v = volumes[i].clone();
+                let Some(v) = volumes.get(i).cloned() else {
+                    continue;
+                };
                 let r = ui::hbox(10);
                 let place = if v.mounted {
                     v.mount.display().to_string()
@@ -225,7 +227,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     let run = ui::hbox(8);
     let can = problems.is_empty()
         && app.st.borrow().build.running.is_none()
-        && (!to_stick || stick_idx.is_some_and(|i| volumes[i].mounted));
+        && (!to_stick || stick_idx.and_then(|i| volumes.get(i)).is_some_and(|v| v.mounted));
     let build_btn = ui::primary(
         if to_stick {
             "Build onto Ventoy"
@@ -246,7 +248,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
             if let Some(b) = st.build.running.take() {
                 b.cancel();
                 // The log is otherwise only written when a build exits, which a cancelled one is no longer watched for.
-                let _ = std::fs::write(&b.log_path, st.build.log.join("\n"));
+                drop(std::fs::write(&b.log_path, st.build.log.join("\n")));
                 st.build.error = Some(format!("Cancelled. Log kept at {}", b.log_path.display()));
                 st.build.iso = None;
             }
@@ -612,7 +614,9 @@ pub fn live_refresh(app: &Rc<App>) {
         .or(vv.first().copied());
     let to_stick = !to_file && stick_idx.is_some();
     l.build_btn.set_sensitive(
-        problems_empty && !running && (!to_stick || stick_idx.is_some_and(|i| volumes[i].mounted)),
+        problems_empty
+            && !running
+            && (!to_stick || stick_idx.and_then(|i| volumes.get(i)).is_some_and(|v| v.mounted)),
     );
     let marks: Vec<String> = st
         .build
@@ -651,7 +655,7 @@ pub fn live_refresh(app: &Rc<App>) {
     let shown = st.build.log_shown;
     if shown < st.build.log.len() {
         let mut end = l.log.end_iter();
-        for line in &st.build.log[shown..] {
+        for line in st.build.log.get(shown..).into_iter().flatten() {
             l.log.insert(&mut end, line);
             l.log.insert(&mut end, "\n");
         }
@@ -757,7 +761,9 @@ pub fn start_from_action(app: &Rc<App>) {
             .filter(|i| vv.contains(i))
             .or(vv.first().copied());
         if let Some(idx) = stick_idx.filter(|_| !to_file) {
-            let v = volumes[idx].clone();
+            let Some(v) = volumes.get(idx).cloned() else {
+                return;
+            };
             if !v.mounted {
                 a.set_status("mount the Ventoy drive first");
                 return;
@@ -972,49 +978,54 @@ pub fn pump(app: &Rc<App>) -> bool {
             }
         }
         if let Some(ok) = exit {
-            let b = st.build.running.take().unwrap();
-            let _ = std::fs::write(&b.log_path, st.build.log.join("\n"));
+            let Some(b) = st.build.running.take() else {
+                return pump_copy(app, start_copy_after, changed);
+            };
+            drop(std::fs::write(&b.log_path, st.build.log.join("\n")));
             match (ok, st.build.done.take()) {
                 (true, Some((path, size, sha)))
                     if st.build.flash.is_some()
                         && build::usable(std::path::Path::new(&path), size) =>
                 {
-                    let dev = st.build.flash.take().unwrap();
-                    st.media.cleanup = Some(b.workdir.clone());
-                    st.build.iso = Some((PathBuf::from(&path), size, sha));
-                    st.media.result = None;
-                    st.build.flash_pending = Some((PathBuf::from(path), dev));
+                    if let Some(dev) = st.build.flash.take() {
+                        st.media.cleanup = Some(b.workdir.clone());
+                        st.build.iso = Some((PathBuf::from(&path), size, sha));
+                        st.media.result = None;
+                        st.build.flash_pending = Some((PathBuf::from(path), dev));
+                    }
                 }
                 (true, Some((path, size, sha)))
                     if st.build.stick.is_some()
                         && build::usable(std::path::Path::new(&path), size) =>
                 {
-                    let (v, name) = st.build.stick.clone().unwrap();
-                    st.media.cleanup = Some(b.workdir.clone());
-                    st.build.iso = Some((PathBuf::from(&path), size, sha));
-                    st.media.result = None;
-                    let dir = v.mount.clone();
-                    start_copy_after = Some((PathBuf::from(path), v, dir, name));
+                    if let Some((v, name)) = st.build.stick.take() {
+                        st.media.cleanup = Some(b.workdir.clone());
+                        st.build.iso = Some((PathBuf::from(&path), size, sha));
+                        st.media.result = None;
+                        let dir = v.mount.clone();
+                        start_copy_after = Some((PathBuf::from(path), v, dir, name));
+                    }
                 }
                 (true, Some((path, size, sha)))
                     if build::usable(std::path::Path::new(&path), size) =>
                 {
-                    let out = st.build.out.clone().unwrap();
-                    let moved = std::fs::rename(&path, &out)
-                        .or_else(|_| std::fs::copy(&path, &out).map(|_| ()));
-                    match moved {
-                        Ok(()) if build::usable(&out, size) => {
-                            let _ = std::fs::remove_dir_all(&b.workdir);
-                            st.build.iso = Some((out, size, sha));
-                        }
-                        Ok(()) => {
-                            st.build.error = Some(
-                                "the ISO was moved but is not readable at the expected size".into(),
-                            )
-                        }
-                        Err(e) => {
-                            st.build.error =
-                                Some(format!("cannot place the ISO at its destination: {e}"))
+                    if let Some(out) = st.build.out.take() {
+                        let moved = std::fs::rename(&path, &out)
+                            .or_else(|_| std::fs::copy(&path, &out).map(|_| ()));
+                        match moved {
+                            Ok(()) if build::usable(&out, size) => {
+                                drop(std::fs::remove_dir_all(&b.workdir));
+                                st.build.iso = Some((out, size, sha));
+                            }
+                            Ok(()) => {
+                                st.build.error = Some(
+                                    "the ISO was moved but is not readable at the expected size".into(),
+                                )
+                            }
+                            Err(e) => {
+                                st.build.error =
+                                    Some(format!("cannot place the ISO at its destination: {e}"))
+                            }
                         }
                     }
                 }
@@ -1071,7 +1082,7 @@ fn pump_copy(
                         // A flash built its ISO only for this write: the workspace goes whether or not it worked.
                         if r.is_ok() || st.media.flashing {
                             if let Some(d) = st.media.cleanup.take() {
-                                let _ = std::fs::remove_dir_all(d);
+                                drop(std::fs::remove_dir_all(d));
                                 st.build.iso = None;
                             }
                         }
@@ -1317,11 +1328,11 @@ fn run_media(app: &Rc<App>, iso: PathBuf, target: Box<dyn MediaTarget + Send>, f
         let r = target.write(
             &iso,
             &mut |p, d, t| {
-                let _ = t2.send(MediaMsg::Progress(p, d, t));
+                drop(t2.send(MediaMsg::Progress(p, d, t)));
             },
             &cancel,
         );
-        let _ = tx.send(MediaMsg::Done(r));
+        drop(tx.send(MediaMsg::Done(r)));
     });
 }
 
@@ -1341,7 +1352,7 @@ fn run_drive(app: &Rc<App>, dev: String, mount: bool) {
             media::sync_and_unmount(&dev)
                 .map(|_| format!("{dev} is synced and unmounted: it is safe to remove"))
         };
-        let _ = tx.send(r);
+        drop(tx.send(r));
     });
 }
 

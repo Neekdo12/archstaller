@@ -41,7 +41,7 @@ impl AurState {
         self.search_rx = Some(rx);
         self.results = None;
         std::thread::spawn(move || {
-            let _ = tx.send(rpc::search(&term).map(|mut v| {
+            drop(tx.send(rpc::search(&term).map(|mut v| {
                 v.sort_by(|a, b| {
                     b.popularity
                         .partial_cmp(&a.popularity)
@@ -49,7 +49,7 @@ impl AurState {
                 });
                 v.truncate(12);
                 v
-            }));
+            })));
         });
     }
 
@@ -63,7 +63,7 @@ impl AurState {
         self.ack_vcs = false;
         self.message = None;
         std::thread::spawn(move || {
-            let _ = tx.send(rpc::fetch_review(&name, &base, None));
+            drop(tx.send(rpc::fetch_review(&name, &base, None)));
         });
     }
 
@@ -80,7 +80,7 @@ impl AurState {
         self.pin_rx = Some(rx);
         self.message = None;
         std::thread::spawn(move || {
-            let _ = tx.send(pin(review, existing, &mirror, &cache));
+            drop(tx.send(pin(review, existing, &mirror, &cache)));
         });
     }
 
@@ -138,7 +138,8 @@ pub fn pin(
     for e in existing.iter().filter(|e| e.name != review.name) {
         let r = aurbuild::plan::review(&e.name, &e.commit, rpc::snapshot(&e.commit)?)?;
         if r.tree_sha256 != e.sha256 {
-            return Err(format!("{}: the recipe at the pinned commit {} no longer matches its pin; remove it and review it again", e.name, &e.commit[..8]));
+            let commit_short = e.commit.get(..8).unwrap_or(&e.commit);
+            return Err(format!("{}: the recipe at the pinned commit {commit_short} no longer matches its pin; remove it and review it again", e.name));
         }
         reviews.push(r);
     }

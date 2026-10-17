@@ -24,9 +24,10 @@ pub const STATUS_SUCCESS: u32 = 0;
 pub const PACKET_HDR: usize = 44;
 
 fn le(buf: &[u8], off: usize) -> Result<u32> {
-    buf.get(off..off + 4)
-        .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
-        .ok_or(Error::Io)
+    match buf.get(off..off + 4) {
+        Some(&[b0, b1, b2, b3]) => Ok(u32::from_le_bytes([b0, b1, b2, b3])),
+        _ => Err(Error::Io),
+    }
 }
 
 fn header(msg_type: u32, len: usize, id: u32) -> Vec<u8> {
@@ -97,7 +98,7 @@ pub fn parse_reply(buf: &[u8]) -> Result<Reply> {
     if len < 12 || len > buf.len() {
         return Err(Error::Io);
     }
-    let buf = &buf[..len];
+    let buf = buf.get(..len).ok_or(Error::Io)?;
     let request_id = le(buf, 8)?;
     let status = if len >= 16 { le(buf, 12)? } else { 0 };
     let mut r = Reply {
@@ -138,7 +139,9 @@ pub fn unwrap_frames(buf: &[u8]) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
     let mut pos = 0;
     while pos + 16 <= buf.len() {
-        let msg = &buf[pos..];
+        let Some(msg) = buf.get(pos..) else {
+            break;
+        };
         let (Ok(ty), Ok(len), Ok(off), Ok(dlen)) =
             (le(msg, 0), le(msg, 4), le(msg, 8), le(msg, 12))
         else {
@@ -148,7 +151,9 @@ pub fn unwrap_frames(buf: &[u8]) -> Vec<Vec<u8>> {
         if ty != MSG_PACKET || len < 16 || len > msg.len() || start + dlen > len {
             break;
         }
-        out.push(msg[start..start + dlen].to_vec());
+        if let Some(frame_bytes) = msg.get(start..start + dlen) {
+            out.push(frame_bytes.to_vec());
+        }
         pos += len;
     }
     out

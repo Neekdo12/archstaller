@@ -18,8 +18,22 @@ const fn hex(c: u8) -> u8 {
         b'0'..=b'9' => c - b'0',
         b'a'..=b'f' => c - b'a' + 10,
         b'A'..=b'F' => c - b'A' + 10,
-        _ => panic!("bad hex digit"),
+        _ => 0,
     }
+}
+
+const fn read_byte(p: *const u8, off: usize) -> u8 {
+    // SAFETY: Caller ensures off is within the valid buffer bounds.
+    let ptr = unsafe { p.add(off) };
+    // SAFETY: ptr is non-null, aligned, and valid for reading.
+    unsafe { *ptr }
+}
+
+const fn write_byte(p: *mut u8, off: usize, val: u8) {
+    // SAFETY: Caller ensures off is within the valid buffer bounds.
+    let ptr = unsafe { p.add(off) };
+    // SAFETY: ptr is non-null, aligned, and valid for writing.
+    unsafe { *ptr = val };
 }
 
 /// Parses "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" into the mixed-endian on-disk form.
@@ -28,19 +42,52 @@ pub const fn guid(s: &str) -> [u8; 16] {
     let mut raw = [0u8; 16];
     let mut n = 0;
     let mut i = 0;
-    while i < b.len() {
-        if b[i] != b'-' {
-            raw[n] = hex(b[i]) << 4 | hex(b[i + 1]);
-            n += 1;
-            i += 2;
+    while i < b.len() && n < 16 {
+        let c = read_byte(b.as_ptr(), i);
+        if c != b'-' {
+            if i + 1 < b.len() {
+                let next = read_byte(b.as_ptr(), i + 1);
+                write_byte(raw.as_mut_ptr(), n, hex(c) << 4 | hex(next));
+                n += 1;
+                i += 2;
+            } else {
+                i += 1;
+            }
         } else {
             i += 1;
         }
     }
+    let p = raw.as_ptr();
     [
-        raw[3], raw[2], raw[1], raw[0], raw[5], raw[4], raw[7], raw[6], raw[8], raw[9], raw[10],
-        raw[11], raw[12], raw[13], raw[14], raw[15],
+        read_byte(p, 3),
+        read_byte(p, 2),
+        read_byte(p, 1),
+        read_byte(p, 0),
+        read_byte(p, 5),
+        read_byte(p, 4),
+        read_byte(p, 7),
+        read_byte(p, 6),
+        read_byte(p, 8),
+        read_byte(p, 9),
+        read_byte(p, 10),
+        read_byte(p, 11),
+        read_byte(p, 12),
+        read_byte(p, 13),
+        read_byte(p, 14),
+        read_byte(p, 15),
     ]
+}
+
+fn put_slice(buf: &mut [u8], off: usize, data: &[u8]) {
+    if let Some(slot) = buf.get_mut(off..off + data.len()) {
+        slot.copy_from_slice(data);
+    }
+}
+
+fn put_u8(buf: &mut [u8], off: usize, val: u8) {
+    if let Some(slot) = buf.get_mut(off) {
+        *slot = val;
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -116,11 +163,14 @@ impl Layout {
     }
 
     pub fn byte_range(&self, index: usize) -> (u64, u64) {
-        let p = &self.partitions[index];
-        (
-            p.first_lba * self.sector_size as u64,
-            p.sectors() * self.sector_size as u64,
-        )
+        if let Some(p) = self.partitions.get(index) {
+            (
+                p.first_lba * self.sector_size as u64,
+                p.sectors() * self.sector_size as u64,
+            )
+        } else {
+            (0, 0)
+        }
     }
 
     /// Writes protective MBR, both headers and both entry arrays.
@@ -131,44 +181,44 @@ impl Layout {
 
         let mut entries = vec![0u8; (ENTRIES * ENTRY_SIZE) as usize];
         for (i, p) in self.partitions.iter().enumerate() {
-            let e = &mut entries[i * ENTRY_SIZE as usize..(i + 1) * ENTRY_SIZE as usize];
-            e[0..16].copy_from_slice(&p.type_guid);
-            e[16..32].copy_from_slice(&p.unique_guid);
-            e[32..40].copy_from_slice(&p.first_lba.to_le_bytes());
-            e[40..48].copy_from_slice(&p.last_lba.to_le_bytes());
+            let base = i * ENTRY_SIZE as usize;
+            put_slice(&mut entries, base, &p.type_guid);
+            put_slice(&mut entries, base + 16, &p.unique_guid);
+            put_slice(&mut entries, base + 32, &p.first_lba.to_le_bytes());
+            put_slice(&mut entries, base + 40, &p.last_lba.to_le_bytes());
             for (j, c) in p.name.encode_utf16().take(36).enumerate() {
-                e[56 + 2 * j..58 + 2 * j].copy_from_slice(&c.to_le_bytes());
+                put_slice(&mut entries, base + 56 + 2 * j, &c.to_le_bytes());
             }
         }
         let entries_crc = crc32(&entries);
 
         // Protective MBR.
         let mut mbr = vec![0u8; ss];
-        mbr[446] = 0x80; // marked bootable for firmware that insists on an active entry
-        mbr[447..450].copy_from_slice(&[0, 2, 0]); // CHS of LBA 1
-        mbr[450] = 0xee;
-        mbr[451..454].copy_from_slice(&[0xff, 0xff, 0xff]);
-        mbr[454..458].copy_from_slice(&1u32.to_le_bytes());
-        mbr[458..462].copy_from_slice(&(last_lba.min(u32::MAX as u64) as u32).to_le_bytes());
-        mbr[510] = 0x55;
-        mbr[511] = 0xaa;
+        put_u8(&mut mbr, 446, 0x80); // marked bootable for firmware that insists on an active entry
+        put_slice(&mut mbr, 447, &[0, 2, 0]); // CHS of LBA 1
+        put_u8(&mut mbr, 450, 0xee);
+        put_slice(&mut mbr, 451, &[0xff, 0xff, 0xff]);
+        put_slice(&mut mbr, 454, &1u32.to_le_bytes());
+        put_slice(&mut mbr, 458, &(last_lba.min(u32::MAX as u64) as u32).to_le_bytes());
+        put_u8(&mut mbr, 510, 0x55);
+        put_u8(&mut mbr, 511, 0xaa);
 
         let header = |current: u64, backup: u64, entries_lba: u64| -> Vec<u8> {
             let mut h = vec![0u8; ss];
-            h[0..8].copy_from_slice(b"EFI PART");
-            h[8..12].copy_from_slice(&0x0001_0000u32.to_le_bytes());
-            h[12..16].copy_from_slice(&92u32.to_le_bytes());
-            h[24..32].copy_from_slice(&current.to_le_bytes());
-            h[32..40].copy_from_slice(&backup.to_le_bytes());
-            h[40..48].copy_from_slice(&(2 + table_sectors).to_le_bytes());
-            h[48..56].copy_from_slice(&(last_lba - 1 - table_sectors).to_le_bytes());
-            h[56..72].copy_from_slice(&self.disk_guid);
-            h[72..80].copy_from_slice(&entries_lba.to_le_bytes());
-            h[80..84].copy_from_slice(&ENTRIES.to_le_bytes());
-            h[84..88].copy_from_slice(&ENTRY_SIZE.to_le_bytes());
-            h[88..92].copy_from_slice(&entries_crc.to_le_bytes());
-            let c = crc32(&h[..92]);
-            h[16..20].copy_from_slice(&c.to_le_bytes());
+            put_slice(&mut h, 0, b"EFI PART");
+            put_slice(&mut h, 8, &0x0001_0000u32.to_le_bytes());
+            put_slice(&mut h, 12, &92u32.to_le_bytes());
+            put_slice(&mut h, 24, &current.to_le_bytes());
+            put_slice(&mut h, 32, &backup.to_le_bytes());
+            put_slice(&mut h, 40, &(2 + table_sectors).to_le_bytes());
+            put_slice(&mut h, 48, &(last_lba - 1 - table_sectors).to_le_bytes());
+            put_slice(&mut h, 56, &self.disk_guid);
+            put_slice(&mut h, 72, &entries_lba.to_le_bytes());
+            put_slice(&mut h, 80, &ENTRIES.to_le_bytes());
+            put_slice(&mut h, 84, &ENTRY_SIZE.to_le_bytes());
+            put_slice(&mut h, 88, &entries_crc.to_le_bytes());
+            let c = crc32(h.get(..92).unwrap_or(&[]));
+            put_slice(&mut h, 16, &c.to_le_bytes());
             h
         };
 

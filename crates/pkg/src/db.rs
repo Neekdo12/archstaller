@@ -31,7 +31,7 @@ impl Db {
             if e.kind == Kind::File && e.path.ends_with("/desc") {
                 let data = tar.read_all()?;
                 let text =
-                    core::str::from_utf8(&data).map_err(|_| Error::Format("desc not utf-8"))?;
+                    core::str::from_utf8(&data).map_err(|_e| Error::Format("desc not utf-8"))?;
                 let p = Package::parse(name, text)?;
                 seen(&p, text);
                 packages.push(p);

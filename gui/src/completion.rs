@@ -59,12 +59,12 @@ fn section_before(before: &str) -> Option<String> {
             continue;
         }
         if t.starts_with("[[") && t.ends_with("]]") {
-            let inner = t[2..t.len() - 2].trim();
+            let inner = t.get(2..t.len().saturating_sub(2)).unwrap_or("").trim();
             let last_part = inner.rsplit('.').next().unwrap_or(inner);
             return Some(last_part.to_string());
         }
         if t.starts_with('[') && t.ends_with(']') {
-            let inner = t[1..t.len() - 1].trim();
+            let inner = t.get(1..t.len().saturating_sub(1)).unwrap_or("").trim();
             let last_part = inner.rsplit('.').next().unwrap_or(inner);
             return Some(last_part.to_string());
         }
@@ -80,8 +80,8 @@ fn enclosing_key(before: &str) -> Option<String> {
     let mut i = bytes.len();
     while i > 0 {
         i -= 1;
-        let c = bytes[i];
-        if c == '"' && (i == 0 || bytes[i - 1] != '\\') {
+        let Some(&c) = bytes.get(i) else { continue };
+        if c == '"' && (i == 0 || bytes.get(i.saturating_sub(1)) != Some(&'\\')) {
             in_str = !in_str;
         }
         if in_str {
@@ -91,7 +91,7 @@ fn enclosing_key(before: &str) -> Option<String> {
             '}' | ']' => depth += 1,
             '{' | '[' => {
                 if depth == 0 {
-                    let head: String = bytes[..i].iter().collect();
+                    let head: String = bytes.get(..i).unwrap_or(&[]).iter().collect();
                     return ident_before(&head);
                 }
                 depth -= 1;
@@ -104,21 +104,34 @@ fn enclosing_key(before: &str) -> Option<String> {
 
 pub fn context(before: &str) -> Context {
     let line_start = before.rfind('\n').map_or(0, |i| i + 1);
-    let line = &before[line_start..];
+    let line = before.get(line_start..).unwrap_or("");
     // Inside a string when an odd number of unescaped quotes precede the cursor on this line.
     let mut quotes = 0;
     let mut last_quote = None;
     let chars: Vec<(usize, char)> = line.char_indices().collect();
     for (n, (i, c)) in chars.iter().enumerate() {
-        if *c == '"' && (n == 0 || chars[n - 1].1 != '\\') {
+        if *c == '"'
+            && (n == 0
+                || !chars
+                    .get(n.saturating_sub(1))
+                    .is_some_and(|prev| prev.1 == '\\'))
+        {
             quotes += 1;
             last_quote = Some(*i);
         }
     }
     if quotes % 2 == 1 {
-        let q = last_quote.unwrap();
-        let prefix = line[q + 1..].to_string();
-        let key = ident_before(&line[..q]).or_else(|| enclosing_key(&before[..line_start + q]));
+        let Some(q) = last_quote else {
+            return Context {
+                in_string: false,
+                key: None,
+                prefix: String::new(),
+            };
+        };
+        let prefix = line.get(q + 1..).unwrap_or("").to_string();
+        let head_line = line.get(..q).unwrap_or("");
+        let before_sub = before.get(..line_start + q).unwrap_or("");
+        let key = ident_before(head_line).or_else(|| enclosing_key(before_sub));
         return Context {
             in_string: true,
             key,
@@ -133,8 +146,9 @@ pub fn context(before: &str) -> Context {
         .into_iter()
         .rev()
         .collect();
-    let head = &line[..line.len() - prefix.len()];
-    let key = ident_before(head).or_else(|| enclosing_key(&before[..before.len() - prefix.len()]));
+    let head = line.get(..line.len().saturating_sub(prefix.len())).unwrap_or("");
+    let before_head = before.get(..before.len().saturating_sub(prefix.len())).unwrap_or("");
+    let key = ident_before(head).or_else(|| enclosing_key(before_head));
     Context {
         in_string: false,
         key,

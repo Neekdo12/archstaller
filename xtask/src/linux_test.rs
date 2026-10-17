@@ -14,14 +14,14 @@ impl Storage for FileStorage {
     fn write_at(&mut self, off: u64, data: &[u8]) -> ext4w::Result<()> {
         self.0
             .seek(SeekFrom::Start(off))
-            .map_err(|_| ext4w::Error::Io)?;
-        self.0.write_all(data).map_err(|_| ext4w::Error::Io)
+            .map_err(|_e| ext4w::Error::Io)?;
+        self.0.write_all(data).map_err(|_e| ext4w::Error::Io)
     }
     fn read_at(&mut self, off: u64, buf: &mut [u8]) -> ext4w::Result<()> {
         self.0
             .seek(SeekFrom::Start(off))
-            .map_err(|_| ext4w::Error::Io)?;
-        self.0.read_exact(buf).map_err(|_| ext4w::Error::Io)
+            .map_err(|_e| ext4w::Error::Io)?;
+        self.0.read_exact(buf).map_err(|_e| ext4w::Error::Io)
     }
 }
 
@@ -170,7 +170,7 @@ pub fn run_test() -> Result<()> {
         .stdout(Stdio::piped())
         .spawn()?;
     let mut log = String::new();
-    let mut out = child.stdout.take().unwrap();
+    let mut out = child.stdout.take().ok_or("cannot capture stdout")?;
     let start = std::time::Instant::now();
     let mut buf = [0u8; 4096];
     let ok = loop {
@@ -178,9 +178,11 @@ pub fn run_test() -> Result<()> {
         if n == 0 {
             break false;
         }
-        log.push_str(&String::from_utf8_lossy(&buf[..n]));
+        if let Some(chunk) = buf.get(..n) {
+            log.push_str(&String::from_utf8_lossy(chunk));
+        }
         if let Some(i) = log.find("marker=") {
-            if log[i..].contains('\n') {
+            if log.get(i..).is_some_and(|s| s.contains('\n')) {
                 break true;
             }
         }
@@ -188,8 +190,8 @@ pub fn run_test() -> Result<()> {
             break false;
         }
     };
-    let _ = child.kill();
-    let _ = child.wait();
+    drop(child.kill());
+    drop(child.wait());
     for line in log.lines().filter(|l| {
         l.contains("init:")
             || l.contains("test-payload")

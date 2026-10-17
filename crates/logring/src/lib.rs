@@ -49,7 +49,9 @@ impl<const CAP: usize> Ring<CAP> {
     pub fn push(&mut self, bytes: &[u8]) {
         for &b in bytes {
             let h = self.head();
-            self.buf[h] = b;
+            if let Some(slot) = self.buf.get_mut(h) {
+                *slot = b;
+            }
             self.written = self.written.wrapping_add(1);
         }
     }

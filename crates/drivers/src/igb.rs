@@ -141,12 +141,12 @@ impl Igb {
         platform::delay_us(20_000);
         platform::wait_until(1000, || regs.read32(CTRL) & reset == 0)?;
         // The NVM autoload fills in the MAC address; wait for it.
-        let _ = platform::wait_until(500, || regs.read32(EECD) & EECD_AUTO_RD != 0);
+        let _res = platform::wait_until(500, || regs.read32(EECD) & EECD_AUTO_RD != 0);
         regs.write32(IMC, 0xffff_ffff);
         regs.write32(CTRL, regs.read32(CTRL) | CTRL_SLU);
         if variant == Variant::Igb {
             // Start copper auto-negotiation the way the Linux driver does.
-            let _ = Self::mdic_write(&regs, MII_BMCR, BMCR_AUTONEG_RESTART);
+            let _res = Self::mdic_write(&regs, MII_BMCR, BMCR_AUTONEG_RESTART);
         }
 
         let ral = regs.read32(RAL0);
@@ -231,8 +231,11 @@ impl NetDevice for Igb {
         if frame.len() > BUF || frame.is_empty() {
             return Err(Error::InvalidArgument);
         }
+        let Some(dest) = self.tx_buf.as_mut_slice().get_mut(..frame.len()) else {
+            return Err(Error::InvalidArgument);
+        };
+        dest.copy_from_slice(frame);
         let d = Mmio::new(self.tx_ring.as_ptr()).offset(16 * self.tx_next);
-        self.tx_buf.as_mut_slice()[..frame.len()].copy_from_slice(frame);
         d.write64(0, self.tx_buf.phys());
         d.write32(12, (frame.len() as u32) << 14); // PAYLEN, DD cleared
         d.write32(
@@ -255,7 +258,13 @@ impl NetDevice for Igb {
         let len = d.read16(12) as usize;
         let n = len.min(buf.len());
         let off = self.rx_next * BUF;
-        buf[..n].copy_from_slice(&self.rx_bufs.as_slice()[off..off + n]);
+        let (Some(dest), Some(src)) = (
+            buf.get_mut(..n),
+            self.rx_bufs.as_slice().get(off..off + n),
+        ) else {
+            return None;
+        };
+        dest.copy_from_slice(src);
         // Hand the descriptor back: fresh read format.
         d.write64(0, self.rx_bufs.phys_at(off));
         d.write64(8, 0);

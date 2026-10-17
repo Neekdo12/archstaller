@@ -66,7 +66,7 @@ fn frame_recv(io: &mut Channel, timeout_ms: u64) -> Result<Value> {
     }
     let mut body = alloc::vec![0u8; len];
     io.read_exact(&mut body, timeout_ms)?;
-    plist::parse(&body).map_err(|_| Error::Io)
+    plist::parse(&body).map_err(|_e| Error::Io)
 }
 
 impl Lockdown {

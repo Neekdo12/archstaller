@@ -121,7 +121,7 @@ fn wait_for(
             return Ok(text);
         }
         if let Some(a) = abort.iter().find(|a| text.contains(**a)) {
-            let _ = child.kill();
+            drop(child.kill());
             return Err(format!("aborting, saw '{a}' (log: {})", log.display()).into());
         }
         if let Ok(Some(status)) = child.try_wait() {
@@ -137,7 +137,7 @@ fn wait_for(
             .into());
         }
         if start.elapsed() > timeout {
-            let _ = child.kill();
+            drop(child.kill());
             return Err(format!("timeout waiting for '{marker}' (log: {})", log.display()).into());
         }
         std::thread::sleep(Duration::from_secs(1));
@@ -183,13 +183,13 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
     let iso_path = iso::build(&o)?;
 
     let disk = dir.join(format!("disk-{mode}.img"));
-    let _ = std::fs::remove_file(&disk);
+    drop(std::fs::remove_file(&disk));
     std::fs::File::create(&disk)?.set_len(opts.disk_gib << 30)?;
-    let _ = std::fs::remove_file(dir.join("ovmf_vars.fd"));
+    drop(std::fs::remove_file(dir.join("ovmf_vars.fd")));
 
     println!("== [{mode}] installing (downloads packages from the mirror)");
     let log: PathBuf = dir.join(format!("install-{mode}.log"));
-    let _ = std::fs::remove_file(&log);
+    drop(std::fs::remove_file(&log));
     let mut child = qemu(&o, &disk, Some(&iso_path), &log)?;
     let install = wait_for(
         &mut child,
@@ -230,11 +230,11 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
             }
         );
     }
-    let _ = child.wait(); // the installer resets the machine; -no-reboot ends QEMU
+    drop(child.wait()); // the installer resets the machine; -no-reboot ends QEMU
 
     println!("== [{mode}] first boot");
     let log = dir.join(format!("firstboot-{mode}.log"));
-    let _ = std::fs::remove_file(&log);
+    drop(std::fs::remove_file(&log));
     let mut child = qemu(&o, &disk, None, &log)?;
     wait_for(
         &mut child,
@@ -243,7 +243,7 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
         &["archstaller-firstboot: FAILED", "Kernel panic", "FATAL"],
         Duration::from_secs(30 * 60),
     )?;
-    let _ = child.wait();
+    drop(child.wait());
     let fb = String::from_utf8_lossy(&std::fs::read(&log).unwrap_or_default()).to_string();
     let mut wants: Vec<String> = cfg
         .users
@@ -273,7 +273,7 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
 
     println!("== [{mode}] second boot");
     let log = dir.join(format!("secondboot-{mode}.log"));
-    let _ = std::fs::remove_file(&log);
+    drop(std::fs::remove_file(&log));
     let mut child = qemu(&o, &disk, None, &log)?;
     // AUR packages are built by archstaller-aur.service on this boot (plans-implement/aur.md); wait for it first.
     let aur_log;
@@ -295,15 +295,15 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
         match r {
             Ok(t) => aur_log = t,
             Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                drop(child.kill());
+                drop(child.wait());
                 return Err(e);
             }
         }
         for a in &cfg.aur {
             if !aur_log.contains(&format!("archstaller-aur: package {}: installed", a.name)) {
-                let _ = child.kill();
-                let _ = child.wait();
+                drop(child.kill());
+                drop(child.wait());
                 return Err(format!(
                     "the AUR service did not report {} installed (log: {})",
                     a.name,
@@ -321,8 +321,8 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
         &["Kernel panic", "FATAL"],
         Duration::from_secs(10 * 60),
     );
-    let _ = child.kill();
-    let _ = child.wait();
+    drop(child.kill());
+    drop(child.wait());
     let text = res?;
     // Units that failed to start on the installed system are a defect worth failing on.
     let failed: Vec<&str> = text

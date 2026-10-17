@@ -9,13 +9,25 @@ const TARGET: &str = "x86_64-unknown-none";
 const UEFI_TARGET: &str = "x86_64-unknown-uefi";
 
 fn le16(b: &[u8], at: usize) -> usize {
-    u16::from_le_bytes(b[at..at + 2].try_into().unwrap()) as usize
+    let bytes: [u8; 2] = b
+        .get(at..at + 2)
+        .and_then(|s| s.try_into().ok())
+        .unwrap_or([0; 2]);
+    u16::from_le_bytes(bytes) as usize
 }
 fn le32(b: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes(b[at..at + 4].try_into().unwrap())
+    let bytes: [u8; 4] = b
+        .get(at..at + 4)
+        .and_then(|s| s.try_into().ok())
+        .unwrap_or([0; 4]);
+    u32::from_le_bytes(bytes)
 }
 fn le64(b: &[u8], at: usize) -> u64 {
-    u64::from_le_bytes(b[at..at + 8].try_into().unwrap())
+    let bytes: [u8; 8] = b
+        .get(at..at + 8)
+        .and_then(|s| s.try_into().ok())
+        .unwrap_or([0; 8]);
+    u64::from_le_bytes(bytes)
 }
 
 /// The kernel as the loader wants it: the memory image its segments form from `KERNEL_BASE`.
@@ -56,7 +68,12 @@ fn flatten_kernel(elf: &[u8]) -> Result<KernelImage> {
         )
         .into());
     }
-    let mem = loads.iter().map(|l| l.0 + l.3).max().unwrap() - base;
+    let mem = loads
+        .iter()
+        .map(|l| l.0 + l.3)
+        .max()
+        .ok_or("kernel has no loadable segments")?
+        - base;
     if mem > bootinfo::KERNEL_MAX {
         return Err(format!(
             "kernel needs {mem} bytes of memory, the loader maps {}",
@@ -68,11 +85,17 @@ fn flatten_kernel(elf: &[u8]) -> Result<KernelImage> {
         .iter()
         .map(|l| (l.0 - base) as usize + l.2)
         .max()
-        .unwrap();
+        .ok_or("kernel has no loadable segments")?;
     let mut image = vec![0u8; len];
     for &(vaddr, off, filesz, _) in &loads {
         let at = (vaddr - base) as usize;
-        image[at..at + filesz].copy_from_slice(&elf[off..off + filesz]);
+        let src = elf
+            .get(off..off + filesz)
+            .ok_or("kernel segment out of bounds")?;
+        let dst = image
+            .get_mut(at..at + filesz)
+            .ok_or("kernel image buffer too small")?;
+        dst.copy_from_slice(src);
     }
     Ok(KernelImage { image, entry, mem })
 }
@@ -91,10 +114,18 @@ fn make_payload(kernel: &KernelImage, modules: &[(&str, &[u8])]) -> Result<Vec<u
     entries.extend_from_slice(modules);
     let head = bootinfo::PAYLOAD_HEADER + 16 + entries.len() * bootinfo::PAYLOAD_ENTRY;
     let mut out = vec![0u8; head];
-    out[0..4].copy_from_slice(&bootinfo::PAYLOAD_MAGIC.to_le_bytes());
-    out[4..8].copy_from_slice(&(entries.len() as u32).to_le_bytes());
-    out[8..16].copy_from_slice(&kernel.entry.to_le_bytes());
-    out[16..20].copy_from_slice(&(kernel.mem as u32).to_le_bytes());
+    out.get_mut(0..4)
+        .ok_or("payload too small")?
+        .copy_from_slice(&bootinfo::PAYLOAD_MAGIC.to_le_bytes());
+    out.get_mut(4..8)
+        .ok_or("payload too small")?
+        .copy_from_slice(&(entries.len() as u32).to_le_bytes());
+    out.get_mut(8..16)
+        .ok_or("payload too small")?
+        .copy_from_slice(&kernel.entry.to_le_bytes());
+    out.get_mut(16..20)
+        .ok_or("payload too small")?
+        .copy_from_slice(&(kernel.mem as u32).to_le_bytes());
     for (i, (name, data)) in entries.iter().enumerate() {
         if name.len() > 16 {
             return Err(format!("payload entry name {name} is too long").into());
@@ -106,12 +137,22 @@ fn make_payload(kernel: &KernelImage, modules: &[(&str, &[u8])]) -> Result<Vec<u
             (data, 0)
         };
         let at = bootinfo::PAYLOAD_HEADER + 16 + i * bootinfo::PAYLOAD_ENTRY;
-        out[at..at + name.len()].copy_from_slice(name.as_bytes());
+        out.get_mut(at..at + name.len())
+            .ok_or("payload too small for name")?
+            .copy_from_slice(name.as_bytes());
         let stored_at = out.len() as u32;
-        out[at + 16..at + 20].copy_from_slice(&stored_at.to_le_bytes());
-        out[at + 20..at + 24].copy_from_slice(&(stored.len() as u32).to_le_bytes());
-        out[at + 24..at + 28].copy_from_slice(&(data.len() as u32).to_le_bytes());
-        out[at + 28..at + 32].copy_from_slice(&flags.to_le_bytes());
+        out.get_mut(at + 16..at + 20)
+            .ok_or("payload too small")?
+            .copy_from_slice(&stored_at.to_le_bytes());
+        out.get_mut(at + 20..at + 24)
+            .ok_or("payload too small")?
+            .copy_from_slice(&(stored.len() as u32).to_le_bytes());
+        out.get_mut(at + 24..at + 28)
+            .ok_or("payload too small")?
+            .copy_from_slice(&(data.len() as u32).to_le_bytes());
+        out.get_mut(at + 28..at + 32)
+            .ok_or("payload too small")?
+            .copy_from_slice(&flags.to_le_bytes());
         out.extend_from_slice(stored);
         println!(
             "payload: {name:<12} {:>8} -> {:>8} bytes",
@@ -150,7 +191,7 @@ fn build_uefi_loader() -> Result<Vec<u8>> {
 fn find_in_image(hay: &[u8], needle: &[u8]) -> Result<usize> {
     (0..hay.len().saturating_sub(needle.len() - 1))
         .step_by(512)
-        .find(|&off| hay[off..off + needle.len()] == *needle)
+        .find(|&off| hay.get(off..off + needle.len()) == Some(needle))
         .ok_or_else(|| "payload.bin is not stored contiguously in efi.img".into())
 }
 
@@ -225,7 +266,7 @@ fn make_efi_image(
 ) -> Result<()> {
     let sectors =
         (std::fs::metadata(efi)?.len() + std::fs::metadata(payload)?.len()).div_ceil(512) + 64;
-    let _ = std::fs::remove_file(out);
+    drop(std::fs::remove_file(out));
     run(Command::new("mformat")
         .args(["-C", "-T", &sectors.to_string(), "-v", "ESP", "-i"])
         .arg(out)
@@ -384,7 +425,7 @@ fn build_inner(opts: &Options) -> Result<PathBuf> {
     let work = workdir(opts);
     let tree = work.join("iso_root");
     let payload_in_efi_img = stage(opts, "iso-tree", || {
-        let _ = std::fs::remove_dir_all(&tree);
+        drop(std::fs::remove_dir_all(&tree));
         std::fs::create_dir_all(tree.join("boot"))?;
         let (efi_file, payload_file) = (work.join("BOOTX64.EFI"), work.join("payload.bin"));
         std::fs::write(&efi_file, &efi)?;
@@ -405,7 +446,7 @@ fn build_inner(opts: &Options) -> Result<PathBuf> {
             std::fs::create_dir_all(dir)?;
         }
         // libvirt may have taken ownership of a previous ISO; unlinking works, overwriting does not.
-        let _ = std::fs::remove_file(&iso);
+        drop(std::fs::remove_file(&iso));
         run(Command::new("xorriso")
             .args(["-as", "mkisofs", "-R", "-r", "-no-pad"])
             .args([
@@ -476,7 +517,7 @@ pub fn size(opts: &Options) -> Result<()> {
             } else {
                 out.push((
                     std::fs::metadata(&p)?.len(),
-                    p.strip_prefix(base).unwrap().display().to_string(),
+                    p.strip_prefix(base).unwrap_or(&p).display().to_string(),
                 ));
             }
         }

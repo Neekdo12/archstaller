@@ -11,6 +11,7 @@ const ZERO_PAGE: usize = 0x8_0000;
 const CMDLINE: usize = 0x8_1000;
 
 fn put<T: Copy>(base: usize, off: usize, v: T) {
+    // SAFETY: Low-memory boot parameters (ZERO_PAGE/CMDLINE) identity-mapped and reserved for kernel boot.
     unsafe { core::ptr::write_unaligned((base + off) as *mut T, v) };
 }
 
@@ -19,7 +20,10 @@ fn get<T: Copy>(k: &[u8], off: usize) -> T {
         off + core::mem::size_of::<T>() <= k.len(),
         "the kernel image is too small"
     );
-    unsafe { core::ptr::read_unaligned(k.as_ptr().add(off) as *const T) }
+    // SAFETY: Bounds check above guarantees that `off` is within `k`.
+    let ptr = unsafe { k.as_ptr().add(off) as *const T };
+    // SAFETY: Pointer is properly bounded within `k` and `read_unaligned` allows unaligned reads.
+    unsafe { core::ptr::read_unaligned(ptr) }
 }
 
 #[repr(C, packed)]
@@ -55,9 +59,9 @@ pub fn parse_bzimage_header(bz: &[u8]) -> Result<BzImageHeader, &'static str> {
     if version < 0x020c || xloadflags & 1 == 0 {
         return Err("the kernel does not have a 64-bit entry point");
     }
-    let setup_sects = match bz[0x1f1] {
-        0 => 4,
-        n => n as usize,
+    let setup_sects = match bz.get(0x1f1).copied() {
+        Some(0) | None => 4,
+        Some(n) => n as usize,
     };
     let align = (get::<u32>(bz, 0x230) as u64).max(0x20_0000);
     let init_size = get::<u32>(bz, 0x260) as u64;
@@ -75,6 +79,7 @@ pub fn parse_bzimage_header(bz: &[u8]) -> Result<BzImageHeader, &'static str> {
 ///
 /// # Safety
 /// Last step of the loader: it never returns.
+#[expect(clippy::panic, reason = "fatal error in bare-metal bootloader")]
 pub unsafe fn boot(
     map: &Map,
     bz: &[u8],
@@ -85,7 +90,9 @@ pub unsafe fn boot(
 ) -> ! {
     let hdr = parse_bzimage_header(bz).unwrap_or_else(|msg| panic!("{msg}"));
     let setup_sects = hdr.setup_sects;
-    let pm = &bz[(setup_sects + 1) * 512..];
+    let Some(pm) = bz.get((setup_sects + 1) * 512..) else {
+        panic!("kernel image too small for protected-mode code");
+    };
     let align = hdr.align;
     let init_size = hdr.init_size;
 
@@ -155,6 +162,7 @@ pub unsafe fn boot(
 
     loadcore::log("boot: starting Linux\n");
     #[expect(clippy::deref_addrof, reason = "raw pointer deref to GDTR")]
+    // SAFETY: Writing GDT base to static GDTR descriptor before loading it.
     unsafe {
         (*(&raw mut GDTR)).base = GDT.as_ptr() as u64;
     }
@@ -208,12 +216,12 @@ mod tests {
     fn rejects_invalid_magic() {
         let mut bz = std::vec![0u8; 0x1000];
         bz[0x202..0x206].copy_from_slice(&0x12345678u32.to_ne_bytes());
-        assert!(parse_bzimage_header(&bz).is_err());
+        parse_bzimage_header(&bz).unwrap_err();
     }
 
     #[test]
     fn rejects_truncated_header() {
         let bz = std::vec![0u8; 100];
-        assert!(parse_bzimage_header(&bz).is_err());
+        parse_bzimage_header(&bz).unwrap_err();
     }
 }

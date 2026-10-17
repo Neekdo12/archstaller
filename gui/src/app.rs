@@ -245,8 +245,10 @@ impl App {
             let a = app.clone();
             app.nav.connect_row_selected(move |_, row| {
                 if let Some(r) = row {
-                    if let Some((page, ..)) = PAGES.get(r.index() as usize) {
-                        a.show_no_select(*page);
+                    if let Ok(idx) = usize::try_from(r.index()) {
+                        if let Some((page, ..)) = PAGES.get(idx) {
+                            a.show_no_select(*page);
+                        }
                     }
                 }
             });
@@ -336,8 +338,10 @@ impl App {
     /// [`App::rebuild`] for a change the user made on the page itself: the view stays where it was instead of
     /// jumping to the top. The position is restored once the new widgets have been laid out.
     pub fn rebuild_keep_scroll(self: &Rc<Self>, page: Page) {
-        let adj = self.boxes[&page]
-            .ancestor(gtk::ScrolledWindow::static_type())
+        let adj = self
+            .boxes
+            .get(&page)
+            .and_then(|b| b.ancestor(gtk::ScrolledWindow::static_type()))
             .and_downcast::<gtk::ScrolledWindow>()
             .map(|w| w.vadjustment());
         let pos = adj.as_ref().map(|a| a.value());
@@ -348,7 +352,9 @@ impl App {
     }
 
     pub fn rebuild(self: &Rc<Self>, page: Page) {
-        let content = &self.boxes[&page];
+        let Some(content) = self.boxes.get(&page) else {
+            return;
+        };
         ui::clear(content);
         self.refreshers.borrow_mut().remove(&page);
         let raw = self.st.borrow().model.raw.is_some();
@@ -439,7 +445,9 @@ impl App {
         self.win.set_title(Some(&format!("{shown} — Archstaller")));
         for (i, (_, _, _, area)) in PAGES.iter().enumerate() {
             let bad = area.is_some_and(|a| problems.iter().any(|p| p.area == a));
-            self.nav_marks[i].set_text(if bad { "●" } else { "" });
+            if let Some(mark) = self.nav_marks.get(i) {
+                mark.set_text(if bad { "●" } else { "" });
+            }
         }
         self.problem.remove_css_class("note-bad");
         self.problem.remove_css_class("note-ok");

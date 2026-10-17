@@ -201,94 +201,99 @@ impl UsbEth {
             .map_or(512, |e| e.max_packet as usize);
         let mut ntb = None;
         let comm = cand.comm.num as u16;
-        let (mac, rx_len) = if cand.kind == Kind::Ax88179 {
-            // take() already opened this interface's bulk endpoints.
-            ax_bring_up(&mut ctrl, &dev)?
-        } else {
-            if cand.data.alt != 0 {
-                ctrl.set_interface(&dev, cand.data.num, cand.data.alt)?;
+        let (mac, rx_len) = match cand.kind {
+            Kind::Ax88179 => {
+                // take() already opened this interface's bulk endpoints.
+                ax_bring_up(&mut ctrl, &dev)?
             }
-            let eps: Vec<usb::desc::EndpointDesc> = cand
-                .data
-                .endpoints
-                .iter()
-                .filter(|e| e.is_bulk())
-                .cloned()
-                .collect();
-            ctrl.configure_endpoints(&dev, &eps).inspect_err(|e| {
-                hal::info!("usb: configuring the data endpoints failed: {e:?}");
-            })?;
-            match cand.kind {
-                Kind::Rndis => {
-                    let init = command(
-                        &mut ctrl,
-                        &dev,
-                        comm,
-                        &rndis::init_msg(1, RX_BUF_RNDIS as u32),
-                        1,
-                    )?;
-                    if init.status != rndis::STATUS_SUCCESS {
-                        hal::info!("usb: RNDIS initialize failed, status {:#x}", init.status);
-                        return Err(Error::Io);
-                    }
-                    let q = command(
-                        &mut ctrl,
-                        &dev,
-                        comm,
-                        &rndis::query_msg(2, rndis::OID_802_3_PERMANENT_ADDRESS, 48),
-                        2,
-                    )?;
-                    if q.status != rndis::STATUS_SUCCESS || q.info.len() < 6 {
-                        hal::info!(
-                            "usb: RNDIS MAC query failed, status {:#x}, {} bytes",
-                            q.status,
-                            q.info.len()
+            Kind::Rndis | Kind::Ecm | Kind::Ncm => {
+                if cand.data.alt != 0 {
+                    ctrl.set_interface(&dev, cand.data.num, cand.data.alt)?;
+                }
+                let eps: Vec<usb::desc::EndpointDesc> = cand
+                    .data
+                    .endpoints
+                    .iter()
+                    .filter(|e| e.is_bulk())
+                    .cloned()
+                    .collect();
+                ctrl.configure_endpoints(&dev, &eps).inspect_err(|e| {
+                    hal::info!("usb: configuring the data endpoints failed: {e:?}");
+                })?;
+                match cand.kind {
+                    Kind::Rndis => {
+                        let init = command(
+                            &mut ctrl,
+                            &dev,
+                            comm,
+                            &rndis::init_msg(1, RX_BUF_RNDIS as u32),
+                            1,
+                        )?;
+                        if init.status != rndis::STATUS_SUCCESS {
+                            hal::info!("usb: RNDIS initialize failed, status {:#x}", init.status);
+                            return Err(Error::Io);
+                        }
+                        let q = command(
+                            &mut ctrl,
+                            &dev,
+                            comm,
+                            &rndis::query_msg(2, rndis::OID_802_3_PERMANENT_ADDRESS, 48),
+                            2,
+                        )?;
+                        if q.status != rndis::STATUS_SUCCESS || q.info.len() < 6 {
+                            hal::info!(
+                                "usb: RNDIS MAC query failed, status {:#x}, {} bytes",
+                                q.status,
+                                q.info.len()
+                            );
+                            return Err(Error::Io);
+                        }
+                        let mut mac = [0u8; 6];
+                        let info_mac = q.info.get(..6).ok_or(Error::Io)?;
+                        mac.copy_from_slice(info_mac);
+                        let set = rndis::set_msg(
+                            3,
+                            rndis::OID_GEN_CURRENT_PACKET_FILTER,
+                            &rndis::PACKET_FILTER.to_le_bytes(),
                         );
-                        return Err(Error::Io);
+                        let s = command(&mut ctrl, &dev, comm, &set, 3)?;
+                        if s.status != rndis::STATUS_SUCCESS {
+                            hal::info!(
+                                "usb: RNDIS set packet filter failed, status {:#x}",
+                                s.status
+                            );
+                            return Err(Error::Io);
+                        }
+                        (mac, RX_BUF_RNDIS)
                     }
-                    let mut mac = [0u8; 6];
-                    mac.copy_from_slice(&q.info[..6]);
-                    let set = rndis::set_msg(
-                        3,
-                        rndis::OID_GEN_CURRENT_PACKET_FILTER,
-                        &rndis::PACKET_FILTER.to_le_bytes(),
-                    );
-                    let s = command(&mut ctrl, &dev, comm, &set, 3)?;
-                    if s.status != rndis::STATUS_SUCCESS {
-                        hal::info!(
-                            "usb: RNDIS set packet filter failed, status {:#x}",
-                            s.status
-                        );
-                        return Err(Error::Io);
+                    Kind::Ecm => {
+                        let mac = ecm_mac(&mut ctrl, &dev, &cand.comm)?;
+                        // Receive directed, broadcast and multicast frames. A device that does not
+                        // implement the request may stall it; ignore that.
+                        _ = ctrl.class_out(&dev, 0x43, 0x001e, comm, &[]);
+                        (mac, RX_BUF_ECM)
                     }
-                    (mac, RX_BUF_RNDIS)
-                }
-                Kind::Ecm => {
-                    let mac = ecm_mac(&mut ctrl, &dev, &cand.comm)?;
-                    // Receive directed, broadcast and multicast frames. A device that does not
-                    // implement the request may stall it; ignore that.
-                    let _ = ctrl.class_out(&dev, 0x43, 0x001e, comm, &[]);
-                    (mac, RX_BUF_ECM)
-                }
-                Kind::Ncm => {
-                    let mut raw = [0u8; 28];
-                    let n = ctrl.class_in(&dev, 0x80, 0, comm, &mut raw)?; // GET_NTB_PARAMETERS
-                    let p = ncm::parse_params(&raw[..n]).inspect_err(|e| {
-                        hal::info!("usb: NCM parameters unusable ({n} bytes): {e:?}");
-                    })?;
-                    hal::log!("usb: NCM {:?}", p);
-                    let mac = ecm_mac(&mut ctrl, &dev, &cand.comm)?;
-                    // Cap the size of blocks the device sends to what the receive buffer holds.
-                    let rx = (p.in_max as usize).clamp(2048, 65536);
-                    if p.in_max as usize != rx {
-                        let _ = ctrl.class_out(&dev, 0x86, 0, comm, &(rx as u32).to_le_bytes());
-                        // SET_NTB_INPUT_SIZE
+                    Kind::Ncm => {
+                        let mut raw = [0u8; 28];
+                        let n = ctrl.class_in(&dev, 0x80, 0, comm, &mut raw)?; // GET_NTB_PARAMETERS
+                        let raw_slice = raw.get(..n).ok_or(Error::Io)?;
+                        let p = ncm::parse_params(raw_slice).inspect_err(|e| {
+                            hal::info!("usb: NCM parameters unusable ({n} bytes): {e:?}");
+                        })?;
+                        hal::log!("usb: NCM {:?}", p);
+                        let mac = ecm_mac(&mut ctrl, &dev, &cand.comm)?;
+                        // Cap the size of blocks the device sends to what the receive buffer holds.
+                        let rx = (p.in_max as usize).clamp(2048, 65536);
+                        if p.in_max as usize != rx {
+                            _ = ctrl.class_out(&dev, 0x86, 0, comm, &(rx as u32).to_le_bytes());
+                            // SET_NTB_INPUT_SIZE
+                        }
+                        _ = ctrl.class_out(&dev, 0x43, 0x001e, comm, &[]);
+                        ntb = Some(p);
+                        (mac, rx)
                     }
-                    let _ = ctrl.class_out(&dev, 0x43, 0x001e, comm, &[]);
-                    ntb = Some(p);
-                    (mac, rx)
+                    Kind::Ax88179 => return Err(Error::Unsupported),
                 }
-                Kind::Ax88179 => unreachable!(),
             }
         };
         hal::log!("usb: tethering NIC mac {:02x?}", mac);
@@ -320,7 +325,10 @@ fn command(
     msg: &[u8],
     id: u32,
 ) -> Result<rndis::Reply> {
-    let want = u32::from_le_bytes(msg[0..4].try_into().unwrap()) | rndis::CMPLT;
+    let want = match msg.get(0..4) {
+        Some(&[b0, b1, b2, b3]) => u32::from_le_bytes([b0, b1, b2, b3]) | rndis::CMPLT,
+        _ => return Err(Error::InvalidArgument),
+    };
     ctrl.class_out(dev, 0x00, 0, comm, msg).inspect_err(|e| {
         hal::info!("usb: SEND_ENCAPSULATED_COMMAND failed: {e:?}");
     })?; // SEND_ENCAPSULATED_COMMAND
@@ -335,11 +343,14 @@ fn command(
         if n < 12 {
             continue; // nothing there yet
         }
-        let Ok(r) = rndis::parse_reply(&buf[..n]) else {
+        let Some(slice) = buf.get(..n) else {
+            continue;
+        };
+        let Ok(r) = rndis::parse_reply(slice) else {
             continue;
         };
         if r.msg_type == rndis::MSG_KEEPALIVE {
-            let _ = ctrl.class_out(dev, 0x00, 0, comm, &rndis::keepalive_cmplt(r.request_id));
+            _ = ctrl.class_out(dev, 0x00, 0, comm, &rndis::keepalive_cmplt(r.request_id));
             continue;
         }
         if r.msg_type == want && r.request_id == id {
@@ -448,9 +459,10 @@ fn ecm_mac(ctrl: &mut usb::Controller, dev: &Device, comm: &InterfaceDesc) -> Re
         return Err(Error::Io);
     }
     let hex = |c: u8| (c as char).to_digit(16).map(|d| d as u8);
+    let (pairs, _) = b.as_chunks::<2>();
     let mut mac = [0u8; 6];
-    for (i, m) in mac.iter_mut().enumerate() {
-        *m = hex(b[2 * i]).ok_or(Error::Io)? << 4 | hex(b[2 * i + 1]).ok_or(Error::Io)?;
+    for (m, &[c0, c1]) in mac.iter_mut().zip(pairs.iter()) {
+        *m = hex(c0).ok_or(Error::Io)? << 4 | hex(c1).ok_or(Error::Io)?;
     }
     Ok(mac)
 }
@@ -516,7 +528,9 @@ impl NetDevice for UsbEth {
     fn receive(&mut self, buf: &mut [u8]) -> Option<usize> {
         if let Some(f) = self.queue.pop_front() {
             let n = f.len().min(buf.len());
-            buf[..n].copy_from_slice(&f[..n]);
+            if let (Some(dst), Some(src)) = (buf.get_mut(..n), f.get(..n)) {
+                dst.copy_from_slice(src);
+            }
             return Some(n);
         }
         if !self.rx_pending {
@@ -533,13 +547,15 @@ impl NetDevice for UsbEth {
             }
         };
         self.rx_pending = false;
-        let data = &self.rx.as_slice()[..n];
+        let data = self.rx.as_slice().get(..n)?;
         let first = self.rx_n < 6;
         self.rx_n += 1;
         match self.kind {
             Kind::Ecm => {
                 let len = data.len().min(buf.len());
-                buf[..len].copy_from_slice(&data[..len]);
+                if let (Some(dst), Some(src)) = (buf.get_mut(..len), data.get(..len)) {
+                    dst.copy_from_slice(src);
+                }
                 Some(len)
             }
             Kind::Rndis | Kind::Ncm | Kind::Ax88179 => {
@@ -553,7 +569,10 @@ impl NetDevice for UsbEth {
                         "usb: rx transfer {n} bytes -> {} frames{}",
                         self.queue.len(),
                         if self.queue.is_empty() {
-                            alloc::format!(", last bytes {:02x?}", &data[n.saturating_sub(8)..])
+                            alloc::format!(
+                                ", last bytes {:02x?}",
+                                data.get(n.saturating_sub(8)..).unwrap_or(&[])
+                            )
                         } else {
                             String::new()
                         }
@@ -561,7 +580,9 @@ impl NetDevice for UsbEth {
                 }
                 let f = self.queue.pop_front()?;
                 let len = f.len().min(buf.len());
-                buf[..len].copy_from_slice(&f[..len]);
+                if let (Some(dst), Some(src)) = (buf.get_mut(..len), f.get(..len)) {
+                    dst.copy_from_slice(src);
+                }
                 Some(len)
             }
         }

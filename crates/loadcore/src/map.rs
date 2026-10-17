@@ -48,25 +48,26 @@ impl Map {
     }
 
     pub fn entries(&self) -> &[MemEntry] {
-        &self.e[..self.n]
+        self.e.get(..self.n).unwrap_or(&[])
     }
 
     /// Adds a raw range (call `normalize` after the last one). Contiguous neighbours of one kind merge,
     /// which keeps a sorted firmware map small.
+    #[expect(clippy::panic, reason = "fatal bootloader error when memory map overflows")]
     pub fn push(&mut self, base: u64, len: u64, kind: u32) {
         if len == 0 {
             return;
         }
-        if let Some(last) = self.e[..self.n].last_mut() {
+        if let Some(last) = self.e.get_mut(..self.n).and_then(|s| s.last_mut()) {
             if last.kind == kind && last.base + last.len == base {
                 last.len += len;
                 return;
             }
         }
-        if self.n == MAX {
+        let Some(slot) = self.e.get_mut(self.n) else {
             panic!("memory map has too many entries");
-        }
-        self.e[self.n] = MemEntry {
+        };
+        *slot = MemEntry {
             base,
             len,
             kind,
@@ -80,7 +81,7 @@ impl Map {
     pub fn normalize(&mut self) {
         let mut np = 0;
         for i in 0..self.n {
-            let e = &mut self.e[i];
+            let Some(e) = self.e.get_mut(i) else { continue };
             let end = e.base.saturating_add(e.len);
             let (b, en) = if e.kind == MEM_USABLE {
                 ((e.base + 4095) & !4095, end & !4095)
@@ -93,22 +94,30 @@ impl Map {
             }
             e.base = b;
             e.len = en - b;
-            self.points[np] = b;
-            self.points[np + 1] = en;
+            if let Some(slot) = self.points.get_mut(np) {
+                *slot = b;
+            }
+            if let Some(slot) = self.points.get_mut(np + 1) {
+                *slot = en;
+            }
             np += 2;
         }
-        let pts = &mut self.points[..np];
+        let Some(pts) = self.points.get_mut(..np) else {
+            return;
+        };
         pts.sort_unstable();
         let mut out = 0;
         let mut k = 0;
         while k + 1 < np {
-            let (lo, hi) = (pts[k], pts[k + 1]);
+            let (Some(&lo), Some(&hi)) = (pts.get(k), pts.get(k + 1)) else {
+                break;
+            };
             k += 1;
             if lo == hi {
                 continue;
             }
             let mut best: Option<u32> = None;
-            for e in &self.e[..self.n] {
+            for e in self.e.get(..self.n).unwrap_or(&[]) {
                 if e.len != 0
                     && e.base <= lo
                     && lo < e.base + e.len
@@ -121,13 +130,15 @@ impl Map {
                 }
             }
             let Some(kind) = best else { continue };
-            if out > 0
-                && self.scratch[out - 1].kind == kind
-                && self.scratch[out - 1].base + self.scratch[out - 1].len == lo
-            {
-                self.scratch[out - 1].len += hi - lo;
+            let prev = if out > 0 {
+                self.scratch.get_mut(out - 1)
             } else {
-                self.scratch[out] = MemEntry {
+                None
+            };
+            if let Some(prev_entry) = prev.filter(|p| p.kind == kind && p.base + p.len == lo) {
+                prev_entry.len += hi - lo;
+            } else if let Some(slot) = self.scratch.get_mut(out) {
+                *slot = MemEntry {
                     base: lo,
                     len: hi - lo,
                     kind,
@@ -136,7 +147,9 @@ impl Map {
                 out += 1;
             }
         }
-        self.e[..out].copy_from_slice(&self.scratch[..out]);
+        if let (Some(dst), Some(src)) = (self.e.get_mut(..out), self.scratch.get(..out)) {
+            dst.copy_from_slice(src);
+        }
         self.n = out;
     }
 

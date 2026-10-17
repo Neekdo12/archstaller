@@ -13,14 +13,14 @@ impl Storage for FileStorage {
     fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> exfatw::Result<()> {
         self.0
             .seek(SeekFrom::Start(offset))
-            .map_err(|_| Error::Io)?;
-        self.0.read_exact(buf).map_err(|_| Error::Io)
+            .map_err(|_e| Error::Io)?;
+        self.0.read_exact(buf).map_err(|_e| Error::Io)
     }
     fn write_at(&mut self, offset: u64, data: &[u8]) -> exfatw::Result<()> {
         self.0
             .seek(SeekFrom::Start(offset))
-            .map_err(|_| Error::Io)?;
-        self.0.write_all(data).map_err(|_| Error::Io)
+            .map_err(|_e| Error::Io)?;
+        self.0.write_all(data).map_err(|_e| Error::Io)
     }
 }
 
@@ -40,7 +40,7 @@ fn main() {
     std::fs::File::open(&payload_path)
         .expect("payload")
         .read_to_end(&mut payload)
-        .unwrap();
+        .expect("read payload");
 
     let f = OpenOptions::new()
         .read(true)

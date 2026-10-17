@@ -42,8 +42,9 @@ fn octal(field: &[u8]) -> Option<u64> {
 }
 
 fn cstr(field: &[u8]) -> String {
-    String::from_utf8_lossy(&field[..field.iter().position(|b| *b == 0).unwrap_or(field.len())])
-        .into_owned()
+    let end = field.iter().position(|b| *b == 0).unwrap_or(field.len());
+    let slice = field.get(..end).unwrap_or(field);
+    String::from_utf8_lossy(slice).into_owned()
 }
 
 /// Reads the regular files of a ustar/pax tar. The first path component (the snapshot's top directory)
@@ -54,15 +55,20 @@ pub fn read_tar(data: &[u8]) -> Result<Files> {
     let mut next_path: Option<String> = None;
     let mut next_size: Option<u64> = None;
     while pos + 512 <= data.len() {
-        let h = &data[pos..pos + 512];
+        let Some(h) = data.get(pos..pos + 512) else {
+            break;
+        };
         if h.iter().all(|b| *b == 0) {
             break;
         }
-        let mut size = octal(&h[124..136]).ok_or("tar: bad size field")?;
-        let flag = h[156];
-        let mut name = cstr(&h[0..100]);
-        if &h[257..262] == b"ustar" {
-            let prefix = cstr(&h[345..500]);
+        let size_field = h.get(124..136).ok_or("tar: bad header")?;
+        let mut size = octal(size_field).ok_or("tar: bad size field")?;
+        let flag = h.get(156).copied().unwrap_or(0);
+        let name_field = h.get(0..100).unwrap_or(&[]);
+        let mut name = cstr(name_field);
+        if h.get(257..262) == Some(b"ustar") {
+            let prefix_field = h.get(345..500).unwrap_or(&[]);
+            let prefix = cstr(prefix_field);
             if !prefix.is_empty() {
                 name = format!("{prefix}/{name}");
             }
@@ -78,7 +84,7 @@ pub fn read_tar(data: &[u8]) -> Result<Files> {
             .checked_add(size as usize)
             .filter(|e| *e <= data.len())
             .ok_or("tar: truncated")?;
-        let body = &data[start..end];
+        let body = data.get(start..end).ok_or("tar: truncated")?;
         pos = start + (size as usize).div_ceil(512) * 512;
         match flag {
             b'0' | 0 => {
@@ -102,14 +108,16 @@ pub fn read_tar(data: &[u8]) -> Result<Files> {
                         .iter()
                         .position(|b| *b == b' ')
                         .ok_or("tar: bad pax record")?;
-                    let len: usize = std::str::from_utf8(&rest[..sp])
+                    let len_bytes = rest.get(..sp).ok_or("tar: bad pax length")?;
+                    let len: usize = std::str::from_utf8(len_bytes)
                         .ok()
                         .and_then(|s| s.parse().ok())
                         .ok_or("tar: bad pax length")?;
                     if len == 0 || len > rest.len() {
                         return Err("tar: bad pax record".into());
                     }
-                    let rec = String::from_utf8_lossy(&rest[sp + 1..len])
+                    let rec_bytes = rest.get(sp + 1..len).ok_or("tar: bad pax record")?;
+                    let rec = String::from_utf8_lossy(rec_bytes)
                         .trim_end_matches('\n')
                         .to_string();
                     if let Some(p) = rec.strip_prefix("path=") {
@@ -117,7 +125,7 @@ pub fn read_tar(data: &[u8]) -> Result<Files> {
                     } else if let Some(s) = rec.strip_prefix("size=") {
                         next_size = s.parse().ok();
                     }
-                    rest = &rest[len..];
+                    rest = rest.get(len..).unwrap_or(&[]);
                 }
             }
             b'L' => next_path = Some(cstr(body)),
@@ -203,10 +211,10 @@ mod tests {
 
     #[test]
     fn refuses_unsafe_and_truncated_input() {
-        assert!(read_tar(&tar(&[entry("pkg/../etc/x", b'0', b"a")])).is_err());
+        read_tar(&tar(&[entry("pkg/../etc/x", b'0', b"a")])).unwrap_err();
         let mut t = tar(&[entry("pkg/f", b'0', &[1u8; 600])]);
         t.truncate(700);
-        assert!(read_tar(&t).is_err());
+        read_tar(&t).unwrap_err();
     }
 
     #[test]
@@ -228,7 +236,7 @@ mod tests {
     #[test]
     fn matches_the_shell_implementation() {
         let dir = std::env::temp_dir().join(format!("aurbuild-digest-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
         std::fs::create_dir_all(dir.join("sub")).unwrap();
         std::fs::create_dir_all(dir.join(".git")).unwrap();
         std::fs::write(dir.join(".git/config"), b"ignored").unwrap();
@@ -264,7 +272,7 @@ mod tests {
             .arg("-c")
             .arg(sh)
             .output();
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
         if let Ok(o) = out {
             assert_eq!(
                 String::from_utf8_lossy(&o.stdout).trim(),

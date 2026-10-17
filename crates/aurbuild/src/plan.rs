@@ -311,26 +311,35 @@ pub fn plan(
         state: &mut Vec<u8>,
         order: &mut Vec<usize>,
     ) -> Result<()> {
-        match state[i] {
+        let s = state.get(i).copied().unwrap_or(0);
+        match s {
             2 => return Ok(()),
             1 => {
+                let name = reviews.get(i).map(|r| r.name.as_str()).unwrap_or("package");
                 return Err(format!(
-                    "{} is part of a dependency cycle between AUR packages",
-                    reviews[i].name
-                ))
+                    "{name} is part of a dependency cycle between AUR packages"
+                ));
             }
             _ => {}
         }
-        state[i] = 1;
-        for (d, _) in all_deps(&reviews[i]) {
-            if official.provider(&d).is_some() {
-                continue;
-            }
-            if let Some(j) = (0..reviews.len()).find(|&j| j != i && aur_provides(&reviews[j], &d)) {
-                visit(j, reviews, official, state, order)?;
+        if let Some(slot) = state.get_mut(i) {
+            *slot = 1;
+        }
+        if let Some(rev) = reviews.get(i) {
+            for (d, _) in all_deps(rev) {
+                if official.provider(&d).is_some() {
+                    continue;
+                }
+                if let Some(j) = (0..reviews.len()).find(|&j| {
+                    j != i && reviews.get(j).is_some_and(|r| aur_provides(r, &d))
+                }) {
+                    visit(j, reviews, official, state, order)?;
+                }
             }
         }
-        state[i] = 2;
+        if let Some(slot) = state.get_mut(i) {
+            *slot = 2;
+        }
         order.push(i);
         Ok(())
     }
@@ -339,7 +348,7 @@ pub fn plan(
     }
     let mut out = Vec::new();
     for i in order {
-        let r = &reviews[i];
+        let Some(r) = reviews.get(i) else { continue };
         let mut deps: Vec<String> = Vec::new();
         let mut build: Vec<String> = Vec::new();
         let add =
@@ -524,10 +533,10 @@ mod tests {
     fn plan_errors_are_specific() {
         let top = rev("top", "\tdepends = nowhere\n");
         assert_eq!(
-            unresolved(&[top.clone()], &official()),
+            unresolved(std::slice::from_ref(&top), &official()),
             [("top".to_string(), "nowhere".to_string())]
         );
-        assert!(plan(&[top.clone()], &["top".into()], &official())
+        assert!(plan(std::slice::from_ref(&top), &["top".into()], &official())
             .unwrap_err()
             .contains("nowhere"));
         assert!(plan(&[], &["top".into()], &official())
@@ -627,7 +636,7 @@ mod tests {
         ]);
         let top = rev("top", "\tdepends = foo>=2\n");
         assert_eq!(
-            unresolved(&[top.clone()], &o),
+            unresolved(std::slice::from_ref(&top), &o),
             [("top".to_string(), "foo>=2".to_string())]
         );
         assert!(plan(&[top], &["top".into()], &o)

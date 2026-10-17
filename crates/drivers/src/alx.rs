@@ -209,7 +209,7 @@ impl Alx {
     fn stop_polling(&self) {
         if self.chip.is_some() && self.r(MDIO) & bit(28) != 0 {
             self.w(MDIO, self.r(MDIO) & !bit(28));
-            let _ = self.mdio_wait();
+            let _res = self.mdio_wait();
         }
     }
 
@@ -367,21 +367,21 @@ impl Alx {
         self.w(PHY_CTRL, v | PHY_CTRL_DSPRST_OUT);
         spin_us(800); // the DSP needs about 800 us (80 x 10 us in Linux)
                       // Power saving and tuning, values from the vendor driver.
-        let _ = self.phy_dbg_write(0x29, 0x129d); // legacy power saving
-        let _ = self.phy_dbg_write(0x04, 0xbb8b); // system mode control
-        let _ = self.phy_ext_write(3, 0x8062, 0x3); // VDRVBIAS
+        let _res = self.phy_dbg_write(0x29, 0x129d); // legacy power saving
+        let _res = self.phy_dbg_write(0x04, 0xbb8b); // system mode control
+        let _res = self.phy_ext_write(3, 0x8062, 0x3); // VDRVBIAS
         self.w(0x1440, self.r(0x1440) & !(1 << 0)); // LPI_CTRL: EEE off
-        let _ = self.phy_ext_write(7, 0x3c, 0); // no EEE advertisement
-        let _ = self.phy_dbg_write(0x12, 0x4c04);
-        let _ = self.phy_dbg_write(0x05, 0x2c46);
-        let _ = self.phy_dbg_write(0x36, 0xe12c);
-        let _ = self.phy_dbg_write(0x00, 0x02ef);
+        let _res = self.phy_ext_write(7, 0x3c, 0); // no EEE advertisement
+        let _res = self.phy_dbg_write(0x12, 0x4c04);
+        let _res = self.phy_dbg_write(0x05, 0x2c46);
+        let _res = self.phy_dbg_write(0x36, 0xe12c);
+        let _res = self.phy_dbg_write(0x00, 0x02ef);
         if let Ok(g) = self.phy_dbg_read(0x3d) {
-            let _ = self.phy_dbg_write(0x3d, g & !0x0080);
+            let _res = self.phy_dbg_write(0x3d, g & !0x0080);
         }
-        let _ = self.phy_ext_write(7, 0x8027, 0x8a05);
-        let _ = self.phy_ext_write(7, 0x8023, 0);
-        let _ = self.phy_write(0x12, 0x0400 | 0x0800); // link up / down interrupt mask
+        let _res = self.phy_ext_write(7, 0x8027, 0x8a05);
+        let _res = self.phy_ext_write(7, 0x8023, 0);
+        let _res = self.phy_write(0x12, 0x0400 | 0x0800); // link up / down interrupt mask
     }
 
     /// Auto-negotiation advertising 10/100/1000, full and half duplex, with the PHY reset first.
@@ -525,18 +525,18 @@ impl Alx {
         let b = matches!(chip, Chip::L2cB | Chip::L2cB2);
         if chip == Chip::L2cB {
             if let Ok(d) = self.phy_dbg_read(0x0a) {
-                let _ = self.phy_dbg_write(0x0a, d & !0x2000);
+                let _res = self.phy_dbg_write(0x0a, d & !0x2000);
             }
         }
         if b {
             if let Ok(d) = self.phy_dbg_read(0x3e) {
-                let _ = self.phy_dbg_write(0x3e, d | 0x8000); // tx half amplitude fix
+                let _res = self.phy_dbg_write(0x3e, d | 0x8000); // tx half amplitude fix
             }
             if let Ok(d) = self.phy_dbg_read(0x3b) {
-                let _ = self.phy_dbg_write(0x3b, d & !0x0008); // lower voltage
+                let _res = self.phy_dbg_write(0x3b, d & !0x0008); // lower voltage
             }
         }
-        let _ = self.phy_dbg_write(
+        let _res = self.phy_dbg_write(
             0x29,
             if matches!(chip, Chip::L1d | Chip::L1d2) {
                 0x129d
@@ -544,17 +544,17 @@ impl Alx {
                 0x36dd
             },
         ); // power saving
-        let _ = self.phy_dbg_write(0x04, 0x88bb); // hibernate
+        let _res = self.phy_dbg_write(0x04, 0x88bb); // hibernate
         if matches!(chip, Chip::L1d | Chip::L1d2 | Chip::L2cB2) {
             self.w(0x1440, self.r(0x1440) & !1); // LPI_CTRL: EEE off
-            let _ = self.phy_ext_write(7, 0x3c, 0);
-            let _ = self.phy_ext_write(3, 0x8003, 0x4d19);
+            let _res = self.phy_ext_write(7, 0x3c, 0);
+            let _res = self.phy_ext_write(3, 0x8003, 0x4d19);
         }
-        let _ = self.phy_dbg_write(0x00, 0x02ef);
-        let _ = self.phy_dbg_write(0x05, 0x2c46);
-        let _ = self.phy_dbg_write(0x12, 0x4c04);
-        let _ = self.phy_dbg_write(0x36, 0xe12c | 0x0080);
-        let _ = self.phy_write(0x12, 0x0400 | 0x0800);
+        let _res = self.phy_dbg_write(0x00, 0x02ef);
+        let _res = self.phy_dbg_write(0x05, 0x2c46);
+        let _res = self.phy_dbg_write(0x12, 0x4c04);
+        let _res = self.phy_dbg_write(0x36, 0xe12c | 0x0080);
+        let _res = self.phy_write(0x12, 0x0400 | 0x0800);
     }
 
     fn configure_c(&self, chip: Chip) {
@@ -704,19 +704,19 @@ impl Alx {
             a.mac
         );
         // Wait for a link (auto-negotiation takes a second or two).
-        let _ = platform::wait_until(5000, || a.poll_link());
+        let _res = platform::wait_until(5000, || a.poll_link());
         Ok(a)
     }
 
     /// Reads the link state and, on a change, starts or stops the MAC with the negotiated speed/duplex.
     fn poll_link(&mut self) -> bool {
         // The link bit is latched low: read twice.
-        let _ = self.phy_read(1);
+        let _res = self.phy_read(1);
         let up = self.phy_read(1).is_ok_and(|b| b & 0x0004 != 0);
         if !up {
             if self.link_speed != 0 {
                 self.link_speed = 0;
-                let _ = self.stop_mac();
+                let _res = self.stop_mac();
             }
             return false;
         }
@@ -779,7 +779,10 @@ impl NetDevice for Alx {
         if frame.len() > BUF || frame.is_empty() {
             return Err(Error::InvalidArgument);
         }
-        self.tx_buf.as_mut_slice()[..frame.len()].copy_from_slice(frame);
+        let Some(dest) = self.tx_buf.as_mut_slice().get_mut(..frame.len()) else {
+            return Err(Error::InvalidArgument);
+        };
+        dest.copy_from_slice(frame);
         let d = Mmio::new(self.tpd.as_ptr()).offset(16 * self.tx_w);
         d.write16(0, frame.len() as u16);
         d.write16(2, 0);
@@ -806,14 +809,22 @@ impl NetDevice for Alx {
         let ok = si as usize == slot && nor == 1 && w3 & ((1 << 20) | (1 << 21)) == 0; // no RES / FCS error
         let len = ((w3 & 0x3fff) as usize).saturating_sub(4);
         let n = len.min(buf.len());
+        let off = slot * BUF;
+        let mut copied = false;
         if ok {
-            buf[..n].copy_from_slice(&self.bufs.as_slice()[slot * BUF..slot * BUF + n]);
+            if let (Some(dest), Some(src)) = (
+                buf.get_mut(..n),
+                self.bufs.as_slice().get(off..off + n),
+            ) {
+                dest.copy_from_slice(src);
+                copied = true;
+            }
         }
         // Give the slot back: the descriptor already points at its buffer, so only the producer index moves.
         self.rrd_r = (self.rrd_r + 1) % RING;
         self.rx_r = (self.rx_r + 1) % RING;
         self.rx_w = (self.rx_w + 1) % RING;
         self.regs.write16(RFD_PIDX, self.rx_w as u16);
-        ok.then_some(n)
+        (ok && copied).then_some(n)
     }
 }

@@ -132,6 +132,6 @@ mod tests {
             (list[0].name.as_str(), list[0].description.as_str()),
             ("a", "First.")
         );
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(std::fs::remove_dir_all(&dir));
     }
 }

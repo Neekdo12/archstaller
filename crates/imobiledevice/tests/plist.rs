@@ -101,7 +101,7 @@ fn mux_setup_packet_uses_the_long_header() {
     let (proto, rx_seq, payload) = parse_packet(2, &p).unwrap();
     assert_eq!((proto, rx_seq, payload), (2, 0xffff, &[7u8][..]));
     // Length must match the transfer exactly.
-    assert!(parse_packet(2, &p[..16]).is_err());
+    parse_packet(2, &p[..16]).unwrap_err();
 }
 
 #[test]
@@ -122,7 +122,7 @@ fn mux_tcp_header_round_trip() {
     let (back, data) = parse_tcp(&p).unwrap();
     assert_eq!(back, t);
     assert_eq!(data, b"hello");
-    assert!(parse_tcp(&p[..19]).is_err());
+    parse_tcp(&p[..19]).unwrap_err();
 }
 
 #[test]

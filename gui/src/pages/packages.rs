@@ -203,7 +203,9 @@ fn render_results(app: &Rc<App>, p: &OfficialParts) {
         return;
     }
     for h in hits {
-        let c = &idx.items[h.item];
+        let Some(c) = idx.items.get(h.item) else {
+            continue;
+        };
         let row = ui::vbox(2);
         row.add_css_class("card-box");
         let top = ui::hbox(8);
@@ -384,7 +386,7 @@ fn resolution_card(app: &Rc<App>, d: &gtk::Box) {
                 let r = hostcfg::resolve::fetch_dbs(&mirror, &cache)
                     .and_then(|dbs| hostcfg::resolve::resolve(&cfg, &dbs))
                     .map_err(|e| e.to_string());
-                let _ = tx.send(r);
+                drop(tx.send(r));
             });
             a.refresh_page(Page::Packages);
         }
@@ -432,9 +434,7 @@ fn resolution_card(app: &Rc<App>, d: &gtk::Box) {
                 .bottom_margin(6)
                 .build();
             let buf = view.buffer();
-            let bold = buf
-                .create_tag(Some("bold"), &[("weight", &700i32)])
-                .unwrap();
+            let bold = buf.create_tag(Some("bold"), &[("weight", &700i32)]);
             let width = res
                 .packages
                 .iter()
@@ -457,11 +457,13 @@ fn resolution_card(app: &Rc<App>, d: &gtk::Box) {
                     ),
                 );
                 if p.explicit {
-                    let (s, e) = (
-                        buf.iter_at_offset(start),
-                        buf.iter_at_offset(start + width as i32),
-                    );
-                    buf.apply_tag(&bold, &s, &e);
+                    if let Some(tag) = &bold {
+                        let (s, e) = (
+                            buf.iter_at_offset(start),
+                            buf.iter_at_offset(start + width as i32),
+                        );
+                        buf.apply_tag(tag, &s, &e);
+                    }
                 }
             }
             c.append(
@@ -492,7 +494,7 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
         r.append(&ui::strong(&p.name));
         r.append(&ui::dim(&format!(
             "@ {}",
-            &p.commit[..p.commit.len().min(8)]
+            p.commit.get(..p.commit.len().min(8)).unwrap_or(&p.commit)
         )));
         if p.as_dep {
             r.append(&ui::chip("dependency", "chip-accent"));
@@ -668,7 +670,10 @@ fn review(app: &Rc<App>, c: &gtk::Box, busy: bool) {
         rev.name,
         rev.srcinfo.version()
     )));
-    head.append(&ui::dim(&format!("commit {}", &rev.commit[..12])));
+    head.append(&ui::dim(&format!(
+        "commit {}",
+        rev.commit.get(..12).unwrap_or(&rev.commit)
+    )));
     p.append(&head);
 
     // Checks, folded.
@@ -709,7 +714,7 @@ fn review(app: &Rc<App>, c: &gtk::Box, busy: bool) {
         &format!(
             "pkgbase {}   tree digest {}",
             rev.pkgbase,
-            &rev.tree_sha256[..16]
+            rev.tree_sha256.get(..16).unwrap_or(&rev.tree_sha256)
         ),
     );
     exp.set_child(Some(&inner));
@@ -746,9 +751,7 @@ fn review(app: &Rc<App>, c: &gtk::Box, busy: bool) {
             .wrap_mode(gtk::WrapMode::None)
             .build();
         let buf = view.buffer();
-        let warn_tag = buf
-            .create_tag(Some("risky"), &[("background", &"rgba(245,194,17,0.25)")])
-            .unwrap();
+        let warn_tag = buf.create_tag(Some("risky"), &[("background", &"rgba(245,194,17,0.25)")]);
         let text = String::from_utf8_lossy(data).into_owned();
         let mut any_risky = false;
         for (n, line) in text.lines().enumerate() {
@@ -757,8 +760,10 @@ fn review(app: &Rc<App>, c: &gtk::Box, busy: bool) {
             buf.insert(&mut end, &format!("{:>4}  {line}\n", n + 1));
             if risky.iter().any(|(f, l, _)| *f == file && *l == n + 1) {
                 any_risky = true;
-                let (s, e) = (buf.iter_at_offset(start), buf.end_iter());
-                buf.apply_tag(&warn_tag, &s, &e);
+                if let Some(tag) = &warn_tag {
+                    let (s, e) = (buf.iter_at_offset(start), buf.end_iter());
+                    buf.apply_tag(tag, &s, &e);
+                }
             }
         }
         p.append(

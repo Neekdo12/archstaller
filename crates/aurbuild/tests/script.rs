@@ -10,7 +10,7 @@ fn sh(dir: &Path, cmd: &str) -> String {
         .arg(cmd)
         .current_dir(dir)
         .output()
-        .unwrap();
+        .expect("execute bash command");
     assert!(
         o.status.success(),
         "{cmd}: {}",
@@ -26,9 +26,9 @@ struct Env {
 impl Env {
     fn new(name: &str) -> Env {
         let root = std::env::temp_dir().join(format!("aur-script-{}-{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        drop(std::fs::remove_dir_all(&root));
         for d in ["state", "bin", "repos", "cache", "calls"] {
-            std::fs::create_dir_all(root.join(d)).unwrap();
+            std::fs::create_dir_all(root.join(d)).expect("create test dir");
         }
         // Stand-ins: each records its call; makepkg "builds" a file named after the recipe.
         let stubs: &[(&str, &str)] = &[
@@ -47,7 +47,7 @@ impl Env {
         ];
         for (n, body) in stubs {
             let p = root.join("bin").join(n);
-            std::fs::write(&p, format!("#!/bin/bash\n{body}\n")).unwrap();
+            std::fs::write(&p, format!("#!/bin/bash\n{body}\n")).expect("write stub binary");
             sh(&root, &format!("chmod +x {}", p.display()));
         }
         Env { root }
@@ -56,10 +56,10 @@ impl Env {
     /// A repository `pkgbase.git` with these files committed; returns (commit, tree digest).
     fn repo(&self, pkgbase: &str, files: &[(&str, &str)]) -> (String, String) {
         let d = self.root.join("repos").join(format!("{pkgbase}.git"));
-        std::fs::create_dir_all(&d).unwrap();
+        std::fs::create_dir_all(&d).expect("create repo dir");
         let mut f = Files::new();
         for (n, c) in files {
-            std::fs::write(d.join(n), c).unwrap();
+            std::fs::write(d.join(n), c).expect("write repo file");
             f.insert(n.to_string(), c.as_bytes().to_vec());
         }
         sh(
@@ -70,7 +70,7 @@ impl Env {
     }
 
     fn run(&self, list: &str) -> (i32, String) {
-        std::fs::write(self.root.join("state/aur.list"), list).unwrap();
+        std::fs::write(self.root.join("state/aur.list"), list).expect("write aur.list");
         let script = concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../firstboot/archstaller-aur.sh"
@@ -78,7 +78,7 @@ impl Env {
         let path = format!(
             "{}:{}",
             self.root.join("bin").display(),
-            std::env::var("PATH").unwrap()
+            std::env::var("PATH").unwrap_or_default()
         );
         let o = Command::new("bash")
             .arg(script)
@@ -89,7 +89,7 @@ impl Env {
             .env("ARCHSTALLER_CACHE", self.root.join("cache"))
             .env("CALLS", self.root.join("calls"))
             .output()
-            .unwrap();
+            .expect("execute test script");
         (
             o.status.code().unwrap_or(-1),
             String::from_utf8_lossy(&o.stdout).into_owned() + &String::from_utf8_lossy(&o.stderr),
@@ -103,7 +103,7 @@ impl Env {
 
 impl Drop for Env {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
+        drop(std::fs::remove_dir_all(&self.root));
     }
 }
 

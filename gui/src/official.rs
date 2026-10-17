@@ -96,25 +96,41 @@ pub struct Hit {
 /// Edit distance with adjacent transpositions (optimal string alignment), over characters.
 fn distance(a: &[char], b: &[char]) -> usize {
     let (n, m) = (a.len(), b.len());
-    let mut d = vec![vec![0usize; m + 1]; n + 1];
-    for (i, row) in d.iter_mut().enumerate() {
-        row[0] = i;
+    let width = m + 1;
+    let mut d = vec![0usize; (n + 1) * width];
+    for i in 0..=n {
+        if let Some(cell) = d.get_mut(i * width) {
+            *cell = i;
+        }
     }
-    for (j, cell) in d[0].iter_mut().enumerate() {
-        *cell = j;
+    for j in 0..=m {
+        if let Some(cell) = d.get_mut(j) {
+            *cell = j;
+        }
     }
     for i in 1..=n {
         for j in 1..=m {
-            let cost = usize::from(a[i - 1] != b[j - 1]);
-            d[i][j] = (d[i - 1][j] + 1)
-                .min(d[i][j - 1] + 1)
-                .min(d[i - 1][j - 1] + cost);
-            if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
-                d[i][j] = d[i][j].min(d[i - 2][j - 2] + 1);
+            let ai1 = a.get(i - 1);
+            let bj1 = b.get(j - 1);
+            let cost = usize::from(ai1 != bj1);
+            let up = d.get((i - 1) * width + j).copied().unwrap_or(0);
+            let left = d.get(i * width + (j - 1)).copied().unwrap_or(0);
+            let diag = d.get((i - 1) * width + (j - 1)).copied().unwrap_or(0);
+            let mut val = (up + 1).min(left + 1).min(diag + cost);
+            if i > 1 && j > 1 {
+                let ai2 = a.get(i - 2);
+                let bj2 = b.get(j - 2);
+                if ai1 == bj2 && ai2 == bj1 {
+                    let trans = d.get((i - 2) * width + (j - 2)).copied().unwrap_or(0);
+                    val = val.min(trans + 1);
+                }
+            }
+            if let Some(cell) = d.get_mut(i * width + j) {
+                *cell = val;
             }
         }
     }
-    d[n][m]
+    d.get(n * width + m).copied().unwrap_or(0)
 }
 
 /// Typos allowed for a query of `len` characters: none below 4 (too many short names are one edit apart).
@@ -143,7 +159,9 @@ fn classify(c: &Candidate, q: &str, qc: &[char], words: &[&str]) -> Option<(Matc
         // Against the whole name, and against its start, so a misspelt beginning (`fierf`) still finds it.
         let mut d = distance(qc, &nc);
         if nc.len() > qc.len() {
-            d = d.min(distance(qc, &nc[..qc.len()]));
+            if let Some(prefix) = nc.get(..qc.len()) {
+                d = d.min(distance(qc, prefix));
+            }
         }
         if d <= budget {
             return Some((Match::Typo, d));
@@ -178,12 +196,9 @@ pub fn search(items: &[Candidate], query: &str, limit: usize) -> Vec<Hit> {
         .filter_map(|(i, c)| classify(c, &q, &qc, &words).map(|(m, d)| (m, d, i)))
         .collect();
     hits.sort_by(|a, b| {
-        (a.0, a.1, items[a.2].name.len(), &items[a.2].name).cmp(&(
-            b.0,
-            b.1,
-            items[b.2].name.len(),
-            &items[b.2].name,
-        ))
+        let name_a = items.get(a.2).map(|c| c.name.as_str()).unwrap_or("");
+        let name_b = items.get(b.2).map(|c| c.name.as_str()).unwrap_or("");
+        (a.0, a.1, name_a.len(), name_a).cmp(&(b.0, b.1, name_b.len(), name_b))
     });
     hits.truncate(limit);
     hits.into_iter()
@@ -318,11 +333,11 @@ impl OfficialState {
         let (tx, rx) = channel();
         self.index_rx = Some(rx);
         std::thread::spawn(move || {
-            let _ = tx.send(
+            drop(tx.send(
                 hostcfg::resolve::fetch_catalog(&mirror, &cache)
                     .map(|c| Index::new(c, &mirror))
                     .map_err(|e| e.to_string()),
-            );
+            ));
         });
     }
 
@@ -332,10 +347,10 @@ impl OfficialState {
         self.import_rx = Some(rx);
         self.import = None;
         std::thread::spawn(move || {
-            let _ = tx.send(
+            drop(tx.send(
                 pacman_names("en")
                     .and_then(|native| pacman_names("em").map(|foreign| (native, foreign))),
-            );
+            ));
         });
     }
 
@@ -398,11 +413,11 @@ impl OfficialState {
                 let (tx, rx) = channel();
                 self.total_rx = Some(rx);
                 std::thread::spawn(move || {
-                    let _ = tx.send(
+                    drop(tx.send(
                         hostcfg::resolve::resolve(&cfg, &idx.catalog.dbs)
                             .map(|r| (r.packages.len(), r.download_bytes()))
                             .map_err(|e| e.to_string()),
-                    );
+                    ));
                 });
                 p.changed = true;
             }

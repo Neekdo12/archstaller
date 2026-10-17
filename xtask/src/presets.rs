@@ -12,7 +12,7 @@ fn preset_files() -> Result<Vec<PathBuf>> {
 }
 
 fn stem(p: &std::path::Path) -> String {
-    p.file_stem().unwrap().to_string_lossy().into_owned()
+    p.file_stem().unwrap_or(p.as_os_str()).to_string_lossy().into_owned()
 }
 
 /// Resolves every preset against the host's sync databases and reports what would be installed.

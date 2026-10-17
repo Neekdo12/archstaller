@@ -1,6 +1,6 @@
 use initrd::modules::*;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn kernel_dir() -> Option<PathBuf> {
@@ -12,13 +12,13 @@ fn kernel_dir() -> Option<PathBuf> {
 struct DirSource(BTreeMap<String, PathBuf>);
 
 impl DirSource {
-    fn scan(dir: &PathBuf) -> DirSource {
+    fn scan(dir: &Path) -> DirSource {
         let mut map = BTreeMap::new();
         let out = Command::new("find")
             .arg(dir.join("kernel"))
             .args(["-name", "*.ko*"])
             .output()
-            .unwrap();
+            .expect("find kernel modules");
         for line in String::from_utf8_lossy(&out.stdout).lines() {
             if let Some(n) = name_from_path(line) {
                 map.insert(n, PathBuf::from(line));
@@ -122,7 +122,7 @@ fn cpio_is_readable() {
         .arg(&f)
         .arg("etc/hello")
         .output()
-        .unwrap();
+        .expect("bsdtar extract");
     assert_eq!(cat.stdout, b"hello world");
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(std::fs::remove_dir_all(&dir));
 }

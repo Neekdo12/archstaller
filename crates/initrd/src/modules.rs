@@ -33,7 +33,9 @@ pub fn decompress(data: &[u8]) -> Result<Vec<u8>> {
         if n == 0 {
             return Ok(out);
         }
-        out.extend_from_slice(&buf[..n]);
+        if let Some(chunk) = buf.get(..n) {
+            out.extend_from_slice(chunk);
+        }
     }
 }
 
@@ -67,13 +69,13 @@ pub fn depends(elf: &[u8]) -> Result<Vec<String>> {
         let (name_off, off, size) = section(i).ok_or_else(bad)?;
         let name = strtab.get(name_off..).ok_or_else(bad)?;
         let end = name.iter().position(|&c| c == 0).ok_or_else(bad)?;
-        if &name[..end] != b".modinfo" {
+        if name.get(..end) != Some(b".modinfo") {
             continue;
         }
         let info = elf.get(off..off + size).ok_or_else(bad)?;
         for entry in info.split(|&c| c == 0) {
             if let Some(v) = entry.strip_prefix(b"depends=") {
-                let v = core::str::from_utf8(v).map_err(|_| bad())?;
+                let v = core::str::from_utf8(v).map_err(|_e| bad())?;
                 return Ok(v
                     .split(',')
                     .filter(|s| !s.is_empty())

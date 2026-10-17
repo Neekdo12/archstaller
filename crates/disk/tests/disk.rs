@@ -29,14 +29,14 @@ impl BlockDevice for FileDev {
     fn read(&mut self, lba: u64, buf: &mut [u8]) -> Result<()> {
         self.f
             .seek(SeekFrom::Start(lba * self.ss as u64))
-            .map_err(|_| Error::Io)?;
-        self.f.read_exact(buf).map_err(|_| Error::Io)
+            .map_err(|_e| Error::Io)?;
+        self.f.read_exact(buf).map_err(|_e| Error::Io)
     }
     fn write(&mut self, lba: u64, buf: &[u8]) -> Result<()> {
         self.f
             .seek(SeekFrom::Start(lba * self.ss as u64))
-            .map_err(|_| Error::Io)?;
-        self.f.write_all(buf).map_err(|_| Error::Io)
+            .map_err(|_e| Error::Io)?;
+        self.f.write_all(buf).map_err(|_e| Error::Io)
     }
     fn flush(&mut self) -> Result<()> {
         Ok(())
@@ -45,8 +45,8 @@ impl BlockDevice for FileDev {
 
 fn scratch(name: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("disk-{}-{name}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&d);
-    std::fs::create_dir_all(&d).unwrap();
+    drop(std::fs::remove_dir_all(&d));
+    std::fs::create_dir_all(&d).expect("create scratch dir");
     d
 }
 
@@ -58,8 +58,8 @@ fn make_disk(dir: &Path, name: &str, size: u64, ss: u32) -> (PathBuf, FileDev) {
         .create(true)
         .truncate(true)
         .open(&path)
-        .unwrap();
-    f.set_len(size).unwrap();
+        .expect("open disk image");
+    f.set_len(size).expect("set disk size");
     (
         path,
         FileDev {
@@ -75,7 +75,7 @@ fn guids() -> [[u8; 16]; 4] {
 }
 
 fn out(cmd: &mut Command) -> String {
-    let o = cmd.output().unwrap();
+    let o = cmd.output().expect("execute command");
     let text = format!(
         "{}{}",
         String::from_utf8_lossy(&o.stdout),
@@ -108,7 +108,7 @@ fn gpt_layout_verifies_512_and_4096() {
             .arg(&path));
         assert!(p.contains("Disklabel type: gpt"), "{p}");
     }
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(std::fs::remove_dir_all(&dir));
 }
 
 #[test]
@@ -135,7 +135,7 @@ fn fat32_min_volume_size_formats_and_one_mib_less_does_not() {
     // The installer's 64 MiB minimum ESP is enough with 512-byte sectors, not with 4 KiB ones.
     assert!(disk::fat32::min_volume_bytes(512) <= 64 << 20);
     assert!(disk::fat32::min_volume_bytes(4096) > 64 << 20);
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(std::fs::remove_dir_all(&dir));
 }
 
 #[test]
@@ -170,8 +170,8 @@ fn fat32_esp_passes_fsck_and_contents_match() {
             .unwrap();
         w.write_file("Mixed Case.Name", b"x").unwrap();
         w.write_file("empty", b"").unwrap();
-        for i in 0..200 {
-            w.write_file(&format!("many/file-number-{i:04}.dat"), &[i as u8; 10])
+        for i in 0u8..200u8 {
+            w.write_file(&format!("many/file-number-{i:04}.dat"), &[i; 10])
                 .unwrap();
         }
         w.finish().unwrap();
@@ -213,5 +213,5 @@ fn fat32_esp_passes_fsck_and_contents_match() {
         vec![199u8; 10]
     );
     assert_eq!(std::fs::read_dir(dump.join("many")).unwrap().count(), 200);
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(std::fs::remove_dir_all(&dir));
 }

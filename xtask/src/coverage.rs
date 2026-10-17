@@ -59,7 +59,10 @@ fn parse_era(s: &str, line: usize) -> Result<Option<(u16, u16)>> {
     }
     let bad = || format!("line {line}: era {s:?} must be - or FIRST-LAST years like 2013-2019");
     let (a, b) = s.split_once('-').ok_or_else(bad)?;
-    let (a, b): (u16, u16) = (a.parse().map_err(|_| bad())?, b.parse().map_err(|_| bad())?);
+    let (a, b): (u16, u16) = (
+        a.parse().map_err(|_e| bad())?,
+        b.parse().map_err(|_e| bad())?,
+    );
     if !(1990..=2100).contains(&a) || b < a || b > 2100 {
         return Err(bad().into());
     }
@@ -68,19 +71,22 @@ fn parse_era(s: &str, line: usize) -> Result<Option<(u16, u16)>> {
 
 fn triple(s: &str, line: usize) -> Result<(u8, u8, u8)> {
     let p: Vec<&str> = s.split('/').collect();
-    let ok = p.len() == 3
-        && p.iter().all(|x| {
-            x.len() == 2
-                && x.chars()
-                    .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
-        });
+    let [p0, p1, p2] = match p.as_slice() {
+        [a, b, c] => [*a, *b, *c],
+        _ => return Err(format!("line {line}: interface {s:?} must look like ff/ff/00").into()),
+    };
+    let ok = [p0, p1, p2].iter().all(|x| {
+        x.len() == 2
+            && x.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+    });
     if !ok {
         return Err(format!("line {line}: interface {s:?} must look like ff/ff/00").into());
     }
     Ok((
-        u8::from_str_radix(p[0], 16)?,
-        u8::from_str_radix(p[1], 16)?,
-        u8::from_str_radix(p[2], 16)?,
+        u8::from_str_radix(p0, 16)?,
+        u8::from_str_radix(p1, 16)?,
+        u8::from_str_radix(p2, 16)?,
     ))
 }
 
@@ -108,58 +114,63 @@ pub fn parse(text: &str, bus: Bus) -> Result<Vec<Entry>> {
             }
             continue;
         }
-        if c.len() != COLUMNS {
-            return Err(format!(
-                "line {n}: expected {COLUMNS} tab-separated columns, found {}",
-                c.len()
-            )
-            .into());
-        }
-        let (vendor, device) = (hex16(c[0], "vendor id", n)?, hex16(c[1], "device id", n)?);
+        let [c0, c1, c2, c3, c4, c5, c6, c7, c8, _c9] = match c.as_slice() {
+            [c0, c1, c2, c3, c4, c5, c6, c7, c8, c9] => {
+                [*c0, *c1, *c2, *c3, *c4, *c5, *c6, *c7, *c8, *c9]
+            }
+            _ => {
+                return Err(format!(
+                    "line {n}: expected {COLUMNS} tab-separated columns, found {}",
+                    c.len()
+                )
+                .into());
+            }
+        };
+        let (vendor, device) = (hex16(c0, "vendor id", n)?, hex16(c1, "device id", n)?);
         if !seen.insert((vendor, device)) {
             return Err(format!("line {n}: {:04x}:{:04x} appears twice", vendor, device).into());
         }
-        let interfaces = if bus == Bus::Usb && !c[4].is_empty() && c[4] != "-" {
-            c[4].split(';')
+        let interfaces = if bus == Bus::Usb && !c4.is_empty() && c4 != "-" {
+            c4.split(';')
                 .map(|t| triple(t, n))
                 .collect::<Result<Vec<_>>>()?
         } else {
             vec![]
         };
         let era = if bus == Bus::Pci {
-            parse_era(c[4], n)?
+            parse_era(c4, n)?
         } else {
             None
         };
-        if c[2].is_empty() || c[3].is_empty() || c[5].is_empty() {
+        if c2.is_empty() || c3.is_empty() || c5.is_empty() {
             return Err(format!("line {n}: name, family and source must not be empty").into());
         }
-        if !CONFIDENCE.contains(&c[6]) {
+        if !CONFIDENCE.contains(&c6) {
             return Err(format!(
                 "line {n}: confidence {:?} must be one of {CONFIDENCE:?}",
-                c[6]
+                c6
             )
             .into());
         }
         let level = LEVELS
             .iter()
-            .position(|l| *l == c[7])
-            .ok_or_else(|| format!("line {n}: test {:?} must be one of {LEVELS:?}", c[7]))?;
-        let weight = c[8].parse::<u64>().map_err(|_| {
+            .position(|l| *l == c7)
+            .ok_or_else(|| format!("line {n}: test {:?} must be one of {LEVELS:?}", c7))?;
+        let weight = c8.parse::<u64>().map_err(|_e| {
             format!(
                 "line {n}: weight {:?} must be a whole number (0 when unknown)",
-                c[8]
+                c8
             )
         })?;
         out.push(Entry {
             vendor,
             device,
-            name: c[2].into(),
-            family: c[3].into(),
+            name: c2.into(),
+            family: c3.into(),
             era,
             interfaces,
-            source: c[5].into(),
-            confidence: c[6].into(),
+            source: c5.into(),
+            confidence: c6.into(),
             level,
             weight,
         });
@@ -184,7 +195,10 @@ pub fn check(bus: Bus, entries: &[Entry]) -> Result<()> {
         if e.level >= 2 && recognized(bus, e).is_none() {
             return Err(format!(
                 "{:04x}:{:04x} ({}) says test={} but no driver recognizes it",
-                e.vendor, e.device, e.name, LEVELS[e.level]
+                e.vendor,
+                e.device,
+                e.name,
+                LEVELS.get(e.level).copied().unwrap_or("unknown")
             )
             .into());
         }
@@ -558,8 +572,8 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(dup.contains("twice"));
-        assert!(parse("", Bus::Pci).is_err());
-        assert!(parse("name\tx\n", Bus::Pci).is_err());
+        parse("", Bus::Pci).unwrap_err();
+        parse("name\tx\n", Bus::Pci).unwrap_err();
     }
 
     #[test]
@@ -605,11 +619,10 @@ mod tests {
             ..cdc
         };
         assert_eq!(recognized(Bus::Usb, &apple), None);
-        assert!(parse(
+        parse(
             &format!("{head}0b95\t1790\tn\tf\tff-ff-00\ts\thigh\tnone\t0\t"),
             Bus::Usb
-        )
-        .is_err());
+        ).unwrap_err();
     }
 
     #[test]

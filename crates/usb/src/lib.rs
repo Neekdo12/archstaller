@@ -105,7 +105,7 @@ impl Scan {
         target: impl Fn(&Device) -> Option<desc::InterfaceDesc>,
         prefer: impl Fn(&Device) -> bool,
     ) -> Result<(Controller, Device)> {
-        let usable = |ci: usize| self.ctrls[ci].is_some();
+        let usable = |ci: usize| self.ctrls.get(ci).and_then(Option::as_ref).is_some();
         let matches: Vec<usize> = self
             .found
             .iter()
@@ -115,14 +115,22 @@ impl Scan {
             .collect();
         let Some(&pick) = matches
             .iter()
-            .find(|&&i| prefer(&self.found[i].1))
+            .find(|&&i| self.found.get(i).is_some_and(|(_, d)| prefer(d)))
             .or(matches.first())
         else {
             return Err(Error::Unsupported);
         };
-        let (ci, mut dev) = self.found.swap_remove(pick);
+        let (ci, mut dev) = if pick < self.found.len() {
+            self.found.swap_remove(pick)
+        } else {
+            return Err(Error::Unsupported);
+        };
         let iface = target(&dev).ok_or(Error::Unsupported)?;
-        let mut ctrl = self.ctrls[ci].take().ok_or(Error::Unsupported)?;
+        let mut ctrl = self
+            .ctrls
+            .get_mut(ci)
+            .and_then(Option::take)
+            .ok_or(Error::Unsupported)?;
         let configuration = dev.configuration;
         hal::log!(
             "usb: using configuration {configuration} of {:04x}:{:04x}",

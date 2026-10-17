@@ -76,6 +76,6 @@ pub fn notice(win: &gtk::Window, message: &str, detail: &str) {
         .build();
     let w = win.clone();
     gtk::glib::spawn_future_local(async move {
-        let _ = d.choose_future(Some(&w)).await;
+        drop(d.choose_future(Some(&w)).await);
     });
 }

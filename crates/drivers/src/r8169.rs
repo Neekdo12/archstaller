@@ -283,8 +283,11 @@ impl NetDevice for R8169 {
         if frame.len() > BUF || frame.is_empty() {
             return Err(Error::InvalidArgument);
         }
+        let Some(dest) = self.tx_buf.as_mut_slice().get_mut(..frame.len()) else {
+            return Err(Error::InvalidArgument);
+        };
+        dest.copy_from_slice(frame);
         let d = Mmio::new(self.tx_ring.as_ptr()).offset(16 * self.tx_next);
-        self.tx_buf.as_mut_slice()[..frame.len()].copy_from_slice(frame);
         d.write32(4, 0);
         d.write64(8, self.tx_buf.phys());
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
@@ -359,12 +362,19 @@ impl NetDevice for R8169 {
             self.rx_err += 1;
         }
         let off = self.rx_next * BUF;
+        let mut copied = false;
         if ok {
-            buf[..n].copy_from_slice(&self.rx_bufs.as_slice()[off..off + n]);
+            if let (Some(dest), Some(src)) = (
+                buf.get_mut(..n),
+                self.rx_bufs.as_slice().get(off..off + n),
+            ) {
+                dest.copy_from_slice(src);
+                copied = true;
+            }
         }
         init_rx_desc(&self.rx_ring, &self.rx_bufs, self.rx_next);
         self.rx_next = (self.rx_next + 1) % RING;
-        if ok {
+        if copied {
             Some(n)
         } else {
             None

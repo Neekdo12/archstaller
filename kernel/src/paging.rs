@@ -25,7 +25,7 @@ unsafe fn next_table(hhdm: u64, entry: *mut u64) -> *mut u64 {
     if e & PRESENT != 0 {
         return table_at(hhdm, e & ADDR_MASK);
     }
-    let page = alloc_zeroed(Layout::from_size_align(4096, 4096).unwrap());
+    let page = alloc_zeroed(Layout::from_size_align(4096, 4096).expect("valid layout"));
     assert!(!page.is_null(), "page table allocation failed");
     entry.write_volatile((page as u64 - hhdm) | PRESENT | WRITE);
     page as *mut u64
