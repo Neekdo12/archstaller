@@ -6,3 +6,6 @@ edition = "2021"
 [dependencies]
 bootinfo = { path = "../bootinfo" }
 miniz_oxide = { version = "0.9", default-features = false }
+
+[lints]
+workspace = true

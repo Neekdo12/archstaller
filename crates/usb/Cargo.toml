@@ -12,3 +12,6 @@ std = []
 
 [dev-dependencies]
 usb = { path = ".", features = ["std"] }
+
+[lints]
+workspace = true

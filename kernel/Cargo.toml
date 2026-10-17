@@ -3,6 +3,11 @@ name = "kernel"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "kernel"
+path = "src/main.rs"
+test = false
+
 [dependencies]
 config = { path = "../config" }
 hal = { path = "../crates/hal" }
@@ -49,3 +54,6 @@ net-selftest = []
 usb-selftest = ["dep:usb"]
 # USB tethering as a network source: iPhone (docs/iphone-tethering.md) and Android (RNDIS, CDC-ECM).
 usb-tethering = ["dep:usb", "dep:imobiledevice", "dep:usbnet"]
+
+[lints]
+workspace = true

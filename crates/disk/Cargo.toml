@@ -11,3 +11,6 @@ std = []
 
 [dev-dependencies]
 disk = { path = ".", features = ["std"] }
+
+[lints]
+workspace = true

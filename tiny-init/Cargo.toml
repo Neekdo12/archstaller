@@ -6,7 +6,12 @@ edition = "2021"
 [[bin]]
 name = "tiny-init"
 path = "src/main.rs"
+test = false
 
 [[bin]]
 name = "test-payload"
 path = "src/bin/test_payload.rs"
+test = false
+
+[lints]
+workspace = true

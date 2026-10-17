@@ -16,3 +16,6 @@ ureq = { version = "3", optional = true }
 [features]
 # Talking to aur.archlinux.org (the GUI and xtask turn it on; the tests of the pure parts do not need it).
 net = ["dep:ureq"]
+
+[lints]
+workspace = true

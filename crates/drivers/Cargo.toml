@@ -22,3 +22,6 @@ e1000 = []
 igb = []
 r8169 = []
 rtl8139 = []
+
+[lints]
+workspace = true

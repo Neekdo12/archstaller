@@ -8,3 +8,6 @@ description = "Bounded in-RAM capture of printed output for the installer kernel
 
 [features]
 std = []
+
+[lints]
+workspace = true

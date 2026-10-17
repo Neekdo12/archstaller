@@ -5,3 +5,6 @@ edition = "2021"
 
 [dev-dependencies]
 pkg = { path = "../pkg" }
+
+[lints]
+workspace = true
