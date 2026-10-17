@@ -84,6 +84,43 @@ impl AurState {
         });
     }
 
+    /// Autoloads foreign/AUR packages from the system, resolves their dependencies, and plans them.
+    pub fn start_autoload(
+        &mut self,
+        existing: Vec<config::AurPackage>,
+        mirror: String,
+        cache: PathBuf,
+    ) {
+        let (tx, rx) = channel();
+        self.pin_rx = Some(rx);
+        self.fetching = Some("system AUR packages".into());
+        self.message = None;
+        std::thread::spawn(move || {
+            let res = (|| -> Reply<Pinned> {
+                let names = aurbuild::autoload::system_foreign_packages()?;
+                if names.is_empty() {
+                    return Err("no foreign packages found on this system (pacman -Qqem returned empty)".into());
+                }
+                let dbs = hostcfg::resolve::fetch_dbs(&mirror, &cache).map_err(|e| e.to_string())?;
+                let official = Official::new(&dbs);
+                let rep = aurbuild::autoload::autoload_packages(&names, &existing, &official)?;
+                if rep.added.is_empty() && rep.skipped.is_empty() {
+                    return Err(format!("all {} system AUR package(s) are already pinned", rep.already.len()));
+                }
+                let mut summary = rep.summary;
+                if !rep.skipped.is_empty() {
+                    let skipped_names: Vec<&str> = rep.skipped.iter().map(|(n, _)| n.as_str()).collect();
+                    summary.push_str(&format!(" Skipped: {}", skipped_names.join(", ")));
+                }
+                Ok(Pinned {
+                    entries: rep.entries,
+                    summary,
+                })
+            })();
+            drop(tx.send(res));
+        });
+    }
+
     /// Takes finished work. Returns the new package list when a pin completed.
     pub fn poll(&mut self) -> Option<Pinned> {
         if let Some(rx) = &self.search_rx {
@@ -112,6 +149,7 @@ impl AurState {
         if let Some(rx) = &self.pin_rx {
             if let Ok(r) = rx.try_recv() {
                 self.pin_rx = None;
+                self.fetching = None;
                 match r {
                     Ok(p) => {
                         self.message = Some(Ok(p.summary.clone()));

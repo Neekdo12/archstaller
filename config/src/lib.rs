@@ -81,8 +81,6 @@ pub struct AurPackage {
     pub services: Vec<String>,
 }
 
-/// The most AUR packages a config can name.
-pub const AUR_MAX: usize = 16;
 
 fn hex(s: &str, n: usize) -> bool {
     s.len() == n
@@ -393,9 +391,6 @@ impl Config {
                 return bad("user_archives url (https:// only)", &a.url);
             }
         }
-        if self.aur.len() > AUR_MAX {
-            return Err(format!("at most {AUR_MAX} aur_packages"));
-        }
         for (i, a) in self.aur.iter().enumerate() {
             let at = |m: &str| Err(format!("aur_packages[{}]: {m}", i + 1));
             if !pkg_name(&a.name) {
@@ -668,14 +663,14 @@ mod tests {
         let mut c = base();
         c.aur = vec![pkg(), pkg()];
         assert!(c.validate().unwrap_err().contains("twice"));
-        c.aur = (0..=AUR_MAX)
+        c.aur = (0..50)
             .map(|i| AurPackage {
                 name: alloc::format!("p{i}"),
                 pkgbase: alloc::format!("p{i}"),
                 ..pkg()
             })
             .collect();
-        assert!(c.validate().unwrap_err().contains("at most"));
+        c.validate().unwrap();
         c.aur = vec![pkg()];
         c.services.clear();
         assert!(c.validate().unwrap_err().contains("needs a network"));
