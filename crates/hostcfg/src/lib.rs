@@ -6,6 +6,7 @@
 //! * [`host`]: build profiles, the installer driver catalogue and their validation.
 
 pub mod asconfig;
+pub mod autoload;
 pub mod configs;
 pub mod host;
 pub mod password;
@@ -14,7 +15,9 @@ pub mod resolve;
 pub mod schema;
 pub mod scripts;
 pub mod services;
+pub mod system;
 pub mod toml;
+pub mod users;
 pub mod writer;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;

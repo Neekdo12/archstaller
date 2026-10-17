@@ -1,0 +1,322 @@
+# archstaller: kind=preset
+# Reinstall: replicates this system (host identity, packages, AUR packages, services, and user).
+# Default login: user "kubik", password "passwd". CHANGE IT before real use!
+schema = 1
+
+[system]
+hostname = "kubik"
+timezone = "Europe/Prague"
+locale = "en_US.UTF-8"
+keymap = "us"
+
+[install]
+mirrors = ["https://geo.mirror.pkgbuild.com/$repo/os/$arch"]
+
+[install.disk]
+auto_largest = true
+esp_mib = 1024
+
+[packages]
+explicit = [
+  "appmenu-gtk-module",
+  "arch-install-scripts",
+  "awww",
+  "base",
+  "base-devel",
+  "bat",
+  "bluetui",
+  "bluez",
+  "bluez-utils",
+  "brightnessctl",
+  "btop",
+  "cliphist",
+  "discord",
+  "dmenu",
+  "dnsmasq",
+  "dosfstools",
+  "duf",
+  "dust",
+  "edk2-ovmf",
+  "efibootmgr",
+  "eza",
+  "fastfetch",
+  "fd",
+  "feh",
+  "fprintd",
+  "fzf",
+  "git",
+  "godot",
+  "grub",
+  "gst-plugin-pipewire",
+  "gtksourceview5",
+  "gvfs",
+  "gvfs-smb",
+  "htop",
+  "hyperfine",
+  "hypridle",
+  "hyprland",
+  "hyprlock",
+  "hyprshot",
+  "i3-wm",
+  "i3status",
+  "intel-ucode",
+  "intellij-idea-community-edition",
+  "iwd",
+  "jq",
+  "kitty",
+  "lazygit",
+  "libinput-tools",
+  "libpulse",
+  "linux-firmware",
+  "linux-zen",
+  "ly",
+  "man-pages-cs",
+  "mpv",
+  "mtools",
+  "neovim",
+  "networkmanager",
+  "noto-fonts-emoji",
+  "npm",
+  "nwg-look",
+  "openscad",
+  "os-prober",
+  "pacman-contrib",
+  "papirus-icon-theme",
+  "picom",
+  "pipewire",
+  "pipewire-alsa",
+  "pipewire-jack",
+  "pipewire-pulse",
+  "pkgfile",
+  "prismlauncher",
+  "proton-vpn-gtk-app",
+  "python-dbus",
+  "qemu-full",
+  "qt5-declarative",
+  "quickshell",
+  "ripgrep",
+  "rofi",
+  "rofi-calc",
+  "rust-src",
+  "rustup",
+  "satty",
+  "sddm",
+  "sddm-kcm",
+  "socat",
+  "sof-firmware",
+  "stow",
+  "sudo",
+  "swaync",
+  "swtpm",
+  "tailscale",
+  "thunar",
+  "tmux",
+  "trunk",
+  "ttf-fantasque-nerd",
+  "ttf-iosevka-nerd",
+  "ttf-jetbrains-mono-nerd",
+  "usbutils",
+  "uv",
+  "virt-manager",
+  "waybar",
+  "webkit2gtk-4.1",
+  "wget",
+  "wireplumber",
+  "wtype",
+  "xdotool",
+  "yazi",
+  "zoxide",
+  "zram-generator",
+  "zsh",
+]
+
+[packages.providers]
+initramfs = "mkinitcpio"
+jack = "pipewire-jack"
+iptables = "iptables"
+man = "mandoc"
+"org.freedesktop.secrets" = "gnome-keyring"
+
+# Built on the installed system at its first boot, from the pinned and reviewed recipe.
+[[packages.aur]]
+name = "antigravity-cli"
+pkgbase = "antigravity-cli"
+commit = "bbc4ca8d3092cd55a20a17af57ab98e61abdc04e"
+sha256 = "404136c7d1a1f52e57a3b4741410bbf8aefaba32f56b906efa2ba8f83f3b26ce"
+deps = ["base-devel", "git", "glibc"]
+build_deps = ["base-devel", "git"]
+
+[[packages.aur]]
+name = "apple_cursor"
+pkgbase = "apple_cursor"
+commit = "8990f4e4677df6147dc0872a85b586a5adc686d8"
+sha256 = "4b7713766a96a7e6e7bfac6777d394584491d845db08d20057c5e9a66a7f95af"
+deps = ["base-devel", "git"]
+build_deps = ["base-devel", "git"]
+
+[[packages.aur]]
+name = "bluetuith"
+pkgbase = "bluetuith"
+commit = "1a6ab61e1e14e72fd6b40858c0b144f87da435c6"
+sha256 = "524060a014fa7a7cb3db0a17c14223041cda8c0fe3f4c7fb7e90c9195534af14"
+vcs = true
+deps = ["base-devel", "git", "bluez", "dbus", "go"]
+build_deps = ["base-devel", "git", "go"]
+
+[[packages.aur]]
+name = "browsh"
+pkgbase = "browsh"
+commit = "68f52009a15a803941d4160f2f567d141141237a"
+sha256 = "a91be0ffd150385e6a787517b0d96e70125ae41ba7b29d608aa575cb23f93dff"
+deps = ["base-devel", "git", "firefox", "go"]
+build_deps = ["base-devel", "git", "go"]
+
+[[packages.aur]]
+name = "cbonsai"
+pkgbase = "cbonsai"
+commit = "6a643ecb56b91b3ef5f54f4fbfd69c9745b8437c"
+sha256 = "9f10514cfa9c8033ca23a02edaf0aef4d01abb499ca8355f41b13b4a3ca4f600"
+deps = ["base-devel", "git", "gcc", "ncurses", "scdoc"]
+build_deps = ["base-devel", "git", "scdoc"]
+
+[[packages.aur]]
+name = "herdr"
+pkgbase = "herdr"
+commit = "1461f14c3827d2b2f3460dcb1142fda4c169706e"
+sha256 = "24edd3c26fcdd2bf0a77b310a8f714f9da06f0fd1c1b977f593abec394beea8c"
+deps = ["base-devel", "git", "gcc-libs", "glibc", "rustup", "zig"]
+build_deps = ["base-devel", "git", "rustup", "zig"]
+
+[[packages.aur]]
+name = "notion-app-electron"
+pkgbase = "notion-app-electron"
+commit = "3f18eecde9c7f9d5c6b8e0ca2a526fde6eafb15c"
+sha256 = "7bb57c1a98422aeb3ca1e152c0722545beecd8b9f5786f9f5691e52fc00cf2da"
+deps = ["base-devel", "git", "bash", "glibc", "hicolor-icon-theme", "electron43", "libstdc++", "libpipewire", "libgcc", "7zip", "asar", "ast-grep"]
+build_deps = ["base-devel", "git", "7zip", "asar", "ast-grep"]
+
+[[packages.aur]]
+name = "onlyoffice-bin"
+pkgbase = "onlyoffice-bin"
+commit = "35b7d85bf49e5a89c089115b49c92ef8d6daea35"
+sha256 = "7037e84dbb5ec92f2fb6c965026b769134487ef80f52b3347651d844c72fce33"
+deps = ["base-devel", "git", "alsa-lib", "at-spi2-core", "cairo", "curl", "dbus", "desktop-file-utils", "expat", "fontconfig", "freetype2", "glib2", "glibc", "gtk3", "gstreamer", "gst-plugins-base-libs", "gst-plugins-ugly", "hicolor-icon-theme", "libcups", "libdrm", "libgcc", "libglvnd", "libnotify", "libpulse", "libstdc++", "libx11", "libxcomposite", "libxdamage", "libxcb", "libxext", "libxfixes", "libxi", "libxkbcommon", "libxrandr", "libxss", "mesa", "nss", "nspr", "pango", "bash", "ttf-carlito", "ttf-dejavu", "ttf-liberation"]
+build_deps = ["base-devel", "git"]
+
+[[packages.aur]]
+name = "pam-fprint-grosshack"
+pkgbase = "pam-fprint-grosshack"
+commit = "d9d2c30742d768a220fce5654416b1a0fa72d6a4"
+sha256 = "2679d4e1ce26af67a35e816bc3efccaa9785bdf89f22ec90a14febae21a48403"
+vcs = true
+deps = ["base-devel", "git", "fprintd", "glib2", "libfprint", "polkit", "dbus", "dbus-glib", "systemd", "cmake", "meson", "pam_wrapper", "python-cairo", "python-dbus", "python-dbusmock"]
+build_deps = ["base-devel", "git", "cmake", "meson", "pam_wrapper", "python-cairo", "python-dbus", "python-dbusmock"]
+
+[[packages.aur]]
+name = "papirus-folders"
+pkgbase = "papirus-folders"
+commit = "db13c53003228bc2f7a5aa514bfecfb1a9d0541f"
+sha256 = "5cd2c1295b72ad865c43df40a561edf6b2d0f15b59e3a426e29f3bd71b8da009"
+vcs = true
+deps = ["base-devel", "git", "bash", "papirus-icon-theme"]
+build_deps = ["base-devel", "git"]
+
+[[packages.aur]]
+name = "pokemon-colorscripts-git"
+pkgbase = "pokemon-colorscripts-git"
+commit = "ddda00df2b51cdabd67e586fd3ae19e60079f9f2"
+sha256 = "4883e050f714393b1f0b643e0aad68d1cdee68ecdf21d1583963e466e29fbf78"
+vcs = true
+deps = ["base-devel", "git", "python"]
+build_deps = ["base-devel", "git"]
+
+[[packages.aur]]
+name = "qdirstat"
+pkgbase = "qdirstat"
+commit = "7fec4c52e23faa3cd9e80e38ed0d5deb30246524"
+sha256 = "eae41be39113c5a54f29ad04fa19049c0ef9d60db51f2034a444a446a900b6e8"
+deps = ["base-devel", "git", "qt6-base", "qt6-5compat", "glibc", "gcc-libs", "zlib", "hicolor-icon-theme"]
+build_deps = ["base-devel", "git"]
+
+[[packages.aur]]
+name = "rar"
+pkgbase = "rar"
+commit = "139d5d260de28a48dca014a3b9ec1942985d1b7c"
+sha256 = "88780433ad55680bde30e087757212739b1b9861b9f78d2bef4d6923e71938bf"
+deps = ["base-devel", "git", "gcc-libs"]
+build_deps = ["base-devel", "git"]
+
+[[packages.aur]]
+name = "swayosd-git"
+pkgbase = "swayosd-git"
+commit = "7897bd91be33be103edd49b8d20f82b38e4d6664"
+sha256 = "0646a792929c6fd240759163178ff85217ae8777e1a98ef9d36b473c6256cfb1"
+vcs = true
+deps = ["base-devel", "git", "gtk4", "gtk4-layer-shell", "pulse-native-provider", "libinput", "rustup", "meson", "ninja", "sassc"]
+build_deps = ["base-devel", "git", "rustup", "meson", "ninja", "sassc"]
+
+[[packages.aur]]
+name = "teams-for-linux"
+pkgbase = "teams-for-linux"
+commit = "cf392875562f68c70330aeff4af129b51aec3256"
+sha256 = "52156223a6d0954ee529e87e3dff5d7051916ea43f1f4e0f5ea00f3b5cdab008"
+deps = ["base-devel", "git", "gtk3", "libxss", "nss", "nodejs", "node-gyp", "npm"]
+build_deps = ["base-devel", "git", "nodejs", "node-gyp", "npm"]
+
+[[packages.aur]]
+name = "ttf-rubik-vf"
+pkgbase = "ttf-rubik-vf"
+commit = "df5b264003f0d39ba75f42970074ff2465ed527c"
+sha256 = "3f1bebcaa74f35ec87141b62ed60f8da9c978ce29f191e03f889d0cd6a97d1f6"
+deps = ["base-devel", "git"]
+build_deps = ["base-devel", "git"]
+
+[[packages.aur]]
+name = "vesktop"
+pkgbase = "vesktop"
+commit = "3568dd18516babd9d1256ffaa196bea72e151efd"
+sha256 = "1c531a9c4f55b9bfda8b2bb903873ac1e9a442af4f34980e3ed73b7eee6ac754"
+deps = ["base-devel", "git", "alsa-lib", "gtk3", "nss", "pnpm", "npm", "nodejs"]
+build_deps = ["base-devel", "git", "pnpm", "npm", "nodejs"]
+
+[[packages.aur]]
+name = "visual-studio-code-bin"
+pkgbase = "visual-studio-code-bin"
+commit = "7145eb80fbe422b1ac3c44b4ff1a29889b49e649"
+sha256 = "6bf6a51a2eedd0edfa107767829e5506ea261c2f361400f327ecd47f901f7b3a"
+deps = ["base-devel", "git", "libxkbfile", "gnupg", "gtk3", "libsecret", "nss", "gcc-libs", "libnotify", "libxss", "glibc", "lsof", "shared-mime-info", "xdg-utils", "alsa-lib"]
+build_deps = ["base-devel", "git"]
+
+[[packages.aur]]
+name = "yay"
+pkgbase = "yay"
+commit = "cb43f84828ab4f9700f7c6f9c6d7a923d4cfaff0"
+sha256 = "e042b07a5314a5c69e27bc90e3b865658c3b91b73e9f519e99ed7c59b4800fef"
+deps = ["base-devel", "git", "pacman", "go"]
+build_deps = ["base-devel", "go"]
+
+[[packages.aur]]
+name = "zen-browser-bin"
+pkgbase = "zen-browser-bin"
+commit = "e97da195bed6be567982d711eb3700db82625150"
+sha256 = "3cc01c89bf57f70ae886ca05c608be314ba42870fa318b3e336f146d7e87f2ee"
+deps = ["base-devel", "git", "gtk3", "libxt", "mailcap", "dbus-glib", "nss", "gnu-free-fonts", "systemd", "ffmpeg"]
+build_deps = ["base-devel", "git"]
+
+[[users]]
+name = "kubik"
+password_hash = "$6$archstlr$gnUg60P8TrWaKT.8/oW8Iq1kc8LlPnk4A6UWw5ij0AAQNe2IN7TuPFnw7PmXMXuobrVIYBSbNWUgRbpafXqcc."
+groups = ["wheel", "libvirt", "input"]
+shell = "/usr/bin/zsh"
+
+[first_boot]
+services = [
+  "systemd-timesyncd.service",
+  "NetworkManager.service",
+  "bluetooth.service",
+  "tailscaled.service",
+]
+
+[build]
+profile = "super-small"
+tethering = true

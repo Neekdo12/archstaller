@@ -45,17 +45,55 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         c.append(&r);
     }
 
+    let autoload_row = ui::hbox(8);
+    let a = app.clone();
+    let autoload_btn = ui::button("Autoload users from system", move || {
+        let host_users = hostcfg::users::discover_host_users();
+        let mut added = 0;
+        let mut need_pw = Vec::new();
+        a.edit(|m| {
+            for u in &host_users {
+                if m.cfg.users.iter().any(|existing| existing.name == u.name) {
+                    continue;
+                }
+                if let Some(hash) = &u.password_hash {
+                    m.cfg.users.push(config::User {
+                        name: u.name.clone(),
+                        password_hash: hash.clone(),
+                        groups: u.groups.clone(),
+                        shell: u.shell.clone(),
+                    });
+                    added += 1;
+                } else {
+                    need_pw.push(u.name.clone());
+                }
+            }
+        });
+        if added > 0 {
+            a.set_status(format!("Autoloaded {added} user(s) with password hash from shadow."));
+        } else if !need_pw.is_empty() {
+            a.set_status(format!(
+                "Found user(s) on host: {}. Use 'Autoload' in 'Add a user' below to set passwords.",
+                need_pw.join(", ")
+            ));
+        } else {
+            a.set_status("All host users are already added.");
+        }
+        a.rebuild(Page::Users);
+    });
+    autoload_btn.set_tooltip_text(Some(
+        "Detects regular user accounts on this computer from /etc/passwd and /etc/group.",
+    ));
+    autoload_row.append(&autoload_btn);
+    c.append(&autoload_row);
+
     let c = ui::card(content, Some("Add a user"));
+    let host_curr = hostcfg::users::current_user();
     let name = ui::entry("", |_| {});
-    ui::row(&c, "Name", &name);
     let pw = ui::password(|_| {});
-    ui::row(&c, "Password", &pw);
     let pw2 = ui::password(|_| {});
-    ui::row(&c, "Again", &pw2);
     let grp = ui::suggest("wheel", groups, true, |_| {});
-    ui::row(&c, "Groups", &grp);
     let sh = ui::suggest("/bin/bash", shells, false, |_| {});
-    ui::row(&c, "Shell", &sh);
     let mismatch = ui::note(&c, Kind::Bad, "The passwords differ");
     mismatch.set_visible(false);
     let add = ui::primary("Add user", || {});
@@ -82,6 +120,37 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         let u = update.clone();
         e.connect_changed(move |_| u());
     }
+
+    if let Some(hu) = host_curr {
+        let a = app.clone();
+        let n_ent = name.clone();
+        let g_ent = grp.clone();
+        let s_ent = sh.clone();
+        let pw_ent = pw.clone();
+        let u_update = update.clone();
+        let auto_user_btn =
+            ui::button(&format!("Autoload user '{}' from system", hu.name), move || {
+                n_ent.set_text(&hu.name);
+                g_ent.set_text(&hu.groups.join(", "));
+                s_ent.set_text(&hu.shell);
+                u_update();
+                pw_ent.grab_focus();
+                a.set_status(format!(
+                    "Autoloaded host user '{}'. Please enter and confirm a password below.",
+                    hu.name
+                ));
+            });
+        auto_user_btn.set_tooltip_text(Some(
+            "Pre-fills username, supplemental groups, and shell from this machine.",
+        ));
+        c.append(&auto_user_btn);
+    }
+
+    ui::row(&c, "Name", &name);
+    ui::row(&c, "Password", &pw);
+    ui::row(&c, "Again", &pw2);
+    ui::row(&c, "Groups", &grp);
+    ui::row(&c, "Shell", &sh);
     {
         let (a, name, pw, grp, sh) = (
             app.clone(),

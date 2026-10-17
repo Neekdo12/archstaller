@@ -155,6 +155,9 @@ impl Model {
                 *f = l.dir.join(&*f).to_string_lossy().into_owned();
             }
         }
+        if path.file_stem().is_some_and(|s| s == "reinstall") {
+            hostcfg::autoload::autoload_live_system(&mut l.config);
+        }
         Ok(Model {
             cfg: l.config,
             host: l.host,
@@ -408,7 +411,17 @@ mod tests {
         let names: Vec<&str> = list.iter().map(|p| p.name.as_str()).collect();
         assert_eq!(
             names,
-            ["hyprland", "i3", "minimal", "omarchy", "plasma", "server", "sway", "tester"]
+            [
+                "hyprland",
+                "i3",
+                "minimal",
+                "omarchy",
+                "plasma",
+                "reinstall",
+                "server",
+                "sway",
+                "tester"
+            ]
         );
         for p in &list {
             assert!(!p.description.is_empty(), "{}", p.name);
