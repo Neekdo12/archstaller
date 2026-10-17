@@ -387,6 +387,7 @@ fn render_import(app: &Rc<App>, p: &OfficialParts) {
                     .xalign(0.0)
                     .wrap(true)
                     .wrap_mode(gtk::pango::WrapMode::WordChar)
+                    .max_width_chars(50)
                     .css_classes(["hint"])
                     .build();
                 foreign_box.append(&list_label);
@@ -508,6 +509,9 @@ fn resolution_card(app: &Rc<App>, d: &gtk::Box) {
                 &gtk::ScrolledWindow::builder()
                     .min_content_height(220)
                     .max_content_height(220)
+                    .min_content_width(200)
+                    .hscrollbar_policy(gtk::PolicyType::Automatic)
+                    .propagate_natural_width(false)
                     .has_frame(true)
                     .child(&view)
                     .build(),
@@ -529,7 +533,10 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
     let units = app.st.borrow().lists.services.clone();
     for (i, p) in pinned.iter().enumerate() {
         let r = ui::hbox(8);
-        r.append(&ui::strong(&p.name));
+        let name_lbl = ui::strong(&p.name);
+        name_lbl.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        name_lbl.set_tooltip_text(Some(&p.name));
+        r.append(&name_lbl);
         r.append(&ui::dim(&format!(
             "@ {}",
             p.commit.get(..p.commit.len().min(8)).unwrap_or(&p.commit)
@@ -553,6 +560,7 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
                 }
             });
         });
+        units_entry.set_width_chars(10);
         units_entry.set_placeholder_text(Some("units to enable"));
         units_entry.set_tooltip_text(Some(
             "systemd units to enable once this package is installed, comma separated",

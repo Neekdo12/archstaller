@@ -58,18 +58,94 @@ if [ -s "$D/userfiles.list" ]; then
     done < "$D/users.list"
 fi
 
-# Zip archives fetched by the installer, unpacked into each user's home as that user.
+# User archives (.tar.zst, .tar.xz, .tar.gz, .zip):
+# Downloaded, loaded from disk UUID, or unpacked from embedded image into each user's home.
 if [ -s "$D/userarchives.list" ]; then
-    while IFS=: read -r uname _rest; do
-        [ -n "$uname" ] || continue
-        home=$(getent passwd "$uname" | cut -d: -f6)
-        while read -r idx; do
-            [ -n "$idx" ] || continue
-            runuser -u "$uname" -- bsdtar -xf "$D/userarchives/$idx" -C "$home" &&
-                say "user archive #$idx extracted into ~ for $uname" ||
-                say "warning: could not extract user archive #$idx for $uname"
-        done < "$D/userarchives.list"
-    done < "$D/users.list"
+    mkdir -p "$D/userarchives"
+    while IFS=: read -r idx kind spec path sha; do
+        [ -n "$idx" ] || continue
+        archive_file="$D/userarchives/$idx"
+        
+        # 1. Fetch or load if not already embedded
+        if [ "$kind" = "url" ] && [ ! -s "$archive_file" ]; then
+            url="$spec"
+            say "downloading user archive #$idx from $url"
+            # If network is not up yet, try bringing up NetworkManager or waiting
+            if ! ping -c 1 -W 2 1.1.1.1 >/dev/null 2>&1 && ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
+                if systemctl is-enabled NetworkManager >/dev/null 2>&1; then
+                    systemctl start NetworkManager || true
+                    for _ in {1..15}; do
+                        ping -c 1 -W 1 1.1.1.1 >/dev/null 2>&1 && break
+                        sleep 1
+                    done
+                fi
+            fi
+            if curl -fSL --retry 3 --connect-timeout 10 "$url" -o "$archive_file.tmp"; then
+                mv "$archive_file.tmp" "$archive_file"
+                say "user archive #$idx downloaded successfully"
+            else
+                rm -f "$archive_file.tmp"
+                say "warning: could not download user archive #$idx from $url"
+                continue
+            fi
+        elif [ "$kind" = "uuid" ] && [ ! -s "$archive_file" ]; then
+            uuid="$spec"
+            subpath="${path:-home.tar.zst}"
+            say "searching for archive '$subpath' on disk UUID $uuid"
+            udevadm settle --timeout=5 2>/dev/null || true
+            dev="/dev/disk/by-uuid/$uuid"
+            if [ ! -b "$dev" ]; then
+                dev=$(findfs "UUID=$uuid" 2>/dev/null || true)
+            fi
+            if [ -n "$dev" ] && [ -b "$dev" ]; then
+                mkdir -p /mnt/archstaller-archive
+                if mount -o ro "$dev" /mnt/archstaller-archive; then
+                    src_file="/mnt/archstaller-archive/$subpath"
+                    if [ -f "$src_file" ]; then
+                        cp "$src_file" "$archive_file"
+                        say "user archive #$idx loaded from disk UUID $uuid"
+                    else
+                        say "warning: file $subpath not found on disk UUID $uuid"
+                    fi
+                    umount /mnt/archstaller-archive || true
+                else
+                    say "warning: failed to mount disk UUID $uuid ($dev)"
+                fi
+                rmdir /mnt/archstaller-archive 2>/dev/null || true
+            else
+                say "warning: disk with UUID $uuid not found"
+            fi
+        elif [ "$kind" = "file" ] && [ ! -s "$archive_file" ]; then
+            src_file="$spec"
+            if [ -f "$src_file" ]; then
+                cp "$src_file" "$archive_file"
+            else
+                say "warning: file $src_file not found"
+            fi
+        fi
+
+        # 2. Check SHA-256 digest if configured
+        if [ -n "$sha" ] && [ -s "$archive_file" ]; then
+            calc_sha=$(sha256sum "$archive_file" | cut -d' ' -f1)
+            if [ "$calc_sha" != "$sha" ]; then
+                say "warning: user archive #$idx sha256 mismatch (got $calc_sha, expected $sha); skipping"
+                rm -f "$archive_file"
+                continue
+            fi
+        fi
+
+        # 3. Extract into each user's home
+        if [ -s "$archive_file" ]; then
+            while IFS=: read -r uname _rest; do
+                [ -n "$uname" ] || continue
+                home=$(getent passwd "$uname" | cut -d: -f6)
+                [ -n "$home" ] && [ -d "$home" ] || continue
+                runuser -u "$uname" -- bsdtar -xf "$archive_file" -C "$home" &&
+                    say "user archive #$idx extracted into ~ for $uname" ||
+                    say "warning: could not extract user archive #$idx for $uname"
+            done < "$D/users.list"
+        fi
+    done < "$D/userarchives.list"
 fi
 
 # AUR packages are built on the next boot by archstaller-aur.service, once the network is up; enabling it here

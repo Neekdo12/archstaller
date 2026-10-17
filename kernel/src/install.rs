@@ -194,7 +194,6 @@ fn select_largest(devs: &mut Devices) -> R<Box<dyn BlockDevice>> {
 }
 
 pub(crate) const USER_FILE_MAX: usize = 1 << 20;
-pub(crate) const USER_ARCHIVE_MAX: usize = 16 << 20;
 
 /// Downloads a small optional file; any failure is reported as text, never as a hard error.
 pub(crate) fn fetch_optional(
@@ -806,6 +805,20 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
             .map_err(dbg_err("localtime"))?;
     }
 
+    for sf in &cfg.system_files {
+        if let Some(content) = &sf.content {
+            let clean_path = sf.path.trim_start_matches('/');
+            put(&w, clean_path, sf.mode, content)?;
+            put(&w, &overlay(clean_path), sf.mode, content)?;
+            println!(
+                "system file {} ({} bytes, mode {:o})",
+                clean_path,
+                content.len(),
+                sf.mode
+            );
+        }
+    }
+
     // Per-user files from third-party servers. An unreachable server only costs a warning.
     let mut userfiles = String::new();
     for (i, f) in cfg.user_files.iter().enumerate() {
@@ -826,17 +839,25 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
     )?;
     let mut userarchives = String::new();
     for (i, a) in cfg.user_archives.iter().enumerate() {
-        match fetch_optional(&client, &mut stack, &a.url, USER_ARCHIVE_MAX) {
-            // A server that answers 200 with an error page must not be unpacked as an archive.
-            Ok(data) if !data.starts_with(b"PK\x03\x04") => {
-                println!("warning: skipping {}: not a zip archive", a.url)
+        let sha = a.sha256.as_deref().unwrap_or("");
+        if let Some(data) = &a.content {
+            if !config::is_supported_archive(data) {
+                println!("warning: skipping user archive #{i}: unknown archive format");
+                continue;
             }
-            Ok(data) => {
-                put(&w, &format!("{STATE_DIR}/userarchives/{i}"), 0o644, &data)?;
-                userarchives.push_str(&format!("{i}\n"));
-                println!("user archive {} -> ~/ ({} bytes)", a.url, data.len());
-            }
-            Err(e) => println!("warning: skipping {}: {e}", a.url),
+            put(&w, &format!("{STATE_DIR}/userarchives/{i}"), 0o644, data)?;
+            userarchives.push_str(&format!("{i}:embedded:::{sha}\n"));
+            println!("user archive #{i} (embedded, {} bytes) -> ~/", data.len());
+        } else if let Some(url) = &a.url {
+            userarchives.push_str(&format!("{i}:url:{url}::{sha}\n"));
+            println!("user archive #{i} from {url} will be downloaded on first boot");
+        } else if let Some(uuid) = &a.disk_uuid {
+            let path = a.path.as_deref().unwrap_or("home.tar.zst");
+            userarchives.push_str(&format!("{i}:uuid:{uuid}:{path}:{sha}\n"));
+            println!("user archive #{i} from disk UUID {uuid} ({path}) will be loaded on first boot");
+        } else if let Some(file) = &a.file {
+            userarchives.push_str(&format!("{i}:file:{file}::{sha}\n"));
+            println!("user archive #{i} from file {file} will be loaded on first boot");
         }
     }
     put(

@@ -36,6 +36,9 @@ pub struct Config {
     /// `user_files`.
     #[serde(default)]
     pub user_archives: Vec<UserArchive>,
+    /// System files written into the root filesystem during installation and preserved via the first-boot overlay.
+    #[serde(default)]
+    pub system_files: Vec<SystemFile>,
     /// Hardware test mode: probe devices, read disks (never write), bring up the network, fetch
     /// and resolve the package databases, print a report and reboot. No disk is selected, so
     /// `disk.confirm_serial` is not needed. The kernel wraps every disk so writes are refused.
@@ -184,10 +187,74 @@ impl Default for CustomService {
 /// The largest custom service unit file the installer will embed.
 pub const CUSTOM_SERVICE_MAX: usize = 64 * 1024;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// The largest archive the installer will embed or download (256 MiB).
+pub const USER_ARCHIVE_MAX: usize = 256 * 1024 * 1024;
+
+/// Detects whether `data` begins with valid magic bytes for `.tar.zst`, `.tar.xz`, `.tar.gz`,
+/// `.tar.bz2`, `.zip`, or POSIX `.tar`. All of these formats are supported by `bsdtar`.
+pub fn is_supported_archive(data: &[u8]) -> bool {
+    // PKZip (.zip)
+    data.starts_with(b"PK\x03\x04") || data.starts_with(b"PK\x05\x06")
+    // Zstandard (.tar.zst, .zst)
+    || data.starts_with(&[0x28, 0xb5, 0x2f, 0xfd])
+    // XZ (.tar.xz, .xz)
+    || data.starts_with(&[0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00])
+    // Gzip (.tar.gz, .gz)
+    || data.starts_with(&[0x1f, 0x8b])
+    // Bzip2 (.tar.bz2, .bz2)
+    || data.starts_with(b"BZh")
+    // POSIX tar (.tar) - "ustar" at offset 257
+    || data.get(257..262) == Some(b"ustar")
+}
+
+/// A user archive extracted into every configured user's home directory on the installed system.
+/// Supports `.tar.zst`, `.tar.xz`, `.tar.gz`, `.tar.bz2`, and `.zip` formats.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserArchive {
-    /// `https://` URL of a zip file (at most 16 MiB).
-    pub url: String,
+    /// Remote HTTP/HTTPS URL of the archive, downloaded during first boot.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Host-only path of a local archive file (relative to config or absolute), embedded in the ISO payload.
+    #[serde(default)]
+    pub file: Option<String>,
+    /// Archive bytes embedded in the ISO payload at build time.
+    #[serde(default)]
+    pub content: Option<Vec<u8>>,
+    /// Filesystem UUID of a disk/partition containing the archive.
+    #[serde(default)]
+    pub disk_uuid: Option<String>,
+    /// Path to the archive inside the partition identified by `disk_uuid` (defaults to "home.tar.zst").
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Optional lower-case hex SHA-256 digest of the archive.
+    #[serde(default)]
+    pub sha256: Option<String>,
+}
+
+/// A system file written into the root filesystem during installation and preserved in the first-boot overlay.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SystemFile {
+    /// Target path relative to root, e.g. "etc/NetworkManager/system-connections/Home.nmconnection".
+    pub path: String,
+    /// Unix permission bits (e.g. 0o600 for network keys, 0o644 for general configs).
+    pub mode: u16,
+    /// Host-only: path of a local file to read at build time.
+    #[serde(default)]
+    pub file: Option<String>,
+    /// File content embedded directly.
+    #[serde(default)]
+    pub content: Option<Vec<u8>>,
+}
+
+impl Default for SystemFile {
+    fn default() -> Self {
+        SystemFile {
+            path: String::new(),
+            mode: 0o644,
+            file: None,
+            content: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -395,13 +462,33 @@ impl Config {
                 );
             }
         }
-        for a in &self.user_archives {
-            if !a.url.starts_with("https://")
-                || a.url
-                    .chars()
-                    .any(|c| c.is_whitespace() || c == '\'' || c == '"')
-            {
-                return bad("user_archives url (https:// only)", &a.url);
+        for (i, a) in self.user_archives.iter().enumerate() {
+            let at = |m: &str| Err(format!("user_archives[{}]: {m}", i + 1));
+            match (&a.url, &a.file, &a.content, &a.disk_uuid) {
+                (None, None, None, None) => {
+                    return at("must specify at least one of url, file, content, or disk_uuid");
+                }
+                (Some(u), ..)
+                    if (!u.starts_with("https://") && !u.starts_with("http://"))
+                        || u.chars().any(|c| c.is_whitespace() || c == '\'' || c == '"') =>
+                {
+                    return at(&format!("invalid url {u:?}"));
+                }
+                _ => {}
+            }
+            if let Some(h) = &a.sha256 {
+                if !hex(h, 64) {
+                    return at(&format!("invalid sha256 {h:?} (expected 64 lower-case hex characters)"));
+                }
+            }
+        }
+        for (i, sf) in self.system_files.iter().enumerate() {
+            let at = |m: &str| Err(format!("system_files[{}]: {m}", i + 1));
+            if sf.path.is_empty() || sf.path.starts_with('/') || sf.path.contains("..") {
+                return at(&format!("invalid relative path {:?}", sf.path));
+            }
+            if sf.file.is_none() && sf.content.is_none() {
+                return at("must specify file or content");
             }
         }
         for (i, a) in self.aur.iter().enumerate() {
@@ -560,6 +647,7 @@ mod tests {
             kernel_params: vec![],
             user_files: vec![],
             user_archives: vec![],
+            system_files: vec![],
             dry_run: false,
             scripts: vec![],
             custom_services: vec![],
@@ -768,5 +856,74 @@ mod tests {
         c.custom_services[0].file = None;
         c.custom_services[0].content = Some(alloc::vec![b'a'; CUSTOM_SERVICE_MAX + 1]);
         assert!(c.validate().unwrap_err().contains("larger than 64 KiB"));
+    }
+
+    #[test]
+    fn user_archive_rules() {
+        let mut c = base();
+        c.user_archives = vec![UserArchive {
+            url: Some("https://example.com/dotfiles.tar.zst".into()),
+            ..Default::default()
+        }];
+        c.validate().unwrap();
+
+        // Disk UUID source
+        c.user_archives = vec![UserArchive {
+            disk_uuid: Some("1234-5678".into()),
+            path: Some("home.tar.zst".into()),
+            ..Default::default()
+        }];
+        c.validate().unwrap();
+
+        // Local file source
+        c.user_archives = vec![UserArchive {
+            file: Some("/path/to/archive.tar.zst".into()),
+            ..Default::default()
+        }];
+        c.validate().unwrap();
+
+        // Embedded content source
+        c.user_archives = vec![UserArchive {
+            content: Some(b"dummy".to_vec()),
+            ..Default::default()
+        }];
+        c.validate().unwrap();
+
+        // Empty archive source
+        c.user_archives = vec![UserArchive::default()];
+        assert!(c.validate().unwrap_err().contains("at least one of"));
+
+        // Invalid URL
+        c.user_archives = vec![UserArchive {
+            url: Some("ftp://bad.com".into()),
+            ..Default::default()
+        }];
+        assert!(c.validate().unwrap_err().contains("invalid url"));
+    }
+
+    #[test]
+    fn system_file_rules() {
+        let mut c = base();
+        c.system_files = vec![SystemFile {
+            path: "etc/NetworkManager/system-connections/Home.nmconnection".into(),
+            mode: 0o600,
+            file: Some("connections/Home.nmconnection".into()),
+            content: None,
+        }];
+        c.validate().unwrap();
+
+        // Invalid path (absolute)
+        c.system_files[0].path = "/etc/passwd".into();
+        assert!(c.validate().unwrap_err().contains("invalid relative path"));
+
+        // Invalid path (path traversal)
+        c.system_files[0].path = "etc/../etc/passwd".into();
+        assert!(c.validate().unwrap_err().contains("invalid relative path"));
+
+        // Neither file nor content
+        c.system_files[0].path = "etc/good".into();
+        c.system_files[0].file = None;
+        c.system_files[0].content = None;
+        assert!(c.validate().unwrap_err().contains("must specify file or content"));
     }
 }

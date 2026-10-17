@@ -2,7 +2,7 @@
 //! waits a minute and reboots. It never writes to a disk: every block device is wrapped so that
 //! `write` and `flush` are refused, and nothing in this module calls the installer's write paths.
 use crate::install::{
-    bring_up_network, expand, fetch_optional, fetch_to_vec, now_ms, REPOS, USER_ARCHIVE_MAX,
+    bring_up_network, expand, fetch_optional, fetch_to_vec, now_ms, REPOS,
     USER_FILE_MAX,
 };
 use crate::{println, time};
@@ -324,13 +324,20 @@ fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Repo
             Err(e) => r.warn(&format!("user file {}: {e}", f.url)),
         }
     }
-    for a in &cfg.user_archives {
-        match fetch_optional(&client, &mut stack, &a.url, USER_ARCHIVE_MAX) {
-            Ok(d) if d.starts_with(b"PK\x03\x04") => {
-                r.ok(&format!("user archive {}: {} bytes", a.url, d.len()))
+    for (i, a) in cfg.user_archives.iter().enumerate() {
+        if let Some(content) = &a.content {
+            if config::is_supported_archive(content) {
+                r.ok(&format!("user archive #{i} (embedded): {} bytes", content.len()));
+            } else {
+                r.warn(&format!("user archive #{i} (embedded): unknown archive format"));
             }
-            Ok(_) => r.warn(&format!("user archive {}: not a zip", a.url)),
-            Err(e) => r.warn(&format!("user archive {}: {e}", a.url)),
+        } else if let Some(url) = &a.url {
+            r.ok(&format!("user archive #{i} ({url}): will download on first boot"));
+        } else if let Some(uuid) = &a.disk_uuid {
+            let path = a.path.as_deref().unwrap_or("home.tar.zst");
+            r.ok(&format!("user archive #{i} (disk UUID {uuid}:{path}): will load on first boot"));
+        } else if let Some(file) = &a.file {
+            r.ok(&format!("user archive #{i} (file {file})"));
         }
     }
     // Only when everything above passed: measure real download throughput.

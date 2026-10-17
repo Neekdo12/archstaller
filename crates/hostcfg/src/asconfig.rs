@@ -127,6 +127,9 @@ pub struct FirstBoot {
     /// Zip archives extracted into every user's home directory (a failed download only warns).
     #[serde(default)]
     pub user_archives: Vec<UserArchive>,
+    /// System files written into the root filesystem during installation and preserved via first-boot overlay.
+    #[serde(default)]
+    pub system_files: Vec<SystemFile>,
 }
 
 /// A custom systemd service unit, either inline or from a local file.
@@ -158,11 +161,45 @@ pub struct UserFile {
     pub dest: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UserArchive {
-    /// `https://` URL of a zip file (at most 16 MiB).
-    pub url: String,
+    /// Remote HTTP/HTTPS URL of the archive, downloaded during first boot.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Path of a local archive file (relative to config or absolute), embedded in the ISO payload.
+    #[serde(default)]
+    pub file: Option<String>,
+    /// Filesystem UUID of a disk/partition containing the archive.
+    #[serde(default)]
+    pub disk_uuid: Option<String>,
+    /// Path to the archive inside the partition identified by `disk_uuid` (defaults to "home.tar.zst").
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Optional lower-case hex SHA-256 digest of the archive.
+    #[serde(default)]
+    pub sha256: Option<String>,
+}
+
+fn default_mode_644() -> u16 {
+    0o644
+}
+
+/// A system file written into the root filesystem during installation and preserved via first-boot overlay.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SystemFile {
+    /// Target path relative to root, e.g. "etc/NetworkManager/system-connections/Home.nmconnection".
+    pub path: String,
+    /// Unix permission mode, e.g. 0o600 or 0o644.
+    #[serde(default = "default_mode_644")]
+    pub mode: u16,
+    /// Path of a local file, relative to the config file or absolute.
+    #[serde(default)]
+    pub file: Option<String>,
+    /// Inline file content.
+    #[serde(default)]
+    pub content: Option<String>,
 }
 
 /// A first-boot script. Exactly one source: none of `file`/`url` (a built-in script of that `id`),
@@ -321,7 +358,25 @@ impl AsConfig {
                 .first_boot
                 .user_archives
                 .into_iter()
-                .map(|a| config::UserArchive { url: a.url })
+                .map(|a| config::UserArchive {
+                    url: a.url,
+                    file: a.file,
+                    content: None,
+                    disk_uuid: a.disk_uuid,
+                    path: a.path,
+                    sha256: a.sha256,
+                })
+                .collect(),
+            system_files: self
+                .first_boot
+                .system_files
+                .into_iter()
+                .map(|sf| config::SystemFile {
+                    path: sf.path,
+                    mode: sf.mode,
+                    file: sf.file,
+                    content: sf.content.map(|c| c.into_bytes()),
+                })
                 .collect(),
             dry_run: self.install.dry_run,
             scripts: self
@@ -466,7 +521,26 @@ impl AsConfig {
                 user_archives: cfg
                     .user_archives
                     .iter()
-                    .map(|a| UserArchive { url: a.url.clone() })
+                    .map(|a| UserArchive {
+                        url: a.url.clone(),
+                        file: a.file.clone(),
+                        disk_uuid: a.disk_uuid.clone(),
+                        path: a.path.clone(),
+                        sha256: a.sha256.clone(),
+                    })
+                    .collect(),
+                system_files: cfg
+                    .system_files
+                    .iter()
+                    .map(|sf| SystemFile {
+                        path: sf.path.clone(),
+                        mode: sf.mode,
+                        file: sf.file.clone(),
+                        content: sf
+                            .content
+                            .as_ref()
+                            .and_then(|c| std::str::from_utf8(c).ok().map(|s| s.to_string())),
+                    })
                     .collect(),
             },
             build: AsBuild {

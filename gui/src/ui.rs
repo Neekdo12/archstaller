@@ -113,9 +113,11 @@ pub fn page_shell() -> (gtk::ScrolledWindow, gtk::Box) {
     content.set_margin_end(24);
     content.set_hexpand(true);
     let scroll = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Automatic)
+        .hscrollbar_policy(gtk::PolicyType::Never)
         .vexpand(true)
         .hexpand(true)
+        .min_content_width(320)
+        .propagate_natural_width(false)
         .child(&content)
         .build();
     (scroll, content)
@@ -262,7 +264,11 @@ pub fn check(label: &str, active: bool, on_toggle: impl Fn(bool) + 'static) -> g
 }
 
 pub fn entry(initial: &str, on_change: impl Fn(&str) + 'static) -> gtk::Entry {
-    let e = gtk::Entry::builder().text(initial).hexpand(true).build();
+    let e = gtk::Entry::builder()
+        .text(initial)
+        .hexpand(true)
+        .width_chars(10)
+        .build();
     e.connect_changed(move |e| on_change(e.text().as_str()));
     e
 }
@@ -271,6 +277,7 @@ pub fn password(on_change: impl Fn(&str) + 'static) -> gtk::PasswordEntry {
     let e = gtk::PasswordEntry::builder()
         .show_peek_icon(true)
         .hexpand(true)
+        .width_chars(10)
         .build();
     e.connect_changed(move |e| on_change(e.text().as_str()));
     e
@@ -378,6 +385,9 @@ pub fn lines_editor(
     gtk::ScrolledWindow::builder()
         .min_content_height(height)
         .max_content_height(height)
+        .min_content_width(200)
+        .hscrollbar_policy(gtk::PolicyType::Automatic)
+        .propagate_natural_width(false)
         .child(&view)
         .has_frame(true)
         .build()

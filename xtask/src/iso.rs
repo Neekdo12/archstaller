@@ -342,6 +342,7 @@ pub struct Components {
     pub efi: Vec<u8>,
     pub payload: Vec<u8>,
     pub resolved: hostcfg::host::Resolved,
+    pub config: config::Config,
 }
 
 pub fn build_components(opts: &Options) -> Result<Components> {
@@ -412,6 +413,7 @@ pub fn build_components(opts: &Options) -> Result<Components> {
         efi,
         payload,
         resolved,
+        config: loaded.config,
     })
 }
 

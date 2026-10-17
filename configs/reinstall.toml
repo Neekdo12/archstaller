@@ -317,6 +317,26 @@ services = [
   "tailscaled.service",
 ]
 
+# User archives: dotfiles / ~/.config extracted into each user's home during first boot.
+# Supports .tar.zst (recommended), .tar.xz, .tar.gz, .tar.bz2, and .zip up to 256 MiB.
+# Sources can be:
+# 1) Disk partition by UUID (e.g. USB flash drive containing home.tar.zst in its root):
+# [[first_boot.user_archives]]
+# disk_uuid = "1234-5678"
+# path = "home.tar.zst"
+#
+# 2) Local file embedded into the ISO (cannot fit on a 1.44 MB floppy):
+# [[first_boot.user_archives]]
+# file = "home.tar.zst"
+#
+# 3) Remote HTTPS URL:
+# [[first_boot.user_archives]]
+# url = "https://example.com/home.tar.zst"
+
+# System overlays: files written to root during install and preserved across first boot
+# (e.g. NetworkManager system connections, /var/lib/fprint/ biometrics, and /etc/systemd/zram-generator.conf).
+# When using `archstaller-gui` or host discovery, these are autoloaded automatically.
+
 [build]
 profile = "super-small"
 tethering = true

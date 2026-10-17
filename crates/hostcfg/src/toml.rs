@@ -38,6 +38,7 @@ pub mod tests_support {
             kernel_params: vec![],
             user_files: vec![],
             user_archives: vec![],
+            system_files: vec![],
             dry_run: false,
             scripts: vec![],
             custom_services: vec![],
@@ -86,7 +87,9 @@ pub fn load_config(path: &Path) -> Result<config::Config> {
 /// The installer's config, with `extra_kernel_params` appended, serialized for `config.bin`.
 pub fn config_bin(loaded: &Loaded, extra_kernel_params: &[String]) -> Result<Vec<u8>> {
     let cfg = crate::scripts::resolve(&loaded.config, &loaded.dir)?;
-    let mut cfg = crate::services::resolve(&cfg, &loaded.dir)?;
+    let cfg = crate::services::resolve(&cfg, &loaded.dir)?;
+    let cfg = crate::system_files::resolve(&cfg, &loaded.dir)?;
+    let mut cfg = crate::archives::resolve(&cfg, &loaded.dir)?;
     cfg.kernel_params
         .extend(extra_kernel_params.iter().cloned());
     cfg.validate()?;

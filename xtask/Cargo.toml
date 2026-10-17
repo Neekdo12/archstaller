@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 bootinfo = { path = "../crates/bootinfo" }
+config = { path = "../config", features = ["std"] }
 hostcfg = { path = "../crates/hostcfg" }
 aurbuild = { path = "../crates/aurbuild", features = ["net"] }
 sha2 = "0.11"

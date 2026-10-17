@@ -5,17 +5,22 @@
 //!   [`host::HostConfig`] (`build`, `installer_drivers`).
 //! * [`host`]: build profiles, the installer driver catalogue and their validation.
 
+pub mod archives;
 pub mod asconfig;
 pub mod autoload;
 pub mod configs;
+pub mod fprint;
 pub mod host;
+pub mod network;
 pub mod password;
+pub mod privilege;
 pub mod progress;
 pub mod resolve;
 pub mod schema;
 pub mod scripts;
 pub mod services;
 pub mod system;
+pub mod system_files;
 pub mod toml;
 pub mod users;
 pub mod writer;

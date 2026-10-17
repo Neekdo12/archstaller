@@ -114,6 +114,10 @@ fn read_lba(dev: &mut dyn BlockDevice, lba: u64) -> Option<Vec<u8>> {
 
 /// Whether `dev` is the disk the loader booted from, by the recorded fingerprint.
 fn is_boot_disk(dev: &mut dyn BlockDevice, want: &bootinfo::BootMedium) -> bool {
+    // Never dump log or error data onto floppy disks (<= 1.44 MB) or optical media (CD/DVD/Blu-ray).
+    if dev.sector_size() == 2048 || dev.sector_count() <= 2880 {
+        return false;
+    }
     if dev.sector_size() != want.sector_size || dev.sector_count() != want.sectors {
         return false;
     }
@@ -254,6 +258,9 @@ pub fn run(devs: &mut Devices) -> Outcome {
     let want = info.boot_medium;
     if !want.is_known() {
         return Outcome::Skipped("the boot medium was not identified");
+    }
+    if want.sector_size == 2048 || want.sectors <= 2880 {
+        return Outcome::Skipped("boot medium is floppy or optical disc (CD/DVD/Blu-ray)");
     }
 
     let log = crate::logbuf::snapshot();

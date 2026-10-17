@@ -31,9 +31,11 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         let r = ui::hbox(14);
         r.append(&ui::dim(&format!("{}", i + 1)));
         let id = ui::strong(&s.id);
-        id.set_width_request(140);
+        id.set_width_request(100);
         r.append(&id);
         let d = ui::dim(&format!("{src}  {}", s.args.join(" ")));
+        d.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        d.set_tooltip_text(Some(&format!("{src}  {}", s.args.join(" "))));
         d.set_hexpand(true);
         r.append(&d);
         let a = app.clone();

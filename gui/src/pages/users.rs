@@ -30,9 +30,11 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         let user_box = ui::vbox(6);
         let r = ui::hbox(14);
         let name = ui::strong(&u.name);
-        name.set_width_request(150);
+        name.set_width_request(100);
         r.append(&name);
         let g = ui::dim(&format!("groups: {}", u.groups.join(", ")));
+        g.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        g.set_tooltip_text(Some(&format!("groups: {}", u.groups.join(", "))));
         g.set_hexpand(true);
         r.append(&g);
         r.append(&ui::dim(&u.shell));
@@ -83,7 +85,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         c.append(&user_box);
     }
 
-    let autoload_row = ui::hbox(8);
+    let autoload_box = ui::vbox(8);
     let a = app.clone();
     let autoload_btn = ui::button("Autoload users from system", move || {
         let host_users = hostcfg::users::discover_host_users();
@@ -125,7 +127,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     autoload_btn.set_tooltip_text(Some(
         "Detects regular user accounts on this computer from /etc/passwd and /etc/group.",
     ));
-    autoload_row.append(&autoload_btn);
+    autoload_box.append(&autoload_btn);
 
     let a = app.clone();
     let auth_shadow_btn = ui::button("Retrieve password hashes (sudo / root)", move || {
@@ -134,8 +136,8 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     auth_shadow_btn.set_tooltip_text(Some(
         "Authenticates via sudo password, root password, or Polkit to retrieve crypt hashes from /etc/shadow.",
     ));
-    autoload_row.append(&auth_shadow_btn);
-    c.append(&autoload_row);
+    autoload_box.append(&auth_shadow_btn);
+    c.append(&autoload_box);
 
     let c = ui::card(content, Some("Add a user"));
     let host_curr = hostcfg::users::current_user();
@@ -359,38 +361,208 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     ));
     c.append(&root_auth_btn);
 
-    let c = ui::card(content, Some("Home directory config (zip)"));
-    ui::note(&c, Kind::Warn, "Only for the Hyprland preset. The zip is laid out like a Hyprland setup (.config/hypr/hyprland.conf, ...) and is unpacked into every user's home. Do not use it for other desktops.");
-    ui::note(&c, Kind::Warn, "A Hyprland config can run any command when the session starts. Only use a server you trust: the archive is checked by HTTPS alone.");
-    let url = cfg
-        .user_archives
-        .first()
-        .map(|a| a.url.clone())
-        .unwrap_or_default();
-    let a = app.clone();
-    ui::row(
+    let c = ui::card(content, Some("Home directory archives & configs"));
+    ui::note(
         &c,
-        "Zip URL",
-        &ui::entry(&url, move |t| {
-            let t = t.trim().to_string();
+        Kind::Warn,
+        "Archives are extracted into every configured user's home directory (.config, dotfiles, scripts). Supports .tar.zst (recommended), .tar.xz, .tar.gz, .tar.bz2, and .zip up to 256 MiB. Downloads and disk extractions run on first boot with full Linux drivers.",
+    );
+    ui::note(
+        &c,
+        Kind::Warn,
+        "A user config can execute code at login. Only use archives from sources you trust. Embedded archives are not supported on floppy disks.",
+    );
+
+    if cfg.user_archives.is_empty() {
+        ui::hint(&c, "No user archives configured.");
+    }
+    for (i, a_item) in cfg.user_archives.iter().enumerate() {
+        let item_box = ui::hbox(8);
+        let desc = if let Some(url) = &a_item.url {
+            format!("Remote URL: {url}")
+        } else if let Some(file) = &a_item.file {
+            format!("Local file (embedded): {file}")
+        } else if let Some(uuid) = &a_item.disk_uuid {
+            let path = a_item.path.as_deref().unwrap_or("home.tar.zst");
+            format!("Disk partition UUID: {uuid} ({path})")
+        } else {
+            "Embedded archive".to_string()
+        };
+        let l = ui::strong(&desc);
+        l.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+        l.set_tooltip_text(Some(&desc));
+        l.set_hexpand(true);
+        item_box.append(&l);
+        if let Some(sha) = &a_item.sha256 {
+            let prefix = sha.get(..12).unwrap_or(sha.as_str());
+            item_box.append(&ui::dim(&format!("sha256: {prefix}…")));
+        }
+        let a = app.clone();
+        item_box.append(&ui::button("Remove", move || {
             a.edit(move |m| {
-                m.cfg.user_archives = if t.is_empty() {
-                    vec![]
-                } else {
-                    vec![config::UserArchive { url: t }]
+                m.cfg.user_archives.remove(i);
+            });
+            a.rebuild_all();
+        }));
+        c.append(&item_box);
+    }
+
+    // Add archive section
+    let add_title = ui::strong("Add user archive");
+    c.append(&add_title);
+
+    let src_box = ui::vbox(6);
+    let r_url = ui::check_button("Remote URL (HTTPS)");
+    let r_file = ui::check_button("Local file (embed into ISO)");
+    let r_uuid = ui::check_button("Disk partition (UUID)");
+    r_file.set_group(Some(&r_url));
+    r_uuid.set_group(Some(&r_url));
+    r_url.set_active(true);
+    src_box.append(&r_url);
+    src_box.append(&r_file);
+    src_box.append(&r_uuid);
+    c.append(&src_box);
+
+    let url_input = ui::entry("", |_| {});
+    let url_row = ui::row(&c, "HTTPS URL", &url_input);
+    let url_hint = ui::hint(&c, "Remote https:// URL, downloaded on first boot.");
+
+    let file_input = ui::entry("", |_| {});
+    let file_browse = ui::button("Browse…", {
+        let win = app.win.clone();
+        let fe = file_input.clone();
+        move || {
+            let win = win.clone();
+            let fe = fe.clone();
+            gtk::glib::spawn_future_local(async move {
+                if let Some(p) = crate::dialogs::open_file(win.upcast_ref(), "Pick Archive File", None).await {
+                    fe.set_text(&p.display().to_string());
                 }
             });
-        }),
-    );
-    ui::hint(&c, "https:// only, at most 16 MiB. Leave empty to skip. If the download fails at install time it is skipped with a warning.");
+        }
+    });
+    let file_box = ui::hbox(8);
+    file_box.append(&file_input);
+    file_box.append(&file_browse);
+    let file_row = ui::row(&c, "Local file", &file_box);
+    let file_hint = ui::hint(&c, "Path to .tar.zst, .tar.xz, or .zip. Will be embedded into the ISO (max 256 MiB; not supported on floppy).");
+
+    let uuid_input = ui::entry("", |_| {});
+    let uuid_row = ui::row(&c, "Disk UUID", &uuid_input);
+    let path_input = ui::entry("home.tar.zst", |_| {});
+    let path_row = ui::row(&c, "Path on disk", &path_input);
+    let uuid_hint = ui::hint(&c, "Partition UUID (from `lsblk -f`) containing the archive file at the specified path (defaults to home.tar.zst in the root of the partition).");
+
+    file_row.set_visible(false);
+    file_hint.set_visible(false);
+    uuid_row.set_visible(false);
+    path_row.set_visible(false);
+    uuid_hint.set_visible(false);
+
+    let sha_input = ui::entry("", |_| {});
+    let _sha_row = ui::row(&c, "SHA-256 (opt)", &sha_input);
+    let _sha_hint = ui::hint(&c, "Optional 64-character lowercase hex digest.");
+
+    {
+        let (u_r, u_h, f_r, f_h, d_r, p_r, d_h) = (
+            url_row.clone(),
+            url_hint.clone(),
+            file_row.clone(),
+            file_hint.clone(),
+            uuid_row.clone(),
+            path_row.clone(),
+            uuid_hint.clone(),
+        );
+        let (ru, rf, rd) = (r_url.clone(), r_file.clone(), r_uuid.clone());
+        let on_toggle = move || {
+            let is_u = ru.is_active();
+            let is_f = rf.is_active();
+            let is_d = rd.is_active();
+            u_r.set_visible(is_u);
+            u_h.set_visible(is_u);
+            f_r.set_visible(is_f);
+            f_h.set_visible(is_f);
+            d_r.set_visible(is_d);
+            p_r.set_visible(is_d);
+            d_h.set_visible(is_d);
+        };
+        let ot1 = on_toggle.clone();
+        r_url.connect_toggled(move |_| ot1());
+        let ot2 = on_toggle.clone();
+        r_file.connect_toggled(move |_| ot2());
+        r_uuid.connect_toggled(move |_| on_toggle());
+    }
+
+    let add_archive_btn = ui::button("Add archive", {
+        let a = app.clone();
+        let ru = r_url;
+        let rf = r_file;
+        let rd = r_uuid;
+        let ui_entry = url_input;
+        let fi_entry = file_input;
+        let di_entry = uuid_input;
+        let pi_entry = path_input;
+        let si_entry = sha_input;
+        move || {
+            let sha = {
+                let s = si_entry.text().trim().to_string();
+                if s.is_empty() { None } else { Some(s) }
+            };
+            let mut new_arch = None;
+            if ru.is_active() {
+                let u = ui_entry.text().trim().to_string();
+                if !u.is_empty() {
+                    new_arch = Some(config::UserArchive {
+                        url: Some(u),
+                        file: None,
+                        content: None,
+                        disk_uuid: None,
+                        path: None,
+                        sha256: sha,
+                    });
+                }
+            } else if rf.is_active() {
+                let f = fi_entry.text().trim().to_string();
+                if !f.is_empty() {
+                    new_arch = Some(config::UserArchive {
+                        url: None,
+                        file: Some(f),
+                        content: None,
+                        disk_uuid: None,
+                        path: None,
+                        sha256: sha,
+                    });
+                }
+            } else if rd.is_active() {
+                let d = di_entry.text().trim().to_string();
+                let p = pi_entry.text().trim().to_string();
+                if !d.is_empty() {
+                    let path = if p.is_empty() { None } else { Some(p) };
+                    new_arch = Some(config::UserArchive {
+                        url: None,
+                        file: None,
+                        content: None,
+                        disk_uuid: Some(d),
+                        path,
+                        sha256: sha,
+                    });
+                }
+            }
+            if let Some(arch) = new_arch {
+                a.edit(move |m| m.cfg.user_archives.push(arch));
+                a.rebuild_all();
+            }
+        }
+    });
+    c.append(&add_archive_btn);
 }
 
-fn open_shadow_auth_dialog(app: &Rc<App>) {
+pub fn open_shadow_auth_dialog(app: &Rc<App>) {
     let dialog = gtk::Window::builder()
-        .title("Retrieve Password Hashes")
+        .title("Retrieve Password Hashes & System Overlay")
         .transient_for(&app.win)
         .modal(true)
-        .default_width(480)
+        .default_width(460)
         .build();
 
     let root = ui::vbox(12);
@@ -402,7 +574,7 @@ fn open_shadow_auth_dialog(app: &Rc<App>) {
     ui::heading(
         &root,
         "Authentication Required",
-        "Reading /etc/shadow requires elevated privileges. Authenticate via your sudo password, root password, or the desktop Polkit prompt.",
+        "Reading /etc/shadow, NetworkManager profiles, and biometric credentials requires elevated privileges. Authenticate via your sudo password (touch your fingerprint sensor if enrolled), root password, or the desktop Polkit prompt.",
     );
 
     let err_note = ui::note(&root, Kind::Bad, "");
@@ -415,7 +587,9 @@ fn open_shadow_auth_dialog(app: &Rc<App>) {
         "Your user password (for sudo) or the system root password.",
     );
 
-    let (spinner_box, _) = ui::spinner_row("Authenticating and reading /etc/shadow…");
+    let (spinner_box, _) = ui::spinner_row(
+        "Authenticating and reading system state… (Touch fingerprint sensor or wait for password verification)",
+    );
     spinner_box.set_visible(false);
     root.append(&spinner_box);
 
@@ -428,86 +602,117 @@ fn open_shadow_auth_dialog(app: &Rc<App>) {
 
     let auth_btn = ui::primary("Authenticate with password", || {});
     let pkexec_btn = ui::button("Use Polkit prompt (pkexec)", || {});
+    if !crate::polkit::is_agent_available() {
+        pkexec_btn.set_tooltip_text(Some(
+            "No Polkit authentication agent is running in this session (e.g. hyprpolkitagent). Please enter your password above.",
+        ));
+    }
     actions.append(&auth_btn);
     actions.append(&pkexec_btn);
     root.append(&actions);
 
     dialog.set_child(Some(&root));
 
-    let on_shadow_success = {
+    let on_priv_success = {
         let a = app.clone();
         let d = dialog.clone();
-        Rc::new(move |shadow: String, entered_pw: Option<String>| {
-            let mut updated = 0;
-            let mut added = 0;
-            let host_users = hostcfg::users::discover_host_users();
-            let curr_user = std::env::var("USER").ok();
-            a.edit(|m| {
-                updated += hostcfg::users::update_users_from_shadow(&mut m.cfg.users, &shadow);
-                for u in &host_users {
-                    if let Some(existing) = m.cfg.users.iter_mut().find(|e| e.name == u.name) {
-                        existing.groups = u.groups.clone();
-                        existing.shell = u.shell.clone();
-                        if let Some(hash) = hostcfg::users::parse_shadow_hash(&shadow, &u.name) {
-                            if existing.password_hash != hash {
-                                existing.password_hash = hash;
-                                updated += 1;
-                            }
-                        }
-                    } else {
-                        let hash_opt = hostcfg::users::parse_shadow_hash(&shadow, &u.name)
-                            .or_else(|| {
-                                if curr_user.as_deref() == Some(&u.name) {
-                                    entered_pw.as_deref().and_then(|p| hostcfg::password::hash(p).ok())
-                                } else {
-                                    None
-                                }
-                            });
-                        if let Some(hash) = hash_opt {
-                            m.cfg.users.push(config::User {
-                                name: u.name.clone(),
-                                password_hash: hash,
-                                groups: u.groups.clone(),
-                                shell: u.shell.clone(),
-                            });
-                            added += 1;
-                        }
-                    }
-                }
-                if let (Some(curr), Some(pw)) = (&curr_user, &entered_pw) {
-                    if let Some(user_obj) = m.cfg.users.iter_mut().find(|u| &u.name == curr) {
-                        if hostcfg::users::parse_shadow_hash(&shadow, curr).is_none() {
-                            if let Ok(h) = hostcfg::password::hash(pw) {
-                                user_obj.password_hash = h;
-                                updated += 1;
-                            }
-                        }
-                    }
-                }
-                if let Some(rh) = hostcfg::users::parse_shadow_hash(&shadow, "root") {
-                    m.cfg.root_password_hash = Some(rh);
-                }
-            });
+        Rc::new(
+            move |data: hostcfg::autoload::PrivilegedAutoloadData,
+                  entered_pw: Option<String>| {
+                let mut updated_users = 0;
+                let mut added_users = 0;
+                let curr_user = std::env::var("USER").ok();
 
-            d.close();
-            let mut msg = format!(
-                "Retrieved password hashes: updated {updated} user account(s), added {added} host account(s)."
-            );
-            if hostcfg::users::parse_shadow_hash(&shadow, "root").is_some() {
-                msg.push_str(" Root password hash also updated.");
-            }
-            a.set_status(msg);
-            a.rebuild(Page::Users);
-        })
+                a.edit(|m| {
+                    if let Some(shadow) = &data.shadow {
+                        updated_users +=
+                            hostcfg::users::update_users_from_shadow(&mut m.cfg.users, shadow);
+                    }
+                    if let Some(rh) = data.root_password_hash {
+                        m.cfg.root_password_hash = Some(rh);
+                    }
+                    for u in data.users {
+                        if let Some(existing) = m.cfg.users.iter_mut().find(|e| e.name == u.name) {
+                            existing.groups = u.groups;
+                            existing.shell = u.shell;
+                            if u.password_hash.starts_with('$')
+                                && existing.password_hash != u.password_hash
+                            {
+                                existing.password_hash = u.password_hash;
+                                updated_users += 1;
+                            }
+                        } else {
+                            m.cfg.users.push(u);
+                            added_users += 1;
+                        }
+                    }
+
+                    if let (Some(curr), Some(pw)) = (&curr_user, &entered_pw) {
+                        if let Some(user_obj) = m.cfg.users.iter_mut().find(|u| &u.name == curr) {
+                            if !user_obj.password_hash.starts_with('$') {
+                                if let Ok(h) = hostcfg::password::hash(pw) {
+                                    user_obj.password_hash = h;
+                                    updated_users += 1;
+                                }
+                            }
+                        }
+                    }
+
+                    for sf in data.system_files {
+                        if !m
+                            .cfg
+                            .system_files
+                            .iter()
+                            .any(|existing| existing.path == sf.path)
+                        {
+                            m.cfg.system_files.push(sf);
+                        }
+                    }
+
+                    for p in data.extra_packages {
+                        if !m.cfg.packages.contains(&p) {
+                            m.cfg.packages.push(p);
+                        }
+                    }
+
+                    for s in data.extra_services {
+                        if !m.cfg.services.contains(&s) {
+                            m.cfg.services.push(s);
+                        }
+                    }
+                });
+
+                d.close();
+                let sys_count = a.st.borrow().model.cfg.system_files.len();
+                let mut msg = format!(
+                    "Retrieved system overlay: updated {updated_users} user(s), added {added_users} user(s)."
+                );
+                if a.st.borrow().model.cfg.root_password_hash.is_some() {
+                    msg.push_str(" Root password hash updated.");
+                }
+                if sys_count > 0 {
+                    msg.push_str(&format!(
+                        " Preserved {sys_count} system overlay file(s) (network, biometrics)."
+                    ));
+                }
+                a.set_status(msg);
+                a.rebuild_all();
+            },
+        )
     };
 
     {
         let pw = pw.clone();
-        let on_success = on_shadow_success.clone();
+        let on_success = on_priv_success.clone();
         let spinner = spinner_box.clone();
         let err = err_note.clone();
         let b1 = auth_btn.clone();
         let b2 = pkexec_btn.clone();
+        let b1_trigger = auth_btn.clone();
+        pw.connect_activate(move |_| {
+            b1_trigger.emit_clicked();
+        });
+
         auth_btn.connect_clicked(move |_| {
             let pass = pw.text().to_string();
             if pass.trim().is_empty() {
@@ -529,7 +734,7 @@ fn open_shadow_auth_dialog(app: &Rc<App>) {
 
             gtk::glib::spawn_future_local(async move {
                 let res = gtk::gio::spawn_blocking(move || {
-                    hostcfg::users::authenticate_and_read_shadow(Some(&pass), false)
+                    hostcfg::autoload::discover_live_system_privileged(Some(&pass), false)
                 })
                 .await
                 .unwrap_or_else(|_| Err("Authentication task panicked or failed".into()));
@@ -538,7 +743,7 @@ fn open_shadow_auth_dialog(app: &Rc<App>) {
                 b1_done.set_sensitive(true);
                 b2_done.set_sensitive(true);
                 match res {
-                    Ok(shadow) => on_succ(shadow, Some(pass_cb)),
+                    Ok(data) => on_succ(data, Some(pass_cb)),
                     Err(e) => {
                         err_done.set_text(&format!("Authentication failed: {e}"));
                         err_done.set_visible(true);
@@ -549,12 +754,17 @@ fn open_shadow_auth_dialog(app: &Rc<App>) {
     }
 
     {
-        let on_success = on_shadow_success;
+        let on_success = on_priv_success;
         let spinner = spinner_box;
         let err = err_note;
         let b1 = auth_btn;
         let b2 = pkexec_btn.clone();
         pkexec_btn.connect_clicked(move |_| {
+            if !crate::polkit::is_agent_available() {
+                err.set_text("No desktop Polkit authentication agent is running in this session (e.g. hyprpolkitagent or polkit-gnome). Please enter your root/sudo password above.");
+                err.set_visible(true);
+                return;
+            }
             spinner.set_visible(true);
             err.set_visible(false);
             b1.set_sensitive(false);
@@ -568,7 +778,7 @@ fn open_shadow_auth_dialog(app: &Rc<App>) {
 
             gtk::glib::spawn_future_local(async move {
                 let res = gtk::gio::spawn_blocking(move || {
-                    hostcfg::users::authenticate_and_read_shadow(None, true)
+                    hostcfg::autoload::discover_live_system_privileged(None, true)
                 })
                 .await
                 .unwrap_or_else(|_| Err("Polkit task panicked or failed".into()));
@@ -577,7 +787,7 @@ fn open_shadow_auth_dialog(app: &Rc<App>) {
                 b1_done.set_sensitive(true);
                 b2_done.set_sensitive(true);
                 match res {
-                    Ok(shadow) => on_succ(shadow, None),
+                    Ok(data) => on_succ(data, None),
                     Err(e) => {
                         err_done.set_text(&format!("Polkit authentication failed: {e}"));
                         err_done.set_visible(true);
@@ -589,3 +799,4 @@ fn open_shadow_auth_dialog(app: &Rc<App>) {
 
     dialog.present();
 }
+

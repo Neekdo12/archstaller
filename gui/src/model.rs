@@ -100,6 +100,7 @@ impl Model {
                 kernel_params: vec![],
                 user_files: vec![],
                 user_archives: vec![],
+                system_files: vec![],
                 dry_run: false,
                 aur: vec![],
                 scripts: vec![],

@@ -2472,6 +2472,7 @@ version = "0.1.0"
 dependencies = [
  "aurbuild",
  "bootinfo",
+ "config",
  "drivers",
  "ext4w",
  "hostcfg",

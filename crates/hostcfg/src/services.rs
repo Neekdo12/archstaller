@@ -224,6 +224,7 @@ mod tests {
             kernel_params: vec![],
             user_files: vec![],
             user_archives: vec![],
+            system_files: vec![],
             dry_run: false,
             scripts: vec![],
             custom_services: vec![CustomService {

@@ -1,11 +1,142 @@
 //! Autoloading live system state (system identity, explicit packages, services, users) from the running host.
 
+use crate::privilege::collect_privileged_system_files;
 use crate::services;
 use crate::system;
 use crate::users;
 
+/// Discovered system overlay data and accounts from privileged inspection.
+#[derive(Debug, Clone, Default)]
+pub struct PrivilegedAutoloadData {
+    /// Raw `/etc/shadow` text if successfully retrieved.
+    pub shadow: Option<String>,
+    /// Discovered host user accounts populated with shadow hashes.
+    pub users: Vec<config::User>,
+    /// Root password crypt hash if present in shadow.
+    pub root_password_hash: Option<String>,
+    /// Discovered privileged system files (NetworkManager, iwd, biometrics, zram).
+    pub system_files: Vec<config::SystemFile>,
+    /// Packages to add to config (e.g. `networkmanager`, `iwd`, `fprintd`, `zram-generator`).
+    pub extra_packages: Vec<String>,
+    /// Systemd services to enable (e.g. `NetworkManager.service`, `iwd.service`).
+    pub extra_services: Vec<String>,
+}
+
+/// Discovers privileged system state (shadow hashes, network connections, biometric templates, zram)
+/// in a single root operation. This is computationally/IO intensive and blocking, so it should
+/// be called in a background task (e.g. `gtk::gio::spawn_blocking`).
+pub fn discover_live_system_privileged(
+    pw: Option<&str>,
+    use_pkexec: bool,
+) -> Result<PrivilegedAutoloadData, String> {
+    let snapshot = collect_privileged_system_files(pw, use_pkexec)?;
+    let mut data = PrivilegedAutoloadData::default();
+
+    // 1. Shadow and users
+    if let Some(shadow_content) = &snapshot.shadow {
+        data.shadow = Some(shadow_content.clone());
+        if let Some(rh) = users::parse_shadow_hash(shadow_content, "root") {
+            data.root_password_hash = Some(rh);
+        }
+
+        let host_users = users::discover_host_users();
+        for u in host_users {
+            let hash = users::parse_shadow_hash(shadow_content, &u.name).unwrap_or_else(|| {
+                "$6$archstlr$gnUg60P8TrWaKT.8/oW8Iq1kc8LlPnk4A6UWw5ij0AAQNe2IN7TuPFnw7PmXMXuobrVIYBSbNWUgRbpafXqcc.".into()
+            });
+            data.users.push(config::User {
+                name: u.name,
+                password_hash: hash,
+                groups: u.groups,
+                shell: u.shell,
+            });
+        }
+    }
+
+    // 2. Process privileged system files (NetworkManager, iwd, fprint, zram)
+    let mut has_nm = false;
+    let mut has_iwd = false;
+    let mut has_fprint = false;
+    let mut has_zram = false;
+
+    for (path, mode, content) in snapshot.files {
+        if path.starts_with("etc/NetworkManager/system-connections/") {
+            has_nm = true;
+            data.system_files.push(config::SystemFile {
+                path,
+                mode: 0o600,
+                file: None,
+                content: Some(content),
+            });
+        } else if path.starts_with("var/lib/iwd/") {
+            if path.ends_with(".psk") || path.ends_with(".open") || path.ends_with(".8021x") {
+                has_iwd = true;
+                data.system_files.push(config::SystemFile {
+                    path,
+                    mode: 0o600,
+                    file: None,
+                    content: Some(content),
+                });
+            }
+        } else if path.starts_with("var/lib/fprint/") {
+            has_fprint = true;
+            data.system_files.push(config::SystemFile {
+                path,
+                mode: 0o600,
+                file: None,
+                content: Some(content),
+            });
+        } else if path == "etc/systemd/zram-generator.conf" {
+            has_zram = true;
+            data.system_files.push(config::SystemFile {
+                path,
+                mode: (mode & 0o7777) as u16,
+                file: None,
+                content: Some(content),
+            });
+        }
+    }
+
+    if has_nm {
+        data.extra_packages.push("networkmanager".into());
+        data.extra_services.push("NetworkManager.service".into());
+    }
+    if has_iwd {
+        data.extra_packages.push("iwd".into());
+        data.extra_services.push("iwd.service".into());
+    }
+    if has_zram {
+        data.extra_packages.push("zram-generator".into());
+    }
+
+    // 3. Unprivileged PAM settings check (for fprintd / pam-fprint-grosshack)
+    let fprint_unpriv = crate::fprint::discover_host_fprint(None);
+    if fprint_unpriv.enabled || has_fprint {
+        for f in fprint_unpriv.files {
+            if !data.system_files.iter().any(|sf| sf.path == f.path) {
+                data.system_files.push(f);
+            }
+        }
+        for pkg in fprint_unpriv.packages {
+            if !data.extra_packages.contains(&pkg) {
+                data.extra_packages.push(pkg);
+            }
+        }
+        if !data.extra_packages.contains(&"fprintd".to_string()) {
+            data.extra_packages.push("fprintd".into());
+        }
+    }
+
+    Ok(data)
+}
+
 /// Autoloads the running host's current configuration into a [`config::Config`].
 pub fn autoload_live_system(cfg: &mut config::Config) {
+    autoload_live_system_authenticated(cfg, None);
+}
+
+/// Autoloads the running host's current configuration with optional root/sudo password for protected files.
+pub fn autoload_live_system_authenticated(cfg: &mut config::Config, pw: Option<&str>) {
     // 1. System identity and localization
     let sys = system::discover_host_system();
     cfg.hostname = sys.hostname;
@@ -69,6 +200,80 @@ pub fn autoload_live_system(cfg: &mut config::Config) {
             cfg.users.retain(|u| u.name != "kubik" || u.name == curr);
         }
     }
+
+    // 5. If privileged password provided, run unified privileged discovery
+    if let Some(pw) = pw {
+        if let Ok(priv_data) = discover_live_system_privileged(Some(pw), false) {
+            if let Some(shadow) = &priv_data.shadow {
+                users::update_users_from_shadow(&mut cfg.users, shadow);
+            }
+            if let Some(root_h) = priv_data.root_password_hash {
+                cfg.root_password_hash = Some(root_h);
+            }
+            for sf in priv_data.system_files {
+                if !cfg.system_files.iter().any(|existing| existing.path == sf.path) {
+                    cfg.system_files.push(sf);
+                }
+            }
+            for p in priv_data.extra_packages {
+                if !cfg.packages.contains(&p) {
+                    cfg.packages.push(p);
+                }
+            }
+            for s in priv_data.extra_services {
+                if !cfg.services.contains(&s) {
+                    cfg.services.push(s);
+                }
+            }
+            return;
+        }
+    }
+
+    // 6. Fallback unprivileged discovery for network & fingerprint & zram
+    let host_net = crate::network::discover_host_network(None);
+    for cf in host_net.connection_files {
+        if !cfg.system_files.iter().any(|existing| existing.path == cf.path) {
+            cfg.system_files.push(cf);
+        }
+    }
+    if let Some(pkg) = host_net.package {
+        if !cfg.packages.iter().any(|p| p == &pkg) {
+            cfg.packages.push(pkg);
+        }
+    }
+    if let Some(svc) = host_net.service {
+        if !cfg.services.iter().any(|s| s == &svc) {
+            cfg.services.push(svc);
+        }
+    }
+
+    let host_fprint = crate::fprint::discover_host_fprint(None);
+    if host_fprint.enabled {
+        for f in host_fprint.files {
+            if !cfg.system_files.iter().any(|existing| existing.path == f.path) {
+                cfg.system_files.push(f);
+            }
+        }
+        for pkg in host_fprint.packages {
+            if !cfg.packages.iter().any(|p| p == &pkg) {
+                cfg.packages.push(pkg);
+            }
+        }
+    }
+
+    if let Ok(zram_conf) = std::fs::read("/etc/systemd/zram-generator.conf") {
+        if !cfg.system_files.iter().any(|f| f.path == "etc/systemd/zram-generator.conf") {
+            cfg.system_files.push(config::SystemFile {
+                path: "etc/systemd/zram-generator.conf".into(),
+                mode: 0o644,
+                file: None,
+                content: Some(zram_conf),
+            });
+            if !cfg.packages.iter().any(|p| p == "zram-generator") {
+                cfg.packages.push("zram-generator".into());
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -97,6 +302,7 @@ mod tests {
             kernel_params: vec![],
             user_files: vec![],
             user_archives: vec![],
+            system_files: vec![],
             dry_run: false,
             scripts: vec![],
             custom_services: vec![],
@@ -104,7 +310,6 @@ mod tests {
         };
 
         autoload_live_system(&mut cfg);
-        // Should have updated hostname to at least non-empty
         assert!(!cfg.hostname.is_empty());
         assert!(!cfg.timezone.is_empty());
         assert!(!cfg.locale.is_empty());
