@@ -123,6 +123,7 @@ fn parse(args: &[String]) -> Result<Options> {
             "--usb" => o.usb = true,
             "--tethering" => o.tethering = true,
             "--no-tethering" => {} // handled by the presets command
+            "--release" => {}
             "--debug" => o.debug = true,
             "--progress" => match it.next().map(String::as_str) {
                 Some("json") => o.progress = true,
@@ -165,7 +166,8 @@ fn main() -> Result<()> {
         return schema(rest.iter().any(|a| a == "--check"));
     }
     if cmd == "rpi-build" {
-        rpi::build(rest.iter().any(|a| a == "--release"))?;
+        let opts = parse(rest)?;
+        rpi::build_image(&opts)?;
         return Ok(());
     }
     if cmd == "rpi-run" {

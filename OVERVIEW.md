@@ -117,6 +117,16 @@ A standard 1.44 MB (1,474,560 byte) raw bootable diskette image (`target/archsta
 - LBA 40..1199 (~594 KiB): Payload bundle (`payload.bin` with deflated kernel, `config.bin`, `keyring.bin`, etc.), loaded into RAM (`0x1000000`) by Stage 2 via CHS reads.
 Total image size is exactly 1,440 KiB (2,880 sectors); the compressed installer and stages occupy ~615 KiB (~41.7% of the diskette), leaving over 850 KiB free.
 
+## Raspberry Pi layout (assembled by `xtask/src/rpi.rs`)
+
+A standard 32 MiB (33,554,432 byte) bootable FAT32 image (`target/archstaller-rpi.img`) ready for SD cards or USB drives:
+- Filesystem: FAT32 formatted with volume label `ARCHBOOT` (via `mformat`).
+- `kernel8.img`: Bare-metal 64-bit kernel binary (`kernel-rpi`, AArch64).
+- `config.txt`: Boot firmware configuration (`arm_64bit=1`, `enable_uart=1`, `uart_2ndstage=1`, `dtoverlay=disable-bt`).
+- `cmdline.txt`: Serial & kernel boot parameters (`console=serial0,115200 console=tty1 rootwait`).
+- `config.bin`: Postcard-serialized installation configuration.
+Directly flashable to SD cards (`/dev/mmcblk*`) or USB drives via the GUI physical media writer or `cargo xtask rpi-build`.
+
 ## Testing
 
 - Host unit tests per crate (`cargo test -p <crate> --features std`) check against real tools/data:
@@ -128,6 +138,7 @@ Total image size is exactly 1,440 KiB (2,880 sectors); the compressed installer 
 - `cargo xtask run --usb`: adds `qemu-xhci` + `usb-storage` and builds the `usb-selftest` kernel, which enumerates the USB device and runs a SCSI INQUIRY over bulk endpoints.
 - `cargo xtask size [--profile super-small|large] [--limit BYTES]`: ISO content breakdown + size budget check.
 - `cargo xtask check-presets`: resolves every preset against local pacman sync DBs.
+- `cargo xtask rpi-build [--config FILE] [--out FILE] [--progress json]`: builds bootable 32 MiB FAT32 image for Raspberry Pi.
 - `cargo xtask rpi-test [raspi3b|virt]`: automated QEMU bare-metal test verifying EL3->EL1 exception level drop, CPU MIDR detection, system timer, PL011 UART console initialization and boot success.
 - `cargo xtask floppy-test`: automated QEMU boot test from 1.44 MB floppy image (`-fda target/archstaller-floppy.img`), verifying stage 1 CHS reads, stage 2 CHS payload load, long mode switch, and kernel console banner.
 
@@ -211,4 +222,4 @@ QEMU arguments to `xtask run` (e.g. `-trace usb_*`).
 
 Wi-Fi, USB devices other than tethering phones and Ethernet dongles, SMP, Secure Boot, an interactive
 installer-kernel UI, filesystems other than ext4, architectures other than x86_64. A host desktop GUI is
-implemented in `gui/` (GTK4; it copies to Ventoy or, opt-in, flashes a whole USB stick through UDisks2). Specs exist for Wi-Fi in `plans-implement/wifi.md`. For Raspberry Pi (ARM/AArch64), Milestone 1 bare-metal kernel and QEMU E2E test are implemented in `kernel-rpi` and `crates/hal/src/aarch64.rs` (`cargo xtask rpi-build`, `rpi-run`, `rpi-test`); full spec and roadmap in `plans-implement/raspberry-pi.md`.
+implemented in `gui/` (GTK4; it copies to Ventoy or, opt-in, flashes whole physical media — USB drives, optical discs via xorriso, 1.44 MB floppy diskettes, and Raspberry Pi SD/USB cards — through a unified media target selector and UDisks2). Specs exist for Wi-Fi in `plans-implement/wifi.md`. For Raspberry Pi (ARM/AArch64), bare-metal kernel, FAT32 boot image generation, GUI build/flash integration, and QEMU E2E test are implemented in `kernel-rpi`, `crates/hal/src/aarch64.rs`, `xtask/src/rpi.rs`, and `gui/` (`cargo xtask rpi-build`, `rpi-run`, `rpi-test`); full spec and roadmap in `plans-implement/raspberry-pi.md`.

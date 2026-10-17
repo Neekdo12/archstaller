@@ -71,6 +71,11 @@ impl Build {
         Self::start_cmd(root, config, id, "floppy", "archstaller-floppy.img")
     }
 
+    /// Starts a build of the Raspberry Pi AArch64 image for `config`.
+    pub fn start_rpi(root: &Path, config: &Path, id: &str) -> Result<Build, String> {
+        Self::start_cmd(root, config, id, "rpi-build", "archstaller-rpi.img")
+    }
+
     fn start_cmd(root: &Path, config: &Path, id: &str, cmd: &str, out_file: &str) -> Result<Build, String> {
         let target = target_dir(root);
         let base = target.join("gui-builds");

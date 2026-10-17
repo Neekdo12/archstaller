@@ -1,9 +1,12 @@
-use crate::{root, target_dir, Result};
+use crate::{root, target_dir, Options, Result};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};
+
+/// Exactly 32 MiB (33,554,432 bytes) FAT32 bootable SD card / USB image for Raspberry Pi.
+pub const RPI_IMAGE_SIZE: usize = 32 * 1024 * 1024;
 
 /// Builds the AArch64 bare-metal Raspberry Pi kernel (`kernel-rpi`).
 pub fn build(release: bool) -> Result<PathBuf> {
@@ -19,6 +22,76 @@ pub fn build(release: bool) -> Result<PathBuf> {
     let bin = target_dir().join("aarch64-unknown-none").join(profile).join("kernel-rpi");
     println!("Built Raspberry Pi kernel: {}", bin.display());
     Ok(bin)
+}
+
+/// Assembles a 32 MiB bootable Raspberry Pi FAT32 image (`target/archstaller-rpi.img`).
+pub fn build_image(opts: &Options) -> Result<PathBuf> {
+    if opts.progress {
+        println!("{}", hostcfg::progress::Event::Stage { name: "config".into(), state: hostcfg::progress::State::Start }.line());
+    }
+    let loaded = hostcfg::toml::load(&opts.config)?;
+    let config_bin = hostcfg::toml::config_bin(&loaded, &opts.extra_kernel_params)?;
+    if opts.progress {
+        println!("{}", hostcfg::progress::Event::Stage { name: "config".into(), state: hostcfg::progress::State::Ok }.line());
+        println!("{}", hostcfg::progress::Event::Stage { name: "kernel-rpi".into(), state: hostcfg::progress::State::Start }.line());
+    }
+
+    let kernel_bin = build(false)?;
+    if opts.progress {
+        println!("{}", hostcfg::progress::Event::Stage { name: "kernel-rpi".into(), state: hostcfg::progress::State::Ok }.line());
+        println!("{}", hostcfg::progress::Event::Stage { name: "rpi-image".into(), state: hostcfg::progress::State::Start }.line());
+    }
+
+    let out = opts.out.clone().unwrap_or_else(|| target_dir().join("archstaller-rpi.img"));
+    if let Some(dir) = out.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+
+    let f = std::fs::File::create(&out)?;
+    f.set_len(RPI_IMAGE_SIZE as u64)?;
+    drop(f);
+
+    crate::run(Command::new("mformat").args(["-i", out.to_str().unwrap(), "-F", "-v", "ARCHBOOT", "::"]))?;
+    crate::run(Command::new("mcopy").args(["-i", out.to_str().unwrap()]).arg(&kernel_bin).arg("::/kernel8.img"))?;
+
+    let work = opts.workdir.clone().unwrap_or_else(|| target_dir());
+    std::fs::create_dir_all(&work)?;
+    let cfg_txt_path = work.join("config.txt");
+    std::fs::write(&cfg_txt_path, b"# Archstaller Raspberry Pi Boot Configuration\narm_64bit=1\nenable_uart=1\nuart_2ndstage=1\ndtoverlay=disable-bt\n")?;
+    crate::run(Command::new("mcopy").args(["-i", out.to_str().unwrap()]).arg(&cfg_txt_path).arg("::/config.txt"))?;
+
+    let cmdline_txt_path = work.join("cmdline.txt");
+    std::fs::write(&cmdline_txt_path, b"console=serial0,115200 console=tty1 rootwait\n")?;
+    crate::run(Command::new("mcopy").args(["-i", out.to_str().unwrap()]).arg(&cmdline_txt_path).arg("::/cmdline.txt"))?;
+
+    let config_bin_path = work.join("config.bin");
+    std::fs::write(&config_bin_path, &config_bin)?;
+    crate::run(Command::new("mcopy").args(["-i", out.to_str().unwrap()]).arg(&config_bin_path).arg("::/config.bin"))?;
+
+    if opts.progress {
+        println!("{}", hostcfg::progress::Event::Stage { name: "rpi-image".into(), state: hostcfg::progress::State::Ok }.line());
+    }
+
+    println!("Built Raspberry Pi bootable image: {}", out.display());
+    println!("  Format: FAT32 (32 MiB)");
+    println!("  Files:  kernel8.img, config.txt, cmdline.txt, config.bin");
+
+    use sha2::Digest;
+    let img_data = std::fs::read(&out)?;
+    let sha256: String = sha2::Sha256::digest(&img_data).iter().map(|b| format!("{b:02x}")).collect();
+
+    crate::iso::emit(
+        opts,
+        hostcfg::progress::Event::Done {
+            path: out.display().to_string(),
+            size: img_data.len() as u64,
+            sha256,
+            profile: "rpi-aarch64".into(),
+            config: opts.config.display().to_string(),
+        },
+    );
+
+    Ok(out)
 }
 
 /// Runs the AArch64 bare-metal kernel in QEMU (`raspi3b` by default).

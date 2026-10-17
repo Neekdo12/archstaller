@@ -25,6 +25,7 @@ pub enum MediaKind {
     Usb,
     Optical,
     Floppy,
+    RaspberryPi,
 }
 
 impl MediaKind {
@@ -33,6 +34,7 @@ impl MediaKind {
             MediaKind::Usb => "Flash ISO to USB",
             MediaKind::Optical => "Burn ISO to CD / DVD / Blu-ray",
             MediaKind::Floppy => "Write to Floppy Disk",
+            MediaKind::RaspberryPi => "Flash Raspberry Pi Installer (AArch64)",
         }
     }
 
@@ -41,6 +43,7 @@ impl MediaKind {
             MediaKind::Usb => "Erase and flash",
             MediaKind::Optical => "Burn disc",
             MediaKind::Floppy => "Write floppy",
+            MediaKind::RaspberryPi => "Flash to SD / USB",
         }
     }
 }
@@ -86,6 +89,8 @@ impl RawDevice {
             MediaKind::Optical
         } else if self.kname.starts_with("fd") || self.maj_min.0 == 2 || self.kname == "virtual-floppy" || (self.tran == "usb" && self.size == 1_474_560) || self.model.to_ascii_lowercase().contains("floppy") || self.vendor.to_ascii_lowercase().contains("floppy") {
             MediaKind::Floppy
+        } else if self.kname == "virtual-rpi" {
+            MediaKind::RaspberryPi
         } else {
             MediaKind::Usb
         }
@@ -100,6 +105,8 @@ impl RawDevice {
             format!("Optical Drive ({})", self.path)
         } else if self.media_kind() == MediaKind::Floppy {
             format!("Floppy Drive ({})", self.path)
+        } else if self.media_kind() == MediaKind::RaspberryPi {
+            format!("Raspberry Pi SD / USB ({})", self.path)
         } else {
             self.path.clone()
         }
@@ -145,6 +152,7 @@ impl Candidate {
             MediaKind::Usb => self.dev.tran == "usb" || self.dev.removable,
             MediaKind::Optical => self.dev.media_kind() == MediaKind::Optical || self.dev.dev_type == "rom" || self.dev.kname.starts_with("sr") || self.dev.kname == "virtual-cd",
             MediaKind::Floppy => self.dev.media_kind() == MediaKind::Floppy || self.dev.kname.starts_with("fd") || self.dev.kname == "virtual-floppy",
+            MediaKind::RaspberryPi => self.dev.tran == "usb" || self.dev.removable || self.dev.kname.starts_with("mmcblk") || self.dev.kname == "virtual-rpi",
         }
     }
 }
@@ -153,6 +161,7 @@ impl Candidate {
 pub enum SourceKind {
     Iso,
     Floppy,
+    RawImg,
 }
 
 /// The image to write, checked before anything is asked or touched.
@@ -193,8 +202,20 @@ impl Source {
         })
     }
 
+    pub fn rpi(img: &Path) -> Result<Source, String> {
+        Self::check_file(img, SourceKind::RawImg, |_f, len| {
+            if len < 1024 * 1024 {
+                return Err("too small for a Raspberry Pi boot image".into());
+            }
+            Ok(())
+        })
+    }
+
     pub fn of(path: &Path) -> Result<Source, String> {
-        if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("img")) {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if name.contains("rpi") {
+            Self::rpi(path)
+        } else if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("img")) {
             Self::floppy(path)
         } else {
             Self::iso(path)
@@ -372,6 +393,23 @@ pub fn problems_for(d: &RawDevice, src: &Source, kind: MediaKind) -> Vec<String>
                 p.push(format!("too small: {}, the floppy image needs {}", human(d.size), human(src.len)));
             }
         }
+        MediaKind::RaspberryPi => {
+            let is_rpi_target = d.tran == "usb" || d.removable || d.kname.starts_with("mmcblk") || d.kname == "virtual-rpi";
+            if !is_rpi_target {
+                p.push("not an SD card or USB flash drive".to_string());
+            }
+            if !d.removable && !d.kname.starts_with("virtual") && !d.kname.starts_with("mmcblk") {
+                p.push("not marked removable or hot-pluggable".to_string());
+            }
+            if d.read_only {
+                p.push("read-only (check the physical SD card lock switch)".to_string());
+            }
+            if d.size == 0 {
+                p.push("its size is unknown".to_string());
+            } else if src.len != 0 && d.size < src.len {
+                p.push(format!("too small: {}, the Raspberry Pi image needs {}", human(d.size), human(src.len)));
+            }
+        }
     }
     if !d.holders.is_empty() {
         p.push(format!("in use by {}", d.holders.join(", ")));
@@ -382,12 +420,20 @@ pub fn problems_for(d: &RawDevice, src: &Source, kind: MediaKind) -> Vec<String>
         } else if !MEDIA_MOUNTS.iter().any(|pre| m.starts_with(pre)) {
             p.push(format!("{path} is mounted at {m}, which looks like part of the running system"));
         } else if src.path.starts_with(&m) {
-            let noun = if src.kind == SourceKind::Floppy { "floppy image" } else { "ISO" };
+            let noun = match src.kind {
+                SourceKind::Floppy => "floppy image",
+                SourceKind::RawImg => "image",
+                SourceKind::Iso => "ISO",
+            };
             p.push(format!("the {noun} itself is on {path}"));
         }
     }
     if src.dev != (0, 0) && (d.maj_min == src.dev || d.partitions.iter().any(|x| x.maj_min == src.dev)) {
-        let noun = if src.kind == SourceKind::Floppy { "floppy image" } else { "ISO" };
+        let noun = match src.kind {
+            SourceKind::Floppy => "floppy image",
+            SourceKind::RawImg => "image",
+            SourceKind::Iso => "ISO",
+        };
         p.push(format!("the {noun} itself is on this device"));
     }
     p.dedup();
@@ -475,6 +521,35 @@ pub fn probe_virtual_floppy() -> Option<RawDevice> {
     }
 }
 
+pub fn probe_virtual_rpi() -> Option<RawDevice> {
+    let p = std::path::Path::new("/tmp/virtual-rpi.img");
+    if p.exists() || std::env::var_os("ARCHSTALLER_VIRTUAL_MEDIA").is_some() {
+        if !p.exists() {
+            let _ = std::fs::write(p, vec![0u8; 32 * 1024 * 1024]);
+        }
+        let size = std::fs::metadata(p).map(|m| m.len()).unwrap_or(32 * 1024 * 1024);
+        Some(RawDevice {
+            path: "/tmp/virtual-rpi.img".to_string(),
+            kname: "virtual-rpi".to_string(),
+            maj_min: (7, 97),
+            sysfs: "/sys/devices/virtual/block/virtual-rpi".to_string(),
+            size: if size < 32 * 1024 * 1024 { 32 * 1024 * 1024 } else { size },
+            model: "Virtual Raspberry Pi SD Card".to_string(),
+            vendor: "Archstaller".to_string(),
+            serial: "VIRTUAL-RPI-01".to_string(),
+            tran: "virtual".to_string(),
+            dev_type: "disk".to_string(),
+            removable: true,
+            read_only: false,
+            mounts: vec![],
+            partitions: vec![],
+            holders: vec![],
+        })
+    } else {
+        None
+    }
+}
+
 fn sysfs_info(kname: &str, mm: (u32, u32)) -> (String, Vec<String>) {
     let sysfs = std::fs::canonicalize(format!("/sys/dev/block/{}:{}", mm.0, mm.1)).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
     let holders = std::fs::read_dir(format!("/sys/class/block/{kname}/holders")).into_iter().flatten().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
@@ -518,6 +593,12 @@ pub fn scan_for(src: &Source, kind: MediaKind) -> Result<Vec<Candidate>, String>
         if let Some(vcd) = probe_virtual_cd() {
             if !list.iter().any(|d| d.path == vcd.path) {
                 list.push(vcd);
+            }
+        }
+    } else if kind == MediaKind::RaspberryPi {
+        if let Some(vrpi) = probe_virtual_rpi() {
+            if !list.iter().any(|d| d.path == vrpi.path) {
+                list.push(vrpi);
             }
         }
     }
@@ -871,6 +952,11 @@ impl Backend for UDisks {
         if kname == "virtual-cd" {
             if let Some(vcd) = probe_virtual_cd() {
                 return Ok(vcd);
+            }
+        }
+        if kname == "virtual-rpi" {
+            if let Some(vrpi) = probe_virtual_rpi() {
+                return Ok(vrpi);
             }
         }
         lsblk(Some(&format!("/dev/{kname}")))?.into_iter().find(|d| d.kname == kname).ok_or_else(|| "not found".to_string())
@@ -1248,8 +1334,27 @@ mod tests {
         assert_eq!(vfd.media_kind(), MediaKind::Floppy);
         let floppy_src = Source { path: PathBuf::from("/home/u/archstaller-floppy.img"), len: 1_474_560, dev: (259, 2), kind: SourceKind::Floppy };
         assert!(problems_for(&vfd, &floppy_src, MediaKind::Floppy).is_empty());
+
+        let vrpi = probe_virtual_rpi().unwrap();
+        assert_eq!(vrpi.media_kind(), MediaKind::RaspberryPi);
+        let rpi_src = Source { path: PathBuf::from("/home/u/archstaller-rpi.img"), len: 32 * 1024 * 1024, dev: (259, 2), kind: SourceKind::RawImg };
+        assert!(problems_for(&vrpi, &rpi_src, MediaKind::RaspberryPi).is_empty());
+
         let _ = std::fs::remove_file("/tmp/virtual-cd.iso");
         let _ = std::fs::remove_file("/tmp/virtual-floppy.img");
+        let _ = std::fs::remove_file("/tmp/virtual-rpi.img");
         std::env::remove_var("ARCHSTALLER_VIRTUAL_MEDIA");
+    }
+
+    #[test]
+    fn source_can_be_rpi() {
+        let d = tmp("rpi_src");
+        let p = d.join("archstaller-rpi.img");
+        let data = vec![0u8; 1024 * 1024];
+        std::fs::write(&p, &data).unwrap();
+        let src = Source::of(&p).unwrap();
+        assert_eq!(src.len, 1024 * 1024);
+        assert_eq!(src.kind, SourceKind::RawImg);
+        let _ = std::fs::remove_dir_all(&d);
     }
 }
