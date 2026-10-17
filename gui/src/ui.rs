@@ -182,6 +182,7 @@ pub fn hint(parent: &gtk::Box, text: &str) -> gtk::Label {
         .label(text)
         .xalign(0.0)
         .wrap(true)
+        .wrap_mode(gtk::pango::WrapMode::WordChar)
         .selectable(false)
         .css_classes(["hint"])
         .build();
@@ -194,6 +195,7 @@ pub fn note(parent: &gtk::Box, kind: Kind, text: &str) -> gtk::Label {
         .label(text)
         .xalign(0.0)
         .wrap(true)
+        .wrap_mode(gtk::pango::WrapMode::WordChar)
         .css_classes([kind.class()])
         .build();
     parent.append(&l);

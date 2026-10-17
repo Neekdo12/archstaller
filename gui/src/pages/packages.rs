@@ -352,10 +352,11 @@ fn render_import(app: &Rc<App>, p: &OfficialParts) {
                 );
             }
             if !rep.foreign.is_empty() {
-                let foreign_box = ui::hbox(8);
-                foreign_box.append(&ui::dim(&format!(
-                    "Foreign packages (AUR or local): {}.",
-                    rep.foreign.join(", ")
+                let foreign_box = ui::vbox(6);
+                let head = ui::hbox(8);
+                head.append(&ui::strong(&format!(
+                    "{} foreign package(s) on system (AUR or local)",
+                    rep.foreign.len()
                 )));
                 let a = app.clone();
                 let aur_import = ui::button("Autoload AUR from system", move || {
@@ -378,7 +379,17 @@ fn render_import(app: &Rc<App>, p: &OfficialParts) {
                     a.refresh_page(Page::Packages);
                 });
                 aur_import.set_tooltip_text(Some("Reviews and pins the AUR packages found on this computer."));
-                foreign_box.append(&aur_import);
+                head.append(&aur_import);
+                foreign_box.append(&head);
+
+                let list_label = gtk::Label::builder()
+                    .label(rep.foreign.join(", "))
+                    .xalign(0.0)
+                    .wrap(true)
+                    .wrap_mode(gtk::pango::WrapMode::WordChar)
+                    .css_classes(["hint"])
+                    .build();
+                foreign_box.append(&list_label);
                 p.import.append(&foreign_box);
             }
         }
