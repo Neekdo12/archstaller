@@ -881,8 +881,13 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
     // The ly login manager draws the banner above its login box (firstboot.sh points ly's config at this file).
     if cfg.packages.iter().any(|p| p == "ly") {
         let dur = crate::banner::dur("ARCHSTALLER");
+        put(&w, "etc/ly/archstaller.dur", 0o644, &dur)?;
         put(&w, &overlay("etc/ly/archstaller.dur"), 0o644, &dur)?;
+        let conf = ly_config().as_bytes();
+        put(&w, "etc/ly/config.ini", 0o644, conf)?;
+        put(&w, &overlay("etc/ly/config.ini"), 0o644, conf)?;
     }
+
     let tz_target = format!("../usr/share/zoneinfo/{}", cfg.timezone);
     let link_meta = Meta {
         mode: 0o777,
@@ -1410,6 +1415,12 @@ pub(crate) fn format_script_entry(idx: usize, script: &config::Script) -> String
     format!("{idx}:{}:{phase}:{}\n", script.id, script.args.join(" "))
 }
 
+/// Default configuration for the `ly` login manager displaying the `archstaller.dur` banner movie.
+#[must_use]
+pub fn ly_config() -> &'static str {
+    "animation = dur_file\ndur_file_path = /etc/ly/archstaller.dur\ndur_offset_alignment = topcenter\ndur_y_offset = 2\n"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1585,4 +1596,17 @@ mod tests {
         assert_eq!(format_script_entry(0, &s1), "0:pre-script:pre-service:--arg1 value\n");
         assert_eq!(format_script_entry(1, &s2), "1:post-script:post-service:\n");
     }
+
+    #[test]
+    fn test_ly_config_contains_permanent_banner_settings() {
+        let conf = ly_config();
+        assert!(conf.ends_with('\n'));
+        let lines: alloc::vec::Vec<&str> = conf.lines().collect();
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines[0], "animation = dur_file");
+        assert_eq!(lines[1], "dur_file_path = /etc/ly/archstaller.dur");
+        assert_eq!(lines[2], "dur_offset_alignment = topcenter");
+        assert_eq!(lines[3], "dur_y_offset = 2");
+    }
 }
+

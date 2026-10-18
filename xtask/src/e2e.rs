@@ -253,7 +253,9 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
         .collect();
     wants.extend(cfg.services.iter().map(|s| format!("service {s}: enabled")));
     for (i, _) in cfg.user_archives.iter().enumerate() {
-        if install.contains(&format!("user archive #{i}")) && fb.contains(&format!("user archive #{i}")) {
+        if install.contains(&format!("user archive #{i}"))
+            && fb.contains(&format!("user archive #{i} extracted into ~"))
+        {
             for u in &cfg.users {
                 wants.push(format!("user archive #{i} extracted into ~ for {}", u.name));
             }
@@ -325,6 +327,20 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
     drop(child.kill());
     drop(child.wait());
     let text = res?;
+    if !text.contains("#####") {
+        return Err(format!(
+            "second boot login prompt lacks ASCII banner (log: {})",
+            log.display()
+        )
+        .into());
+    }
+    if cfg.packages.iter().any(|p| p == "ly") && !text.contains("TUI display manager") {
+        return Err(format!(
+            "second boot did not start ly display manager (log: {})",
+            log.display()
+        )
+        .into());
+    }
     // Units that failed to start on the installed system are a defect worth failing on.
     let failed: Vec<&str> = text
         .lines()

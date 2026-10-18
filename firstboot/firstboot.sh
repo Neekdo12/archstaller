@@ -43,10 +43,42 @@ cp -a "$D/overlay/." / || fail "overlay"
 locale-gen || say "warning: locale-gen failed"
 
 # The ly login manager: show the banner above the login box (a .dur file drawn as ly's background).
-if [ -f /etc/ly/config.ini ] && [ -f /etc/ly/archstaller.dur ]; then
-    sed -i -E 's|^animation = .*|animation = dur_file|; s|^dur_file_path = .*|dur_file_path = /etc/ly/archstaller.dur|; s|^dur_offset_alignment = .*|dur_offset_alignment = topcenter|; s|^dur_y_offset = .*|dur_y_offset = 2|' /etc/ly/config.ini ||
-        say "warning: could not set up the ly banner"
+if [ -f /etc/ly/archstaller.dur ] || [ -f "$D/overlay/etc/ly/archstaller.dur" ]; then
+    mkdir -p /etc/ly "$D/overlay/etc/ly"
+    [ -f /etc/ly/archstaller.dur ] || cp -a "$D/overlay/etc/ly/archstaller.dur" /etc/ly/archstaller.dur
+    if [ -f /etc/ly/config.ini ]; then
+        if grep -q '^animation =' /etc/ly/config.ini; then
+            sed -i -E 's|^animation = .*|animation = dur_file|' /etc/ly/config.ini
+        else
+            echo "animation = dur_file" >> /etc/ly/config.ini
+        fi
+        if grep -q '^dur_file_path =' /etc/ly/config.ini; then
+            sed -i -E 's|^dur_file_path = .*|dur_file_path = /etc/ly/archstaller.dur|' /etc/ly/config.ini
+        else
+            echo "dur_file_path = /etc/ly/archstaller.dur" >> /etc/ly/config.ini
+        fi
+        if grep -q '^dur_offset_alignment =' /etc/ly/config.ini; then
+            sed -i -E 's|^dur_offset_alignment = .*|dur_offset_alignment = topcenter|' /etc/ly/config.ini
+        else
+            echo "dur_offset_alignment = topcenter" >> /etc/ly/config.ini
+        fi
+        if grep -q '^dur_y_offset =' /etc/ly/config.ini; then
+            sed -i -E 's|^dur_y_offset = .*|dur_y_offset = 2|' /etc/ly/config.ini
+        else
+            echo "dur_y_offset = 2" >> /etc/ly/config.ini
+        fi
+    else
+        cat <<'EOF' > /etc/ly/config.ini
+animation = dur_file
+dur_file_path = /etc/ly/archstaller.dur
+dur_offset_alignment = topcenter
+dur_y_offset = 2
+EOF
+    fi
+    cp -a /etc/ly/config.ini "$D/overlay/etc/ly/config.ini" 2>/dev/null || true
+    cp -a /etc/ly/archstaller.dur "$D/overlay/etc/ly/archstaller.dur" 2>/dev/null || true
 fi
+
 
 if [ -f "$D/root.hash" ]; then
     usermod -p "$(cat "$D/root.hash")" root || say "warning: root password"
@@ -91,15 +123,18 @@ if [ -s "$D/userarchives.list" ]; then
         if [ "$kind" = "url" ] && [ ! -s "$archive_file" ]; then
             url="$spec"
             say "downloading user archive #$idx from $url"
-            # If network is not up yet, try bringing up NetworkManager or waiting
+            # If network is not up yet, try bringing up NetworkManager or systemd-networkd
             if ! ping -c 1 -W 2 1.1.1.1 >/dev/null 2>&1 && ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
-                if systemctl is-enabled NetworkManager >/dev/null 2>&1; then
+                if grep -qx 'NetworkManager.service' "$D/services.list" 2>/dev/null || systemctl is-enabled NetworkManager >/dev/null 2>&1; then
                     systemctl start NetworkManager || true
-                    for _ in {1..15}; do
-                        ping -c 1 -W 1 1.1.1.1 >/dev/null 2>&1 && break
-                        sleep 1
-                    done
+                elif grep -qx 'systemd-networkd.service' "$D/services.list" 2>/dev/null || systemctl is-enabled systemd-networkd >/dev/null 2>&1; then
+                    systemctl start systemd-networkd || true
+                    systemctl start systemd-resolved || true
                 fi
+                for _ in {1..15}; do
+                    ping -c 1 -W 1 1.1.1.1 >/dev/null 2>&1 && break
+                    sleep 1
+                done
             fi
             if curl -fSL --retry 3 --connect-timeout 10 "$url" -o "$archive_file.tmp"; then
                 mv "$archive_file.tmp" "$archive_file"
