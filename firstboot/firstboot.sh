@@ -79,6 +79,42 @@ EOF
     cp -a /etc/ly/archstaller.dur "$D/overlay/etc/ly/archstaller.dur" 2>/dev/null || true
 fi
 
+# greetd login manager: tuigreet with --issue
+if [ -f "$D/overlay/etc/greetd/config.toml" ] || [ -f /etc/greetd/config.toml ]; then
+    mkdir -p /etc/greetd "$D/overlay/etc/greetd"
+    if [ ! -f /etc/greetd/config.toml ] && [ -f "$D/overlay/etc/greetd/config.toml" ]; then
+        cp -a "$D/overlay/etc/greetd/config.toml" /etc/greetd/config.toml
+    elif [ -f /etc/greetd/config.toml ]; then
+        if ! grep -q -- '--issue' /etc/greetd/config.toml && grep -q 'tuigreet' /etc/greetd/config.toml; then
+            sed -i 's|tuigreet|tuigreet --issue|' /etc/greetd/config.toml
+        fi
+        cp -a /etc/greetd/config.toml "$D/overlay/etc/greetd/config.toml" 2>/dev/null || true
+    fi
+fi
+
+# sddm login manager: archstaller theme branding
+if [ -f "$D/overlay/etc/sddm.conf.d/10-archstaller.conf" ] || [ -d /etc/sddm.conf.d ]; then
+    mkdir -p /etc/sddm.conf.d "$D/overlay/etc/sddm.conf.d"
+    if [ -f "$D/overlay/etc/sddm.conf.d/10-archstaller.conf" ] && [ ! -f /etc/sddm.conf.d/10-archstaller.conf ]; then
+        cp -a "$D/overlay/etc/sddm.conf.d/10-archstaller.conf" /etc/sddm.conf.d/10-archstaller.conf
+    fi
+fi
+
+# lightdm-gtk-greeter login manager: archstaller branding
+if [ -f "$D/overlay/etc/lightdm/lightdm-gtk-greeter.conf" ] || [ -d /etc/lightdm ]; then
+    mkdir -p /etc/lightdm "$D/overlay/etc/lightdm"
+    if [ -f "$D/overlay/etc/lightdm/lightdm-gtk-greeter.conf" ] && [ ! -f /etc/lightdm/lightdm-gtk-greeter.conf ]; then
+        cp -a "$D/overlay/etc/lightdm/lightdm-gtk-greeter.conf" /etc/lightdm/lightdm-gtk-greeter.conf
+    elif [ -f /etc/lightdm/lightdm-gtk-greeter.conf ]; then
+        if ! grep -q 'archstaller.svg' /etc/lightdm/lightdm-gtk-greeter.conf; then
+            sed -i -E 's|^#?logo = .*|logo = /usr/share/pixmaps/archstaller.svg|' /etc/lightdm/lightdm-gtk-greeter.conf
+            sed -i -E 's|^#?background = .*|background = #1a1b26|' /etc/lightdm/lightdm-gtk-greeter.conf
+        fi
+        cp -a /etc/lightdm/lightdm-gtk-greeter.conf "$D/overlay/etc/lightdm/lightdm-gtk-greeter.conf" 2>/dev/null || true
+    fi
+fi
+
+
 
 if [ -f "$D/root.hash" ]; then
     usermod -p "$(cat "$D/root.hash")" root || say "warning: root password"
@@ -357,36 +393,88 @@ fi
 [ -f "/boot/vmlinuz-$KERNEL" ] && [ -f "/boot/initramfs-$KERNEL.img" ] || fail "no /boot/vmlinuz-$KERNEL or initramfs-$KERNEL.img to boot"
 say "boot kernel: $KERNEL"
 
-say "installing GRUB"
+BOOTLOADER="grub"
+if [ -f "$D/bootloader" ]; then
+    BOOTLOADER="$(cat "$D/bootloader" | tr -d '[:space:]')"
+fi
+say "installing bootloader: $BOOTLOADER"
 ESP_DEV=$(findmnt -no SOURCE /boot)
-# GRUB finds /boot by its file system UUID: searching for a file name can land on another disk's ESP (an
-# older install, the installer stick) and boot that kernel with this system's command line.
 ESP_UUID=$(findmnt -no UUID /boot)
-if [ -n "$ESP_UUID" ]; then
-    SEARCH="--fs-uuid --set=root $ESP_UUID"
-else
-    SEARCH="--file --set=root /vmlinuz-$KERNEL"
-fi
 DISK=$(lsblk -no PKNAME "$ESP_DEV")
-mkdir -p /boot/grub
-{
-    echo "set timeout=3"
-    echo "set default=0"
-    echo
-    echo "menuentry 'Arch Linux' {"
-    echo "    search --no-floppy $SEARCH"
-    echo "    linux /vmlinuz-$KERNEL $(cat "$D/cmdline")"
-    echo "    initrd /initramfs-$KERNEL.img"
-    echo "}"
-} > /boot/grub/grub.cfg || fail "grub.cfg"
-if [ -d /sys/firmware/efi ]; then
-    grub-install --target=x86_64-efi --efi-directory=/boot --boot-directory=/boot --bootloader-id=GRUB --removable || fail "grub-install (efi)"
-    PART=$(cat "/sys/class/block/${ESP_DEV##*/}/partition")
-    efibootmgr --create --disk "/dev/$DISK" --part "$PART" --label "Arch Linux" --loader '\EFI\BOOT\BOOTX64.EFI' || say "warning: efibootmgr failed"
-else
-    grub-install --target=i386-pc --boot-directory=/boot "/dev/$DISK" || fail "grub-install (bios)"
+
+case "$BOOTLOADER" in
+    systemd-boot)
+        if [ ! -d /sys/firmware/efi ]; then
+            fail "systemd-boot requires a UEFI system"
+        fi
+        bootctl install --esp-path=/boot || fail "bootctl install"
+        mkdir -p /boot/loader/entries
+        cat <<EOF > /boot/loader/loader.conf
+default arch.conf
+timeout 3
+editor no
+EOF
+        cat <<EOF > /boot/loader/entries/arch.conf
+title Arch Linux
+linux /vmlinuz-$KERNEL
+initrd /initramfs-$KERNEL.img
+options $(cat "$D/cmdline")
+EOF
+        ;;
+    limine)
+        mkdir -p /boot/limine /boot/EFI/BOOT
+        if [ -f /usr/share/limine/limine-bios.sys ]; then
+            cp -a /usr/share/limine/limine-bios.sys /boot/limine/ 2>/dev/null || cp -a /usr/share/limine/limine-bios.sys /boot/
+        fi
+        cat <<EOF > /boot/limine.conf
+timeout: 3
+/Arch Linux
+    protocol: linux
+    kernel_path: boot():/vmlinuz-$KERNEL
+    module_path: boot():/initramfs-$KERNEL.img
+    cmdline: $(cat "$D/cmdline")
+EOF
+        if [ -d /sys/firmware/efi ]; then
+            if [ -f /usr/share/limine/BOOTX64.EFI ]; then
+                cp -a /usr/share/limine/BOOTX64.EFI /boot/EFI/BOOT/BOOTX64.EFI
+            fi
+            PART=$(cat "/sys/class/block/${ESP_DEV##*/}/partition")
+            efibootmgr --create --disk "/dev/$DISK" --part "$PART" --label "Arch Linux" --loader '\EFI\BOOT\BOOTX64.EFI' || say "warning: efibootmgr failed"
+        else
+            limine bios-install "/dev/$DISK" || fail "limine bios-install"
+        fi
+        ;;
+    *)
+        # Default: GRUB
+        if [ -n "$ESP_UUID" ]; then
+            SEARCH="--fs-uuid --set=root $ESP_UUID"
+        else
+            SEARCH="--file --set=root /vmlinuz-$KERNEL"
+        fi
+        mkdir -p /boot/grub
+        {
+            echo "set timeout=3"
+            echo "set default=0"
+            echo
+            echo "menuentry 'Arch Linux' {"
+            echo "    search --no-floppy $SEARCH"
+            echo "    linux /vmlinuz-$KERNEL $(cat "$D/cmdline")"
+            echo "    initrd /initramfs-$KERNEL.img"
+            echo "}"
+        } > /boot/grub/grub.cfg || fail "grub.cfg"
+        if [ -d /sys/firmware/efi ]; then
+            grub-install --target=x86_64-efi --efi-directory=/boot --boot-directory=/boot --bootloader-id=GRUB --removable || fail "grub-install (efi)"
+            PART=$(cat "/sys/class/block/${ESP_DEV##*/}/partition")
+            efibootmgr --create --disk "/dev/$DISK" --part "$PART" --label "Arch Linux" --loader '\EFI\BOOT\BOOTX64.EFI' || say "warning: efibootmgr failed"
+        else
+            grub-install --target=i386-pc --boot-directory=/boot "/dev/$DISK" || fail "grub-install (bios)"
+        fi
+        ;;
+esac
+
+if [ "$BOOTLOADER" != "limine" ]; then
+    rm -rf /boot/limine
 fi
-rm -rf /boot/limine
 # What only the first boot needed: archstaller's loader config and initramfs, and the installer's copy of a
 # kernel that is not `linux` (it was put on the ESP as vmlinuz-linux).
 rm -f /boot/archstaller.cfg /boot/initramfs-archstaller.img

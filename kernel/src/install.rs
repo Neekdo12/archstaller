@@ -888,6 +888,30 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
         put(&w, &overlay("etc/ly/config.ini"), 0o644, conf)?;
     }
 
+    if cfg.packages.iter().any(|p| p == "greetd" || p == "greetd-tuigreet") {
+        let conf = greetd_config().as_bytes();
+        put(&w, "etc/greetd/config.toml", 0o644, conf)?;
+        put(&w, &overlay("etc/greetd/config.toml"), 0o644, conf)?;
+    }
+
+    if cfg.packages.iter().any(|p| p == "sddm") {
+        let conf = sddm_config().as_bytes();
+        put(&w, "etc/sddm.conf.d/10-archstaller.conf", 0o644, conf)?;
+        put(&w, &overlay("etc/sddm.conf.d/10-archstaller.conf"), 0o644, conf)?;
+    }
+
+    if cfg.packages.iter().any(|p| p == "lightdm" || p == "lightdm-gtk-greeter") {
+        let conf = lightdm_config().as_bytes();
+        put(&w, "etc/lightdm/lightdm-gtk-greeter.conf", 0o644, conf)?;
+        put(&w, &overlay("etc/lightdm/lightdm-gtk-greeter.conf"), 0o644, conf)?;
+    }
+
+    let svg_logo = crate::banner::svg("ARCHSTALLER");
+    let svg_bytes = svg_logo.as_bytes();
+    put(&w, "usr/share/pixmaps/archstaller.svg", 0o644, svg_bytes)?;
+    put(&w, &overlay("usr/share/pixmaps/archstaller.svg"), 0o644, svg_bytes)?;
+
+
     let tz_target = format!("../usr/share/zoneinfo/{}", cfg.timezone);
     let link_meta = Meta {
         mode: 0o777,
@@ -1110,6 +1134,12 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
         &format!("{STATE_DIR}/cmdline"),
         0o644,
         cmdline.as_bytes(),
+    )?;
+    put(
+        &w,
+        &format!("{STATE_DIR}/bootloader"),
+        0o644,
+        format!("{}\n", cfg.bootloader.as_str()).as_bytes(),
     )?;
     if let Some(h) = &cfg.root_password_hash {
         put(&w, &format!("{STATE_DIR}/root.hash"), 0o600, h.as_bytes())?;
@@ -1421,6 +1451,24 @@ pub fn ly_config() -> &'static str {
     "animation = dur_file\ndur_file_path = /etc/ly/archstaller.dur\ndur_offset_alignment = topcenter\ndur_y_offset = 2\n"
 }
 
+/// Default configuration for `greetd` using `tuigreet` with the `/etc/issue` ASCII banner.
+#[must_use]
+pub fn greetd_config() -> &'static str {
+    "[terminal]\nvt = 1\n\n[default_session]\ncommand = \"tuigreet --time --remember --issue\"\nuser = \"greeter\"\n"
+}
+
+/// Default branding configuration for `sddm` displaying the Archstaller theme and avatars.
+#[must_use]
+pub fn sddm_config() -> &'static str {
+    "[Theme]\nCurrent=maldives\nFacesDir=/usr/share/sddm/faces\nEnableAvatars=true\n"
+}
+
+/// Default configuration for `lightdm-gtk-greeter` displaying the Archstaller logo and background.
+#[must_use]
+pub fn lightdm_config() -> &'static str {
+    "[greeter]\nbackground = #1a1b26\nlogo = /usr/share/pixmaps/archstaller.svg\ndefault-user-image = /usr/share/pixmaps/archstaller.svg\n"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1439,6 +1487,7 @@ mod tests {
                 filesystem: config::FsType::Ext4,
                 btrfs: None,
             },
+            bootloader: config::Bootloader::Grub,
             mirrors: alloc::vec![],
             packages: alloc::vec![],
             providers: alloc::vec![],
@@ -1607,6 +1656,29 @@ mod tests {
         assert_eq!(lines[1], "dur_file_path = /etc/ly/archstaller.dur");
         assert_eq!(lines[2], "dur_offset_alignment = topcenter");
         assert_eq!(lines[3], "dur_y_offset = 2");
+    }
+
+    #[test]
+    fn test_greetd_config() {
+        let conf = greetd_config();
+        assert!(conf.contains("[terminal]"));
+        assert!(conf.contains("command = \"tuigreet --time --remember --issue\""));
+    }
+
+    #[test]
+    fn test_sddm_config() {
+        let conf = sddm_config();
+        assert!(conf.contains("[Theme]"));
+        assert!(conf.contains("Current=maldives"));
+        assert!(conf.contains("EnableAvatars=true"));
+    }
+
+    #[test]
+    fn test_lightdm_config() {
+        let conf = lightdm_config();
+        assert!(conf.contains("[greeter]"));
+        assert!(conf.contains("background = #1a1b26"));
+        assert!(conf.contains("logo = /usr/share/pixmaps/archstaller.svg"));
     }
 }
 

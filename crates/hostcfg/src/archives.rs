@@ -71,6 +71,7 @@ mod tests {
                 filesystem: config::FsType::Ext4,
                 btrfs: None,
             },
+            bootloader: config::Bootloader::Grub,
             mirrors: vec![],
             packages: vec![],
             providers: vec![],

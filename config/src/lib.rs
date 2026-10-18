@@ -8,6 +8,28 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
+/// The bootloader to install on the target system.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Bootloader {
+    #[default]
+    Grub,
+    SystemdBoot,
+    Limine,
+}
+
+impl Bootloader {
+    /// Canonical lowercase identifier for the bootloader ("grub", "systemd-boot", "limine").
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Grub => "grub",
+            Self::SystemdBoot => "systemd-boot",
+            Self::Limine => "limine",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub hostname: String,
@@ -15,6 +37,9 @@ pub struct Config {
     pub locale: String,
     pub keymap: String,
     pub disk: Disk,
+    /// Bootloader to install on the installed system.
+    #[serde(default)]
+    pub bootloader: Bootloader,
     /// Mirror base URLs; `$repo` and `$arch` are substituted (pacman mirrorlist style).
     pub mirrors: Vec<String>,
     /// Package or group names installed explicitly.
@@ -854,6 +879,7 @@ mod tests {
                 filesystem: FsType::Ext4,
                 btrfs: None,
             },
+            bootloader: Bootloader::Grub,
             mirrors: vec!["https://example.org/$repo/os/$arch".into()],
             packages: vec!["base".into()],
             providers: vec![],
@@ -1373,5 +1399,26 @@ mod tests {
             ..Default::default()
         }];
         assert!(c.validate().unwrap_err().contains("script phase"));
+    }
+
+    #[test]
+    fn test_bootloader_enum_and_config() {
+        let mut c = base();
+        assert_eq!(c.bootloader, Bootloader::Grub);
+        assert_eq!(c.bootloader.as_str(), "grub");
+
+        c.bootloader = Bootloader::SystemdBoot;
+        assert_eq!(c.bootloader.as_str(), "systemd-boot");
+        c.validate().unwrap();
+
+        c.bootloader = Bootloader::Limine;
+        assert_eq!(c.bootloader.as_str(), "limine");
+        c.validate().unwrap();
+
+        // Check serde round-trip
+        let json = serde_json::to_string(&c).expect("serialize");
+        assert!(json.contains("\"bootloader\":\"limine\""));
+        let de: Config = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(de.bootloader, Bootloader::Limine);
     }
 }

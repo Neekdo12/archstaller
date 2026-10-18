@@ -46,6 +46,23 @@ pub fn show(word: &str) {
     println!();
 }
 
+/// Renders the word as a clean SVG banner image for graphical display managers (SDDM, LightDM).
+pub fn svg(word: &str) -> String {
+    use alloc::format;
+    let art = render(word);
+    let mut lines_svg = String::new();
+    let mut y = 60;
+    for line in art.lines() {
+        lines_svg.push_str(&format!(
+            "  <text x=\"50%\" y=\"{y}\" dominant-baseline=\"middle\" text-anchor=\"middle\" fill=\"#1793d1\" font-family=\"monospace\" font-size=\"20\" font-weight=\"bold\">{line}</text>\n"
+        ));
+        y += 24;
+    }
+    format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 260\" width=\"800\" height=\"260\">\n  <rect width=\"100%\" height=\"100%\" fill=\"#1a1b26\"/>\n{lines_svg}  <text x=\"50%\" y=\"215\" dominant-baseline=\"middle\" text-anchor=\"middle\" fill=\"#a9b1d6\" font-family=\"sans-serif\" font-size=\"14\">Installed by archstaller</text>\n</svg>\n"
+    )
+}
+
 /// The word as a gzip-compressed DurDraw movie (`.dur`), which the `ly` login manager can draw as
 /// its background (`animation = dur_file`). The gzip is "stored" (uncompressed): it is tiny.
 pub fn dur(word: &str) -> alloc::vec::Vec<u8> {
@@ -267,5 +284,16 @@ mod tests {
         let ly_conf = "animation = dur_file\ndur_file_path = /etc/ly/archstaller.dur\ndur_offset_alignment = topcenter\ndur_y_offset = 2\n";
         assert!(ly_conf.contains("animation = dur_file"));
         assert!(ly_conf.contains("/etc/ly/archstaller.dur"));
+    }
+
+    #[test]
+    fn test_svg_banner() {
+        let s = svg("ARCHSTALLER");
+        assert!(s.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\""));
+        assert!(s.contains("viewBox=\"0 0 800 260\""));
+        assert!(s.contains("#1a1b26"));
+        assert!(s.contains("#1793d1"));
+        assert!(s.contains("Installed by archstaller"));
+        assert!(s.ends_with("</svg>\n"));
     }
 }

@@ -62,7 +62,40 @@ pub struct Install {
     /// Hardware test mode: probe, read disks (never write), resolve packages, print a report, reboot.
     #[serde(default)]
     pub dry_run: bool,
+    /// Bootloader to install: "grub", "systemd-boot", or "limine". Defaults to "grub".
+    #[serde(default)]
+    pub bootloader: Bootloader,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum Bootloader {
+    #[default]
+    Grub,
+    SystemdBoot,
+    Limine,
+}
+
+impl From<Bootloader> for config::Bootloader {
+    fn from(b: Bootloader) -> Self {
+        match b {
+            Bootloader::Grub => config::Bootloader::Grub,
+            Bootloader::SystemdBoot => config::Bootloader::SystemdBoot,
+            Bootloader::Limine => config::Bootloader::Limine,
+        }
+    }
+}
+
+impl From<config::Bootloader> for Bootloader {
+    fn from(b: config::Bootloader) -> Self {
+        match b {
+            config::Bootloader::Grub => Bootloader::Grub,
+            config::Bootloader::SystemdBoot => Bootloader::SystemdBoot,
+            config::Bootloader::Limine => Bootloader::Limine,
+        }
+    }
+}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -477,6 +510,7 @@ impl AsConfig {
                 filesystem: self.install.disk.filesystem.into(),
                 btrfs: self.install.disk.btrfs.map(Into::into),
             },
+            bootloader: self.install.bootloader.into(),
             mirrors: self.install.mirrors,
             packages: {
                 let mut pkgs = self.packages.explicit;
@@ -615,6 +649,7 @@ impl AsConfig {
                 },
                 mirrors: cfg.mirrors.clone(),
                 dry_run: cfg.dry_run,
+                bootloader: cfg.bootloader.into(),
             },
             packages: Packages {
                 explicit: cfg.packages.clone(),

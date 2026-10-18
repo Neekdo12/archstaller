@@ -81,6 +81,7 @@ impl Model {
                     filesystem: config::FsType::Ext4,
                     btrfs: None,
                 },
+                bootloader: config::Bootloader::Grub,
                 mirrors: vec!["https://geo.mirror.pkgbuild.com/$repo/os/$arch".into()],
                 packages: [
                     "base",

@@ -31,6 +31,7 @@ pub mod tests_support {
                 filesystem: config::FsType::Ext4,
                 btrfs: None,
             },
+            bootloader: config::Bootloader::Grub,
             mirrors: vec!["https://example.com".into()],
             packages: vec!["base".into()],
             providers: vec![],

@@ -106,6 +106,7 @@ Always `1`.
 | Field | Type | Required | Meaning and rules |
 |---|---|---|---|
 | `mirrors` | array of string | yes | At least one Arch mirror base URL, `http://` or `https://`, no spaces or quotes. `$repo` and `$arch` are replaced by pacman's usual values. Tried in order. Example: `"https://geo.mirror.pkgbuild.com/$repo/os/$arch"`. |
+| `bootloader` | string | no, default `"grub"` | Bootloader to install: `"grub"`, `"systemd-boot"` (UEFI), or `"limine"` (BIOS + UEFI). Configured and installed at first boot. |
 | `dry_run` | boolean | no, default `false` | Hardware test mode: the installer probes devices, reads disks (it never writes), brings up the network, resolves the package databases, prints a report and reboots. No disk is selected. Used by the tester preset. |
 
 `install.disk`:
@@ -273,6 +274,8 @@ Installer drivers (these are drivers of the installer, not packages of the insta
 | `igb` | network | Intel igb / igc |
 | `r8169` | network | Realtek RTL8168/8111/8125/8126 |
 | `rtl8139` | network | Realtek RTL8139 |
+| `e100` | network | Intel 8255x PRO/100 |
+| `pcnet32` | network | AMD PCnet32 / PCnet-FAST |
 | `vmxnet3` | network | VMware vmxnet3 virtual NIC |
 | `alx` | network | Qualcomm Atheros AR81xx/AR816x, Killer E2x00 (untested) |
 

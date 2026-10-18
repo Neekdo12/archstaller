@@ -217,6 +217,7 @@ mod tests {
                 filesystem: config::FsType::Ext4,
                 btrfs: None,
             },
+            bootloader: config::Bootloader::Grub,
             mirrors: vec!["https://example.org".into()],
             packages: vec!["base".into()],
             providers: vec![],

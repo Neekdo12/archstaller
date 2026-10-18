@@ -494,6 +494,7 @@ mod tests {
                 filesystem: config::FsType::Ext4,
                 btrfs: None,
             },
+            bootloader: config::Bootloader::Grub,
             mirrors: vec!["https://e.org/$repo/os/$arch".into()],
             packages: vec!["base".into()],
             providers: vec![],

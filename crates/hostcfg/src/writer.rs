@@ -68,6 +68,7 @@ mod tests {
                 filesystem: config::FsType::Ext4,
                 btrfs: None,
             },
+            bootloader: config::Bootloader::Grub,
             mirrors: vec!["https://geo.mirror.pkgbuild.com/$repo/os/$arch".into()],
             packages: vec!["base".into(), "linux".into(), "grub".into()],
             providers: vec![("initramfs".into(), "mkinitcpio".into())],

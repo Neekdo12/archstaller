@@ -514,7 +514,50 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     actions_row.append(&import_btn);
     c.append(&actions_row);
 
-    // 3. Extra kernel parameters card
+    // 3. Bootloader card
+    let c = ui::card(content, Some("Bootloader"));
+    ui::hint(
+        &c,
+        "The bootloader installed onto the target system at first boot.",
+    );
+    let loaders = [
+        ("grub", "GRUB (BIOS & UEFI universal, default)"),
+        ("systemd-boot", "systemd-boot (minimalist UEFI standard)"),
+        ("limine", "Limine (modern, fast, BIOS & UEFI)"),
+    ];
+    let mut group_leader: Option<gtk::CheckButton> = None;
+    for (id, desc) in loaders {
+        let b = if let Some(ref leader) = group_leader {
+            gtk::CheckButton::builder()
+                .label(desc)
+                .group(leader)
+                .build()
+        } else {
+            let leader = gtk::CheckButton::builder().label(desc).build();
+            group_leader = Some(leader.clone());
+            leader
+        };
+        let is_selected = match cfg.bootloader {
+            config::Bootloader::Grub => id == "grub",
+            config::Bootloader::SystemdBoot => id == "systemd-boot",
+            config::Bootloader::Limine => id == "limine",
+        };
+        b.set_active(is_selected);
+        let a = app.clone();
+        let target_bl = match id {
+            "systemd-boot" => config::Bootloader::SystemdBoot,
+            "limine" => config::Bootloader::Limine,
+            _ => config::Bootloader::Grub,
+        };
+        b.connect_toggled(move |btn| {
+            if btn.is_active() {
+                a.edit(move |m| m.cfg.bootloader = target_bl);
+            }
+        });
+        c.append(&b);
+    }
+
+    // 4. Extra kernel parameters card
     list_card(ListCard {
         app,
         content,
