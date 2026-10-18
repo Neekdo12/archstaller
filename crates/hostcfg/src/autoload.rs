@@ -361,6 +361,8 @@ mod tests {
                 confirm_serial: "SERIAL123".into(),
                 auto_largest: false,
                 esp_mib: 1024,
+                filesystem: config::FsType::Ext4,
+                btrfs: None,
             },
             mirrors: vec!["https://example.com".into()],
             packages: vec!["base".into()],

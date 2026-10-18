@@ -1,0 +1,10 @@
+[package]
+name = "btrfsw"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+disk = { path = "../disk" }
+
+[lints]
+workspace = true

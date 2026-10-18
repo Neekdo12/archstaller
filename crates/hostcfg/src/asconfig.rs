@@ -78,6 +78,103 @@ pub struct Disk {
     pub auto_largest: bool,
     /// Size of the EFI system partition in MiB.
     pub esp_mib: u32,
+    /// Root filesystem type (ext4, btrfs, xfs, f2fs). Defaults to ext4.
+    #[serde(default)]
+    pub filesystem: FsType,
+    /// Btrfs options (subvolumes, compression) when filesystem is btrfs.
+    #[serde(default)]
+    pub btrfs: Option<BtrfsConfig>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum FsType {
+    #[default]
+    Ext4,
+    Btrfs,
+    Xfs,
+    F2fs,
+}
+
+impl From<FsType> for config::FsType {
+    fn from(f: FsType) -> Self {
+        match f {
+            FsType::Ext4 => config::FsType::Ext4,
+            FsType::Btrfs => config::FsType::Btrfs,
+            FsType::Xfs => config::FsType::Xfs,
+            FsType::F2fs => config::FsType::F2fs,
+        }
+    }
+}
+
+impl From<config::FsType> for FsType {
+    fn from(f: config::FsType) -> Self {
+        match f {
+            config::FsType::Ext4 => FsType::Ext4,
+            config::FsType::Btrfs => FsType::Btrfs,
+            config::FsType::Xfs => FsType::Xfs,
+            config::FsType::F2fs => FsType::F2fs,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BtrfsSubvol {
+    pub name: String,
+    pub mount: String,
+}
+
+impl From<BtrfsSubvol> for config::BtrfsSubvol {
+    fn from(s: BtrfsSubvol) -> Self {
+        config::BtrfsSubvol {
+            name: s.name,
+            mount: s.mount,
+        }
+    }
+}
+
+impl From<&config::BtrfsSubvol> for BtrfsSubvol {
+    fn from(s: &config::BtrfsSubvol) -> Self {
+        BtrfsSubvol {
+            name: s.name.clone(),
+            mount: s.mount.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BtrfsConfig {
+    #[serde(default = "default_btrfs_subvolumes")]
+    pub subvolumes: Vec<BtrfsSubvol>,
+    #[serde(default = "config::default_zstd")]
+    pub compress: String,
+}
+
+fn default_btrfs_subvolumes() -> Vec<BtrfsSubvol> {
+    config::default_btrfs_subvolumes()
+        .iter()
+        .map(Into::into)
+        .collect()
+}
+
+impl From<BtrfsConfig> for config::BtrfsConfig {
+    fn from(b: BtrfsConfig) -> Self {
+        config::BtrfsConfig {
+            subvolumes: b.subvolumes.into_iter().map(Into::into).collect(),
+            compress: b.compress,
+        }
+    }
+}
+
+impl From<&config::BtrfsConfig> for BtrfsConfig {
+    fn from(b: &config::BtrfsConfig) -> Self {
+        BtrfsConfig {
+            subvolumes: b.subvolumes.iter().map(Into::into).collect(),
+            compress: b.compress.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -328,6 +425,8 @@ impl AsConfig {
                 confirm_serial: self.install.disk.confirm_serial,
                 auto_largest: self.install.disk.auto_largest,
                 esp_mib: self.install.disk.esp_mib,
+                filesystem: self.install.disk.filesystem.into(),
+                btrfs: self.install.disk.btrfs.map(Into::into),
             },
             mirrors: self.install.mirrors,
             packages: self.packages.explicit,
@@ -449,6 +548,8 @@ impl AsConfig {
                     confirm_serial: cfg.disk.confirm_serial.clone(),
                     auto_largest: cfg.disk.auto_largest,
                     esp_mib: cfg.disk.esp_mib,
+                    filesystem: cfg.disk.filesystem.into(),
+                    btrfs: cfg.disk.btrfs.as_ref().map(Into::into),
                 },
                 mirrors: cfg.mirrors.clone(),
                 dry_run: cfg.dry_run,

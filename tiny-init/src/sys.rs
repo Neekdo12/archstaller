@@ -18,6 +18,7 @@ pub const SYS_REBOOT: usize = 169;
 pub const SYS_INIT_MODULE: usize = 175;
 pub const SYS_GETDENTS64: usize = 217;
 pub const SYS_FSTAT: usize = 5;
+pub const SYS_MUNMAP: usize = 11;
 
 pub const MS_RDONLY: usize = 1;
 pub const MS_MOVE: usize = 8192;
@@ -40,6 +41,33 @@ pub unsafe fn syscall(
         in("rdx") a3,
         in("r10") a4,
         in("r8") a5,
+        lateout("rcx") _,
+        lateout("r11") _,
+        options(nostack)
+    );
+    ret
+}
+
+#[inline]
+pub unsafe fn syscall6(
+    nr: usize,
+    a1: usize,
+    a2: usize,
+    a3: usize,
+    a4: usize,
+    a5: usize,
+    a6: usize,
+) -> isize {
+    let ret: isize;
+    asm!(
+        "syscall",
+        inlateout("rax") nr as isize => ret,
+        in("rdi") a1,
+        in("rsi") a2,
+        in("rdx") a3,
+        in("r10") a4,
+        in("r8") a5,
+        in("r9") a6,
         lateout("rcx") _,
         lateout("r11") _,
         options(nostack)
@@ -159,14 +187,19 @@ pub fn power_off() -> ! {
 
 /// Anonymous read/write mapping of `len` bytes.
 pub fn map_anon(len: usize) -> Option<&'static mut [u8]> {
-    // PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS
+    // PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, fd: -1, offset: 0
     // SAFETY: SYS_MMAP syscall requesting private anonymous memory.
-    let p = unsafe { syscall(SYS_MMAP, 0, len, 3, 0x22, usize::MAX) };
+    let p = unsafe { syscall6(SYS_MMAP, 0, len, 3, 0x22, usize::MAX, 0) };
     if p < 0 && p > -4096 {
         return None;
     }
     // SAFETY: Pointer returned by successful mmap is valid for `len` bytes.
     Some(unsafe { core::slice::from_raw_parts_mut(p as *mut u8, len) })
+}
+
+pub fn unmap(buf: &mut [u8]) {
+    // SAFETY: SYS_MUNMAP syscall releasing previously mapped memory.
+    unsafe { syscall(SYS_MUNMAP, buf.as_mut_ptr() as usize, buf.len(), 0, 0, 0) };
 }
 
 pub fn file_size(fd: isize) -> Option<usize> {

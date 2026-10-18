@@ -65,6 +65,8 @@ mod tests {
                 confirm_serial: "S12345".into(),
                 auto_largest: false,
                 esp_mib: 512,
+                filesystem: config::FsType::Ext4,
+                btrfs: None,
             },
             mirrors: vec!["https://geo.mirror.pkgbuild.com/$repo/os/$arch".into()],
             packages: vec!["base".into(), "linux".into(), "grub".into()],

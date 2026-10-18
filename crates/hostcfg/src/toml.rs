@@ -28,6 +28,8 @@ pub mod tests_support {
                 confirm_serial: "SERIAL123".into(),
                 auto_largest: false,
                 esp_mib: 1024,
+                filesystem: config::FsType::Ext4,
+                btrfs: None,
             },
             mirrors: vec!["https://example.com".into()],
             packages: vec!["base".into()],
@@ -207,5 +209,94 @@ file = "services/user-daemon.service"
             loaded.config.custom_services[1].file,
             Some("services/user-daemon.service".into())
         );
+    }
+
+    #[test]
+    fn parses_filesystems_in_toml() {
+        let btrfs_toml = r#"
+schema = 1
+
+[system]
+hostname = "btrfsbox"
+timezone = "UTC"
+locale = "en_US.UTF-8"
+keymap = "us"
+
+[install]
+mirrors = ["https://geo.mirror.pkgbuild.com/$repo/os/$arch"]
+
+[install.disk]
+auto_largest = true
+esp_mib = 1024
+filesystem = "btrfs"
+
+[install.disk.btrfs]
+compress = "zstd:3"
+[[install.disk.btrfs.subvolumes]]
+name = "@"
+mount = "/"
+[[install.disk.btrfs.subvolumes]]
+name = "@home"
+mount = "/home"
+
+[packages]
+explicit = ["base", "btrfs-progs"]
+"#;
+        let loaded = load_str_unvalidated(btrfs_toml, Path::new(".")).unwrap();
+        assert_eq!(loaded.config.disk.filesystem, config::FsType::Btrfs);
+        let btrfs = loaded.config.disk.btrfs.expect("btrfs config present");
+        assert_eq!(btrfs.compress, "zstd:3");
+        assert_eq!(btrfs.subvolumes.len(), 2);
+        assert_eq!(btrfs.subvolumes[0].name, "@");
+        assert_eq!(btrfs.subvolumes[0].mount, "/");
+        assert_eq!(btrfs.subvolumes[1].name, "@home");
+        assert_eq!(btrfs.subvolumes[1].mount, "/home");
+
+        let xfs_toml = r#"
+schema = 1
+
+[system]
+hostname = "xfsbox"
+timezone = "UTC"
+locale = "en_US.UTF-8"
+keymap = "us"
+
+[install]
+mirrors = ["https://geo.mirror.pkgbuild.com/$repo/os/$arch"]
+
+[install.disk]
+auto_largest = true
+esp_mib = 1024
+filesystem = "xfs"
+
+[packages]
+explicit = ["base", "xfsprogs"]
+"#;
+        let loaded_xfs = load_str_unvalidated(xfs_toml, Path::new(".")).unwrap();
+        assert_eq!(loaded_xfs.config.disk.filesystem, config::FsType::Xfs);
+        assert!(loaded_xfs.config.disk.btrfs.is_none());
+
+        let f2fs_toml = r#"
+schema = 1
+
+[system]
+hostname = "f2fsbox"
+timezone = "UTC"
+locale = "en_US.UTF-8"
+keymap = "us"
+
+[install]
+mirrors = ["https://geo.mirror.pkgbuild.com/$repo/os/$arch"]
+
+[install.disk]
+auto_largest = true
+esp_mib = 1024
+filesystem = "f2fs"
+
+[packages]
+explicit = ["base", "f2fs-tools"]
+"#;
+        let loaded_f2fs = load_str_unvalidated(f2fs_toml, Path::new(".")).unwrap();
+        assert_eq!(loaded_f2fs.config.disk.filesystem, config::FsType::F2fs);
     }
 }

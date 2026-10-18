@@ -149,11 +149,87 @@
           "type": "integer",
           "format": "uint32",
           "minimum": 0
+        },
+        "filesystem": {
+          "description": "Root filesystem type (ext4, btrfs, xfs, f2fs). Defaults to ext4.",
+          "$ref": "#/$defs/FsType",
+          "default": "ext4"
+        },
+        "btrfs": {
+          "description": "Btrfs options (subvolumes, compression) when filesystem is btrfs.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BtrfsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "additionalProperties": false,
       "required": [
         "esp_mib"
+      ]
+    },
+    "FsType": {
+      "type": "string",
+      "enum": [
+        "ext4",
+        "btrfs",
+        "xfs",
+        "f2fs"
+      ]
+    },
+    "BtrfsConfig": {
+      "type": "object",
+      "properties": {
+        "subvolumes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BtrfsSubvol"
+          },
+          "default": [
+            {
+              "name": "@",
+              "mount": "/"
+            },
+            {
+              "name": "@home",
+              "mount": "/home"
+            },
+            {
+              "name": "@snapshots",
+              "mount": "/.snapshots"
+            },
+            {
+              "name": "@var_log",
+              "mount": "/var/log"
+            }
+          ]
+        },
+        "compress": {
+          "type": "string",
+          "default": "zstd"
+        }
+      },
+      "additionalProperties": false
+    },
+    "BtrfsSubvol": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "mount": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "mount"
       ]
     },
     "Packages": {

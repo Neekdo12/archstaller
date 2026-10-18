@@ -28,7 +28,7 @@ that need a running Linux.
    - refuses a disk too small for the resolved packages (download + installed size, plus 10% and 1 GiB) before
      anything is written.
    - partitions (`crates/disk`): GPT + protective MBR, BIOS boot partition, ESP (FAT32, `/boot`; grown past `esp_mib` when the disk's sectors need it, e.g. about 257 MiB with 4 KiB sectors), root.
-   - writes root as ext4 (`crates/ext4w`), write-once, with a random UUID and a fully random directory hash seed, with an internal journal (inode 8, a valid jbd2 superblock, 4-64 MiB depending on size, none under 32 MiB) created together with the filesystem.
+   - writes root using the configured filesystem writer (`ext4` via `crates/ext4w`, `btrfs` via `crates/btrfsw`, `xfs` via `crates/xfsw`, or `f2fs` via `crates/f2fsw`), write-once, with a random UUID; only the selected filesystem engine is compiled into the installer kernel per build to avoid ISO bloat. Ext4 includes an internal jbd2 journal and random directory hash seed; Btrfs sets up `@` and `@home` subvolumes with linear chunk trees; XFS V5 sets up AG 0 with Castagnoli CRC32C and shortform/block directories; F2FS formats checkpoint, SIT, NAT, and SSA segments with TEA directory hashing.
    - streams each package into `/var/cache/pacman/pkg` on the target, verifying SHA-256 and PGP signature
      (`crates/pgp-lite` + `keyring.bin`) before extracting.
    - writes `/etc` (fstab, hostname, locale, mirrorlist, a DHCP `.network` file for wired interfaces when
@@ -63,6 +63,9 @@ that need a running Linux.
 | `crates/pgp-lite` | OpenPGP v4 signature verification (RSA, EdDSA) against an embedded keyring blob |
 | `crates/pkg` | sync DB parser (`desc.rs`, `db.rs`; `Db::parse_with` also hands each package's raw `desc` text to a callback and `desc::field` reads one section from it, so host tools get `%DESC%` without the installer storing it), `vercmp` port, dependency resolver (`resolve.rs`), tar/zstd/gzip readers (`tar.rs`, `compress.rs`, `io.rs`) |
 | `crates/ext4w` | write-once ext4 writer (`writer.rs`): extents, xattrs, symlinks, hardlinks; an internal journal and `metadata_csum`; no `dir_index` hashing at install time |
+| `crates/btrfsw` | write-once Btrfs writer (`writer.rs`): 16 KiB nodes, 4 KiB sectors, linear chunk translation (SYSTEM, METADATA, DATA), root/chunk/extent/csum trees, subvolumes (`@` and `@home`), inline/regular extents, CRC32C, implements `disk::FsWriter` |
+| `crates/f2fsw` | write-once F2FS writer (`writer.rs`): 4 KiB blocks, 2 MiB segments, CP/SIT/NAT/SSA metadata areas, root inode at nid 3, TEA directory entry hashing, implements `disk::FsWriter` |
+| `crates/xfsw` | write-once XFS V5 writer (`writer.rs`, `crc.rs`): 4096-byte blocks, 512-byte inodes, root inode 128, AG 0 superblock/AGF/AGI/AGFL headers, free space and inode btree roots, shortform and single-block (`XDB3`) directories with hash sorting, extent coalescing, Castagnoli CRC32C verification, implements `disk::FsWriter` |
 | `crates/disk` | GPT + protective MBR (`gpt.rs`), FAT32 writer (`fat32.rs`; `min_volume_bytes` per sector size), CRC32 (`crc32.rs`), region helpers (`region.rs`) |
 | `crates/initrd` | cpio newc writer (`cpio.rs`), kernel module dependency resolution from ELF `.modinfo` (`modules.rs`) |
 | `crates/logring` | `no_std`, allocation-free byte ring (`lib.rs`): `Ring<CAP>` keeps the newest `CAP` bytes, `is_truncated()` reports the oldest were dropped, `write_snapshot`/`snapshot` return them oldest-first with a `[log truncated: N bytes dropped]` marker. Host unit tested (`--features std`). Backs the kernel's console capture for the end-of-install log dump |

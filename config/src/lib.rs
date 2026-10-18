@@ -265,6 +265,75 @@ pub struct UserFile {
     pub dest: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FsType {
+    #[default]
+    Ext4,
+    Btrfs,
+    Xfs,
+    F2fs,
+}
+
+impl FsType {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ext4 => "ext4",
+            Self::Btrfs => "btrfs",
+            Self::Xfs => "xfs",
+            Self::F2fs => "f2fs",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BtrfsSubvol {
+    pub name: String,
+    pub mount: String,
+}
+
+pub fn default_zstd() -> String {
+    "zstd".into()
+}
+
+pub fn default_btrfs_subvolumes() -> Vec<BtrfsSubvol> {
+    alloc::vec![
+        BtrfsSubvol {
+            name: "@".into(),
+            mount: "/".into(),
+        },
+        BtrfsSubvol {
+            name: "@home".into(),
+            mount: "/home".into(),
+        },
+        BtrfsSubvol {
+            name: "@snapshots".into(),
+            mount: "/.snapshots".into(),
+        },
+        BtrfsSubvol {
+            name: "@var_log".into(),
+            mount: "/var/log".into(),
+        },
+    ]
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BtrfsConfig {
+    #[serde(default = "default_btrfs_subvolumes")]
+    pub subvolumes: Vec<BtrfsSubvol>,
+    #[serde(default = "default_zstd")]
+    pub compress: String,
+}
+
+impl Default for BtrfsConfig {
+    fn default() -> Self {
+        Self {
+            subvolumes: default_btrfs_subvolumes(),
+            compress: default_zstd(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Disk {
     /// Substring matched against the disk model; must select exactly one disk. If absent, the
@@ -280,6 +349,12 @@ pub struct Disk {
     pub auto_largest: bool,
     /// ESP size in MiB.
     pub esp_mib: u32,
+    /// Root filesystem type (ext4, btrfs, xfs, f2fs). Defaults to ext4.
+    #[serde(default)]
+    pub filesystem: FsType,
+    /// Btrfs options (subvolumes, compression) when filesystem is btrfs.
+    #[serde(default)]
+    pub btrfs: Option<BtrfsConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -360,6 +435,41 @@ impl Config {
         }
         if self.disk.esp_mib < 64 || self.disk.esp_mib > 8192 {
             return Err(format!("disk.esp_mib out of range: {}", self.disk.esp_mib));
+        }
+        if self.disk.filesystem == FsType::Btrfs {
+            if let Some(b) = &self.disk.btrfs {
+                if b.subvolumes.is_empty() {
+                    return Err("btrfs.subvolumes must not be empty".into());
+                }
+                if !b.subvolumes.iter().any(|s| s.mount == "/") {
+                    return Err("btrfs.subvolumes must include a subvolume mounted at '/'".into());
+                }
+                for (i, s) in b.subvolumes.iter().enumerate() {
+                    if !ident(&s.name, "@_-") {
+                        return bad("btrfs subvolume name", &s.name);
+                    }
+                    if !s.mount.starts_with('/') {
+                        return bad("btrfs mount point (must start with '/')", &s.mount);
+                    }
+                    if b.subvolumes.iter().take(i).any(|o| o.name == s.name) {
+                        return bad("duplicate btrfs subvolume name", &s.name);
+                    }
+                    if b.subvolumes.iter().take(i).any(|o| o.mount == s.mount) {
+                        return bad("duplicate btrfs subvolume mount", &s.mount);
+                    }
+                }
+                let c = &b.compress;
+                let valid_compress = c == "none"
+                    || c == "zstd"
+                    || c.starts_with("zstd:")
+                    || c == "lzo";
+                if !valid_compress {
+                    return bad(
+                        "btrfs compression (supported: 'zstd', 'zstd:<level>', 'lzo', 'none')",
+                        c,
+                    );
+                }
+            }
         }
         if self.mirrors.is_empty() {
             return Err("at least one mirror is required".into());
@@ -637,6 +747,8 @@ mod tests {
                 confirm_serial: "S".into(),
                 auto_largest: false,
                 esp_mib: 512,
+                filesystem: FsType::Ext4,
+                btrfs: None,
             },
             mirrors: vec!["https://example.org/$repo/os/$arch".into()],
             packages: vec!["base".into()],
@@ -925,5 +1037,108 @@ mod tests {
         c.system_files[0].file = None;
         c.system_files[0].content = None;
         assert!(c.validate().unwrap_err().contains("must specify file or content"));
+    }
+
+    #[test]
+    fn filesystem_rules() {
+        let mut c = base();
+        assert_eq!(c.disk.filesystem, FsType::Ext4);
+        assert_eq!(c.disk.filesystem.as_str(), "ext4");
+        c.validate().unwrap();
+
+        // XFS and F2FS
+        c.disk.filesystem = FsType::Xfs;
+        assert_eq!(c.disk.filesystem.as_str(), "xfs");
+        c.validate().unwrap();
+
+        c.disk.filesystem = FsType::F2fs;
+        assert_eq!(c.disk.filesystem.as_str(), "f2fs");
+        c.validate().unwrap();
+
+        // Btrfs with default config
+        c.disk.filesystem = FsType::Btrfs;
+        assert_eq!(c.disk.filesystem.as_str(), "btrfs");
+        c.disk.btrfs = Some(BtrfsConfig::default());
+        c.validate().unwrap();
+
+        // Empty subvolumes
+        c.disk.btrfs = Some(BtrfsConfig {
+            subvolumes: vec![],
+            compress: "zstd".into(),
+        });
+        assert!(c.validate().unwrap_err().contains("subvolumes must not be empty"));
+
+        // Missing root mount
+        c.disk.btrfs = Some(BtrfsConfig {
+            subvolumes: vec![BtrfsSubvol {
+                name: "@home".into(),
+                mount: "/home".into(),
+            }],
+            compress: "zstd".into(),
+        });
+        assert!(c.validate().unwrap_err().contains("must include a subvolume mounted at '/'"));
+
+        // Duplicate subvolume name
+        c.disk.btrfs = Some(BtrfsConfig {
+            subvolumes: vec![
+                BtrfsSubvol {
+                    name: "@".into(),
+                    mount: "/".into(),
+                },
+                BtrfsSubvol {
+                    name: "@".into(),
+                    mount: "/home".into(),
+                },
+            ],
+            compress: "zstd".into(),
+        });
+        assert!(c.validate().unwrap_err().contains("duplicate btrfs subvolume name"));
+
+        // Duplicate mount point
+        c.disk.btrfs = Some(BtrfsConfig {
+            subvolumes: vec![
+                BtrfsSubvol {
+                    name: "@".into(),
+                    mount: "/".into(),
+                },
+                BtrfsSubvol {
+                    name: "@root2".into(),
+                    mount: "/".into(),
+                },
+            ],
+            compress: "zstd".into(),
+        });
+        assert!(c.validate().unwrap_err().contains("duplicate btrfs subvolume mount"));
+
+        // Invalid mount point (not starting with /)
+        c.disk.btrfs = Some(BtrfsConfig {
+            subvolumes: vec![
+                BtrfsSubvol {
+                    name: "@".into(),
+                    mount: "/".into(),
+                },
+                BtrfsSubvol {
+                    name: "@home".into(),
+                    mount: "home".into(),
+                },
+            ],
+            compress: "zstd".into(),
+        });
+        assert!(c.validate().unwrap_err().contains("must start with '/'"));
+
+        // Invalid compression
+        c.disk.btrfs = Some(BtrfsConfig {
+            subvolumes: default_btrfs_subvolumes(),
+            compress: "gzip".into(),
+        });
+        assert!(c.validate().unwrap_err().contains("btrfs compression"));
+
+        // Valid compression variations
+        c.disk.btrfs.as_mut().unwrap().compress = "zstd:3".into();
+        c.validate().unwrap();
+        c.disk.btrfs.as_mut().unwrap().compress = "lzo".into();
+        c.validate().unwrap();
+        c.disk.btrfs.as_mut().unwrap().compress = "none".into();
+        c.validate().unwrap();
     }
 }

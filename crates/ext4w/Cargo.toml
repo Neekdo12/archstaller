@@ -3,6 +3,9 @@ name = "ext4w"
 version = "0.1.0"
 edition = "2021"
 
+[dependencies]
+disk = { path = "../disk" }
+
 [dev-dependencies]
 pkg = { path = "../pkg" }
 

@@ -106,6 +106,7 @@ fn load_modules() {
         if r < 0 && r != -17 {
             log!("init: module {name} failed: errno {}", -r);
         }
+        unmap(image);
     }
 }
 
@@ -151,6 +152,13 @@ pub fn parse_fstype_arg(cmdline: &str) -> &str {
         .unwrap_or("ext4")
 }
 
+pub fn parse_rootflags_arg(cmdline: &str) -> &str {
+    cmdline
+        .split_whitespace()
+        .find_map(|t| t.strip_prefix("rootflags="))
+        .unwrap_or("")
+}
+
 pub fn parse_writable_arg(cmdline: &str) -> bool {
     cmdline
         .split_whitespace()
@@ -159,7 +167,60 @@ pub fn parse_writable_arg(cmdline: &str) -> bool {
         == Some("rw")
 }
 
-/// Returns the device node of the ext4 filesystem with `uuid`, waiting for drivers to probe.
+/// Checks if a buffer matches the superblock format and UUID at a specific disk offset.
+pub fn matches_superblock(buf: &[u8], offset: u64, uuid: &[u8; 16]) -> bool {
+    match offset {
+        // ext4: offset 1024, magic 0xef53 at 0x38, UUID at 0x68
+        1024 => {
+            let sb_magic_ok = buf.get(0x38..0x3a) == Some(&[0x53, 0xef]);
+            let sb_uuid_ok = buf.get(0x68..0x78) == Some(&uuid[..]);
+            if sb_magic_ok && sb_uuid_ok {
+                return true;
+            }
+            // f2fs: offset 1024, magic 0xF2F52010 (LE: 10 20 f5 f2) at 0x00, UUID at 0x6c (108)
+            let f2fs_magic_ok = buf.get(0x00..0x04) == Some(&[0x10, 0x20, 0xf5, 0xf2]);
+            let f2fs_uuid_ok = buf.get(0x6c..0x7c) == Some(&uuid[..]);
+            f2fs_magic_ok && f2fs_uuid_ok
+        }
+        // xfs: offset 0, magic XFSB at 0x00, UUID at 0x20
+        0 => {
+            let xfs_magic_ok = buf.get(0x00..0x04) == Some(b"XFSB");
+            let xfs_uuid_ok = buf.get(0x20..0x30) == Some(&uuid[..]);
+            xfs_magic_ok && xfs_uuid_ok
+        }
+        // btrfs: offset 65536, magic _BHRfS_M at 0x40, UUID at 0x20
+        65536 => {
+            let btrfs_magic_ok = buf.get(0x40..0x48) == Some(b"_BHRfS_M");
+            let btrfs_uuid_ok = buf.get(0x20..0x30) == Some(&uuid[..]);
+            btrfs_magic_ok && btrfs_uuid_ok
+        }
+        _ => false,
+    }
+}
+
+/// Returns true if the device opened at `fd` contains a supported filesystem matching `uuid`.
+fn check_device_uuid(fd: isize, uuid: &[u8; 16]) -> bool {
+    let mut sb = [0u8; 1024];
+
+    // 1. Try ext4 / f2fs at offset 1024
+    if pread(fd, &mut sb, 1024) == 1024 && matches_superblock(&sb, 1024, uuid) {
+        return true;
+    }
+
+    // 2. Try btrfs at offset 65536
+    if pread(fd, &mut sb, 65536) == 1024 && matches_superblock(&sb, 65536, uuid) {
+        return true;
+    }
+
+    // 3. Try xfs at offset 0
+    if pread(fd, &mut sb, 0) >= 512 && matches_superblock(&sb, 0, uuid) {
+        return true;
+    }
+
+    false
+}
+
+/// Returns the device node of the filesystem with `uuid`, waiting for drivers to probe.
 fn find_root_by_uuid(uuid: &[u8; 16], out: &mut [u8; 64]) -> Option<usize> {
     let mut waited = 0;
     loop {
@@ -226,12 +287,9 @@ fn find_root_by_uuid(uuid: &[u8; 16], out: &mut [u8; 64]) -> Option<usize> {
                     if fd < 0 {
                         continue;
                     }
-                    let mut sb = [0u8; 1024];
-                    let got = pread(fd, &mut sb, 1024);
+                    let matched = check_device_uuid(fd, uuid);
                     close(fd);
-                    let sb_magic_ok = sb.get(0x38) == Some(&0x53) && sb.get(0x39) == Some(&0xef);
-                    let sb_uuid_ok = sb.get(0x68..0x78) == Some(&uuid[..]);
-                    if got == 1024 && sb_magic_ok && sb_uuid_ok {
+                    if matched {
                         if let Some(dest) = out.get_mut(..dev_len) {
                             if let Some(src) = dev.get(..dev_len) {
                                 dest.copy_from_slice(src);
@@ -292,6 +350,7 @@ extern "C" fn entry(_sp: *const usize) -> ! {
     log!("init: root is {dev}");
 
     let fstype = parse_fstype_arg(cmdline);
+    let rootflags = parse_rootflags_arg(cmdline);
     let writable = parse_writable_arg(cmdline);
 
     let mut r = -1;
@@ -301,7 +360,7 @@ extern "C" fn entry(_sp: *const usize) -> ! {
             "/newroot",
             fstype,
             if writable { 0 } else { MS_RDONLY },
-            "",
+            rootflags,
         );
         if r >= 0 {
             break;
@@ -395,5 +454,75 @@ mod tests {
         assert_eq!(c.as_bytes().get(5), Some(&0));
         let long_c = CStr::<4>::new("hello");
         assert_eq!(long_c.as_bytes().get(3), Some(&0));
+    }
+
+    #[test]
+    fn parses_rootflags() {
+        assert_eq!(
+            parse_rootflags_arg("root=UUID=123 rootflags=subvol=@ rw"),
+            "subvol=@"
+        );
+        assert_eq!(
+            parse_rootflags_arg("root=UUID=123 rootflags=subvol=@,compress=zstd rw"),
+            "subvol=@,compress=zstd"
+        );
+        assert_eq!(parse_rootflags_arg("root=UUID=123 rw"), "");
+    }
+
+    #[test]
+    fn matches_all_supported_superblocks() {
+        let uuid: [u8; 16] = [
+            0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
+            0x77, 0x88,
+        ];
+
+        // 1. ext4 @ 1024 (magic 0xef53 at 0x38, uuid at 0x68)
+        let mut ext4_sb = [0u8; 1024];
+        ext4_sb[0x38] = 0x53;
+        ext4_sb[0x39] = 0xef;
+        ext4_sb[0x68..0x78].copy_from_slice(&uuid);
+        assert!(matches_superblock(&ext4_sb, 1024, &uuid));
+
+        // Corrupted ext4 magic
+        ext4_sb[0x38] = 0x00;
+        assert!(!matches_superblock(&ext4_sb, 1024, &uuid));
+        ext4_sb[0x38] = 0x53;
+
+        // Wrong ext4 uuid
+        let wrong_uuid = [0u8; 16];
+        assert!(!matches_superblock(&ext4_sb, 1024, &wrong_uuid));
+
+        // 2. btrfs @ 65536 (magic _BHRfS_M at 0x40, uuid at 0x20)
+        let mut btrfs_sb = [0u8; 1024];
+        btrfs_sb[0x40..0x48].copy_from_slice(b"_BHRfS_M");
+        btrfs_sb[0x20..0x30].copy_from_slice(&uuid);
+        assert!(matches_superblock(&btrfs_sb, 65536, &uuid));
+
+        // Corrupted btrfs magic
+        btrfs_sb[0x40] = b'X';
+        assert!(!matches_superblock(&btrfs_sb, 65536, &uuid));
+
+        // 3. xfs @ 0 (magic XFSB at 0x00, uuid at 0x20)
+        let mut xfs_sb = [0u8; 512];
+        xfs_sb[0x00..0x04].copy_from_slice(b"XFSB");
+        xfs_sb[0x20..0x30].copy_from_slice(&uuid);
+        assert!(matches_superblock(&xfs_sb, 0, &uuid));
+
+        // Corrupted xfs magic
+        xfs_sb[0] = b'Y';
+        assert!(!matches_superblock(&xfs_sb, 0, &uuid));
+
+        // 4. f2fs @ 1024 (magic 0xF2F52010 at 0x00, uuid at 0x6c)
+        let mut f2fs_sb = [0u8; 1024];
+        f2fs_sb[0x00..0x04].copy_from_slice(&[0x10, 0x20, 0xf5, 0xf2]);
+        f2fs_sb[0x6c..0x7c].copy_from_slice(&uuid);
+        assert!(matches_superblock(&f2fs_sb, 1024, &uuid));
+
+        // Corrupted f2fs magic
+        f2fs_sb[0] = 0;
+        assert!(!matches_superblock(&f2fs_sb, 1024, &uuid));
+
+        // 5. Unknown offset
+        assert!(!matches_superblock(&ext4_sb, 2048, &uuid));
     }
 }

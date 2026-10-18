@@ -78,6 +78,8 @@ impl Model {
                     confirm_serial: String::new(),
                     auto_largest: false,
                     esp_mib: 1024,
+                    filesystem: config::FsType::Ext4,
+                    btrfs: None,
                 },
                 mirrors: vec!["https://geo.mirror.pkgbuild.com/$repo/os/$arch".into()],
                 packages: [

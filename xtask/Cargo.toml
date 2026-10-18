@@ -12,6 +12,10 @@ sha2 = "0.11"
 miniz_oxide = "0.9"
 pgp-lite = { path = "../crates/pgp-lite", features = ["std"] }
 ext4w = { path = "../crates/ext4w" }
+btrfsw = { path = "../crates/btrfsw" }
+xfsw = { path = "../crates/xfsw" }
+f2fsw = { path = "../crates/f2fsw" }
+disk = { path = "../crates/disk" }
 initrd = { path = "../crates/initrd" }
 pkg = { path = "../crates/pkg" }
 drivers = { version = "0.1.0", path = "../crates/drivers" }

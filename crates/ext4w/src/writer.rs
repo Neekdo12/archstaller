@@ -1322,3 +1322,184 @@ fn write_extent(b: &mut [u8], e: &Extent) {
     put16(b, 6, (e.pblk >> 32) as u16);
     put32(b, 8, e.pblk as u32);
 }
+
+impl From<disk::FileKind> for FileKind {
+    fn from(k: disk::FileKind) -> Self {
+        match k {
+            disk::FileKind::Regular => FileKind::Regular,
+            disk::FileKind::Dir => FileKind::Dir,
+            disk::FileKind::Symlink => FileKind::Symlink,
+            disk::FileKind::CharDev => FileKind::CharDev,
+            disk::FileKind::BlockDev => FileKind::BlockDev,
+            disk::FileKind::Fifo => FileKind::Fifo,
+        }
+    }
+}
+
+impl From<&disk::Meta> for Meta {
+    fn from(m: &disk::Meta) -> Self {
+        Meta {
+            mode: m.mode,
+            uid: m.uid,
+            gid: m.gid,
+            mtime: m.mtime,
+            xattrs: m.xattrs.clone(),
+        }
+    }
+}
+
+fn to_disk_err(e: Error) -> disk::Error {
+    match e {
+        Error::Io => disk::Error::Io,
+        Error::NoSpace | Error::NoInodes => disk::Error::NoSpace,
+        Error::NotFound => disk::Error::NotFound,
+        Error::Exists => disk::Error::Exists,
+        Error::NotDir | Error::IsDir => disk::Error::Invalid("directory type mismatch"),
+        Error::Invalid(s) => disk::Error::Invalid(s),
+    }
+}
+
+impl<S: Storage> disk::FsWriter for Ext4Writer<S> {
+    fn mkdir(&mut self, path: &str, meta: &disk::Meta) -> disk::Result<u64> {
+        let m = Meta::from(meta);
+        self.mkdir(path, &m).map(|ino| ino as u64).map_err(to_disk_err)
+    }
+
+    fn begin_file(&mut self, path: &str, meta: &disk::Meta) -> disk::Result<u64> {
+        let m = Meta::from(meta);
+        self.begin_file(path, &m).map(|ino| ino as u64).map_err(to_disk_err)
+    }
+
+    fn write_file(&mut self, data: &[u8]) -> disk::Result<()> {
+        self.write_file(data).map_err(to_disk_err)
+    }
+
+    fn end_file(&mut self) -> disk::Result<u64> {
+        self.end_file().map(|ino| ino as u64).map_err(to_disk_err)
+    }
+
+    fn symlink(&mut self, path: &str, target: &str, meta: &disk::Meta) -> disk::Result<u64> {
+        let m = Meta::from(meta);
+        self.symlink(path, target, &m).map(|ino| ino as u64).map_err(to_disk_err)
+    }
+
+    fn hardlink(&mut self, path: &str, existing: &str) -> disk::Result<u64> {
+        self.hardlink(path, existing).map(|ino| ino as u64).map_err(to_disk_err)
+    }
+
+    fn mknod(
+        &mut self,
+        path: &str,
+        kind: disk::FileKind,
+        major: u32,
+        minor: u32,
+        meta: &disk::Meta,
+    ) -> disk::Result<u64> {
+        let m = Meta::from(meta);
+        self.mknod(path, FileKind::from(kind), major, minor, &m)
+            .map(|ino| ino as u64)
+            .map_err(to_disk_err)
+    }
+
+    fn lookup(&self, path: &str) -> Option<u64> {
+        self.lookup(path).map(|ino| ino as u64)
+    }
+
+    fn file_size(&self, id: u64) -> u64 {
+        u32::try_from(id).map_or(0, |ino| self.file_size(ino))
+    }
+
+    fn read_file(&mut self, id: u64, offset: u64, buf: &mut [u8]) -> disk::Result<usize> {
+        let ino = u32::try_from(id).map_err(|_| disk::Error::NotFound)?;
+        self.read_file(ino, offset, buf).map_err(to_disk_err)
+    }
+
+    fn finish(&mut self) -> disk::Result<()> {
+        self.finish().map_err(to_disk_err)
+    }
+}
+
+#[cfg(test)]
+mod fswriter_tests {
+    use super::*;
+    use disk::FsWriter;
+
+    struct MemStorage(alloc::vec::Vec<u8>);
+
+    impl Storage for MemStorage {
+        fn write_at(&mut self, offset: u64, data: &[u8]) -> Result<()> {
+            let end = (offset as usize) + data.len();
+            if end > self.0.len() {
+                self.0.resize(end, 0);
+            }
+            if let Some(dst) = self.0.get_mut(offset as usize..end) {
+                dst.copy_from_slice(data);
+            }
+            Ok(())
+        }
+        fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<()> {
+            let off = offset as usize;
+            if off + buf.len() > self.0.len() {
+                return Err(Error::Io);
+            }
+            if let Some(src) = self.0.get(off..off + buf.len()) {
+                buf.copy_from_slice(src);
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn ext4_fswriter_trait_workflow() {
+        let size = 64 * 1024 * 1024; // 64 MiB
+        let storage = MemStorage(alloc::vec![0u8; size as usize]);
+        let mut ext4 = Ext4Writer::new(
+            storage,
+            size,
+            Options {
+                label: "test".into(),
+                uuid: [1u8; 16],
+                hash_seed: [0; 4],
+                now: 1234567,
+                reserved_percent: 1,
+            },
+        )
+        .unwrap();
+
+        // Exercise strictly through trait reference
+        let w: &mut dyn FsWriter = &mut ext4;
+
+        let meta = disk::Meta {
+            mode: 0o755,
+            uid: 0,
+            gid: 0,
+            mtime: 1234567,
+            xattrs: alloc::vec![],
+        };
+
+        let dir_id = w.mkdir("etc", &meta).unwrap();
+        assert!(dir_id > 0);
+        assert_eq!(w.lookup("etc"), Some(dir_id));
+
+        let file_meta = disk::Meta {
+            mode: 0o644,
+            ..meta.clone()
+        };
+        w.begin_file("etc/hostname", &file_meta).unwrap();
+        w.write_file(b"test-box\n").unwrap();
+        let file_id = w.end_file().unwrap();
+        assert_eq!(w.lookup("etc/hostname"), Some(file_id));
+        assert_eq!(w.file_size(file_id), 9);
+
+        let mut read_buf = [0u8; 9];
+        let n = w.read_file(file_id, 0, &mut read_buf).unwrap();
+        assert_eq!(n, 9);
+        assert_eq!(&read_buf, b"test-box\n");
+
+        let sym_id = w.symlink("etc/os-release", "../usr/lib/os-release", &meta).unwrap();
+        assert_eq!(w.lookup("etc/os-release"), Some(sym_id));
+
+        w.finish().unwrap();
+    }
+}
+
