@@ -37,7 +37,7 @@ pub fn css(dark: bool) -> String {
 .sidebar-list row {{ padding: 4px 6px; }}
 /* Check and radio indicators keep a crisp, normalized size across all themes. */
 checkbutton check,
-checkbutton radio {{
+checkbutton.radio check {{
     min-width: 18px;
     min-height: 18px;
     padding: 0;
@@ -52,10 +52,10 @@ checkbutton radio {{
     -gtk-icon-source: none;
 }}
 checkbutton check:hover,
-checkbutton radio:hover {{
+checkbutton.radio check:hover {{
     border-color: alpha(currentColor, 0.7);
 }}
-checkbutton radio {{
+checkbutton.radio check {{
     border-radius: 9999px;
 }}
 checkbutton check:checked {{
@@ -64,7 +64,7 @@ checkbutton check:checked {{
     border-color: {accent_bg};
     color: {accent_fg};
 }}
-checkbutton radio:checked {{
+checkbutton.radio check:checked {{
     -gtk-icon-source: -gtk-icontheme('radio-checked-symbolic');
     color: {accent_bg};
     border-color: {accent_bg};
@@ -74,9 +74,18 @@ checkbutton radio:checked {{
 }
 
 /// Whether the active theme draws light text on a dark background.
-pub fn is_dark(w: &impl IsA<gtk::Widget>) -> bool {
-    let c = w.color();
-    0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue() > 0.5
+pub fn is_dark(_w: &impl IsA<gtk::Widget>) -> bool {
+    if let Some(settings) = gtk::Settings::default() {
+        if settings.is_gtk_application_prefer_dark_theme() {
+            return true;
+        }
+        if let Some(theme) = settings.gtk_theme_name() {
+            if theme.to_lowercase().contains("dark") {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

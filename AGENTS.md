@@ -11,7 +11,20 @@ config schema, change the boot/install flow, add a driver, change ISO layout, et
 
 ## Rule: no commits
 
-Do not run `git commit` (or `git push`). Leave changes staged/unstaged for the user to review and commity
+Do not run `git commit` (or `git push`). Leave changes staged/unstaged for the user to review and commit.
+
+## Rule: test-driven development (TDD)
+
+Follow Test-Driven Development (TDD) strictly:
+- Always write tests first, including comprehensive edge cases, boundary conditions, and error states, before implementing or modifying the target function or logic.
+- Verify tests fail (Red) before writing the implementation to make them pass (Green).
+- Every public and internal function must have corresponding unit tests.
+
+## Rule: clippy-compliant code
+
+All code in the workspace must be strictly Clippy-compliant:
+- `cargo clippy --workspace --all-targets` must pass with zero warnings.
+- Do not silence lints with blanket `#[allow]` attributes. If a lint suppression is necessary and justified, use an explicit `#[expect(lint_name, reason = "...")]` with a clear explanation, adhering to the workspace lint policy in `Cargo.toml`.
 
 ## Other conventions
 
@@ -30,7 +43,7 @@ Do not run `git commit` (or `git push`). Leave changes staged/unstaged for the u
 - ISO size matters. Run `cargo xtask size` after changes that touch the kernel or ISO contents; see
   `sizes.md` for the current breakdown and budget.
 - Out of scope, do not implement unless a spec doc explicitly asks for it: Wi-Fi, SMP, Secure Boot,
-  an interactive UI, filesystems other than ext4, architectures other than x86_64, and USB beyond the
+  an interactive UI, filesystems other than the supported big four (`ext4`, `btrfs`, `xfs`, `f2fs`), architectures other than x86_64, and USB beyond the
   tethering paths (`crates/usb`, `crates/imobiledevice` for iPhone, `crates/usbnet` for Android). The spec
   for future Wi-Fi work lives in `plans-implement/wifi.md`, and Raspberry Pi (ARM/AArch64) work lives in
   `plans-implement/raspberry-pi.md`.

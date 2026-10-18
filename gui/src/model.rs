@@ -363,6 +363,7 @@ mod tests {
             password_hash: hostcfg::password::hash("pw").unwrap(),
             groups: vec!["wheel".into()],
             shell: "/bin/bash".into(),
+            dotfiles: None,
         });
         m.cfg.scripts.push(config::Script {
             id: "enable-sshd".into(),
@@ -379,6 +380,50 @@ mod tests {
         assert_eq!(format!("{:?}", back.cfg), format!("{:?}", m.cfg));
         assert_eq!(back.host, m.host);
         assert_eq!(back.host.drivers(), vec!["virtio-blk", "nvme", "e1000"]);
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn reinstall_preset_and_dotfiles_roundtrip() {
+        let mut m = Model::starter();
+        m.cfg.disk.confirm_serial = "SER123".into();
+        m.cfg.users.push(config::User {
+            name: "kubik".into(),
+            password_hash: hostcfg::password::hash("pw").unwrap(),
+            groups: vec!["wheel".into()],
+            shell: "/bin/bash".into(),
+            dotfiles: Some(config::UserDotfiles {
+                repo: "kubik/dotfiles".into(),
+                dir: "dotfiles".into(),
+                branch: Some("main".into()),
+                stow: true,
+                packages: vec!["hypr".into(), "bash".into()],
+            }),
+        });
+        m.cfg.scripts.push(config::Script {
+            id: "pre-setup".into(),
+            file: Some("scripts/pre.sh".into()),
+            phase: Some("pre-service".into()),
+            args: vec!["--arg".into()],
+            ..Default::default()
+        });
+        assert!(m.problems().is_empty());
+        let dir = tmp("dotfiles-roundtrip");
+        let path = dir.join("c.toml");
+        m.save(&path).unwrap();
+
+        let back = Model::open(&path).unwrap();
+        assert!(back.raw.is_none());
+        let u = &back.cfg.users[0];
+        assert_eq!(u.name, "kubik");
+        let df = u.dotfiles.as_ref().unwrap();
+        assert_eq!(df.repo, "kubik/dotfiles");
+        assert_eq!(df.dir, "dotfiles");
+        assert_eq!(df.branch.as_deref(), Some("main"));
+        assert!(df.stow);
+        assert_eq!(df.packages, vec!["hypr", "bash"]);
+        assert_eq!(back.cfg.scripts[0].phase.as_deref(), Some("pre-service"));
+
         drop(std::fs::remove_dir_all(&dir));
     }
 

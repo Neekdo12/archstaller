@@ -25,6 +25,7 @@ mod tests {
             password_hash: h.clone(),
             groups: vec![],
             shell: "/bin/bash".into(),
+            dotfiles: None,
         }];
         c.validate().unwrap();
         assert_ne!(

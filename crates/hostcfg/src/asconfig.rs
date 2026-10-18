@@ -190,6 +190,49 @@ pub struct Packages {
     pub aur: Vec<Aur>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UserDotfiles {
+    /// GitHub repository: "owner/repo" or "https://github.com/owner/repo".
+    pub repo: String,
+    /// Target directory inside user's home (default: "dotfiles").
+    #[serde(default = "config::default_dotfiles_dir")]
+    pub dir: String,
+    /// Git branch or tag (default: "main").
+    #[serde(default)]
+    pub branch: Option<String>,
+    /// Whether to run GNU Stow to symlink configuration files into $HOME.
+    #[serde(default = "config::default_true")]
+    pub stow: bool,
+    /// Specific package subdirectories to stow (empty = stow all or top-level).
+    #[serde(default)]
+    pub packages: Vec<String>,
+}
+
+impl From<UserDotfiles> for config::UserDotfiles {
+    fn from(d: UserDotfiles) -> Self {
+        config::UserDotfiles {
+            repo: d.repo,
+            dir: d.dir,
+            branch: d.branch,
+            stow: d.stow,
+            packages: d.packages,
+        }
+    }
+}
+
+impl From<&config::UserDotfiles> for UserDotfiles {
+    fn from(d: &config::UserDotfiles) -> Self {
+        UserDotfiles {
+            repo: d.repo.clone(),
+            dir: d.dir.clone(),
+            branch: d.branch.clone(),
+            stow: d.stow,
+            packages: d.packages.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct User {
@@ -201,6 +244,9 @@ pub struct User {
     pub groups: Vec<String>,
     /// Login shell, for example `/bin/bash`.
     pub shell: String,
+    /// User dotfiles configured from a GitHub repository, with optional GNU Stow linking.
+    #[serde(default)]
+    pub dotfiles: Option<UserDotfiles>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -318,6 +364,9 @@ pub struct Script {
     /// Lower-case hex SHA-256 of the script at `url`.
     #[serde(default)]
     pub sha256: Option<String>,
+    /// Execution phase: "pre-service" (before service enablement) or "post-service" (after, default).
+    #[serde(default)]
+    pub phase: Option<String>,
 }
 
 /// One AUR package, pinned to the reviewed recipe.
@@ -429,7 +478,18 @@ impl AsConfig {
                 btrfs: self.install.disk.btrfs.map(Into::into),
             },
             mirrors: self.install.mirrors,
-            packages: self.packages.explicit,
+            packages: {
+                let mut pkgs = self.packages.explicit;
+                if self
+                    .users
+                    .iter()
+                    .any(|u| u.dotfiles.as_ref().is_some_and(|d| d.stow))
+                    && !pkgs.iter().any(|p| p == "stow")
+                {
+                    pkgs.push("stow".into());
+                }
+                pkgs
+            },
             providers: self.packages.providers.into_iter().collect(),
             root_password_hash: self.system.root_password_hash,
             users: self
@@ -440,6 +500,7 @@ impl AsConfig {
                     password_hash: u.password_hash,
                     groups: u.groups,
                     shell: u.shell,
+                    dotfiles: u.dotfiles.map(Into::into),
                 })
                 .collect(),
             services: self.first_boot.services,
@@ -489,6 +550,7 @@ impl AsConfig {
                     url: s.url,
                     sha256: s.sha256,
                     content: None,
+                    phase: s.phase,
                 })
                 .collect(),
             custom_services: self
@@ -581,6 +643,7 @@ impl AsConfig {
                     password_hash: u.password_hash.clone(),
                     groups: u.groups.clone(),
                     shell: u.shell.clone(),
+                    dotfiles: u.dotfiles.as_ref().map(Into::into),
                 })
                 .collect(),
             first_boot: FirstBoot {
@@ -609,6 +672,7 @@ impl AsConfig {
                         file: s.file.clone(),
                         url: s.url.clone(),
                         sha256: s.sha256.clone(),
+                        phase: s.phase.clone(),
                     })
                     .collect(),
                 user_files: cfg
@@ -659,4 +723,66 @@ pub fn json_schema() -> serde_json::Value {
         .into_generator()
         .into_root_schema_for::<AsConfig>();
     serde_json::to_value(schema).expect("a schema is JSON")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_user_dotfiles_and_stow_in_toml() {
+        let toml_str = r#"
+schema = 1
+
+[system]
+hostname = "archbox"
+timezone = "UTC"
+locale = "en_US.UTF-8"
+keymap = "us"
+
+[install]
+mirrors = ["https://geo.mirror.pkgbuild.com/$repo/os/$arch"]
+[install.disk]
+confirm_serial = "S123"
+esp_mib = 512
+
+[packages]
+explicit = ["base", "linux"]
+
+[[users]]
+name = "kubik"
+password_hash = "$6$rounds=5000$saltsalt$9876543210zyxwvutsrqponmlkjihgfedcba"
+groups = ["wheel"]
+shell = "/bin/bash"
+
+[users.dotfiles]
+repo = "kubik/dotfiles"
+dir = "dotfiles"
+stow = true
+packages = ["hypr", "bash"]
+
+[[first_boot.scripts]]
+id = "pre-setup"
+phase = "pre-service"
+file = "scripts/pre.sh"
+"#;
+
+        let as_cfg: AsConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(as_cfg.users.len(), 1);
+        let u = &as_cfg.users[0];
+        let df = u.dotfiles.as_ref().unwrap();
+        assert_eq!(df.repo, "kubik/dotfiles");
+        assert_eq!(df.dir, "dotfiles");
+        assert!(df.stow);
+        assert_eq!(df.packages, vec!["hypr", "bash"]);
+
+        let sc = &as_cfg.first_boot.scripts[0];
+        assert_eq!(sc.id, "pre-setup");
+        assert_eq!(sc.phase.as_deref(), Some("pre-service"));
+
+        let (cfg, _host) = as_cfg.into_parts().unwrap();
+        assert!(cfg.packages.contains(&"stow".to_string()));
+        assert_eq!(cfg.users[0].dotfiles.as_ref().unwrap().repo, "kubik/dotfiles");
+        assert_eq!(cfg.scripts[0].phase.as_deref(), Some("pre-service"));
+    }
 }

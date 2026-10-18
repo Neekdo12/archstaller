@@ -154,6 +154,10 @@ pub fn unpack_bmbt_rec(rec: &[u8; 16]) -> (u64, u64, u32, bool) {
 }
 
 /// Format the XFS V5 superblock into a 512-byte sector.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "XFS superblock on-disk formatter requires all layout geometry and accounting fields"
+)]
 pub fn format_superblock(
     total_blocks: u64,
     rootino: u64,

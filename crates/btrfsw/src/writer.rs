@@ -1308,7 +1308,7 @@ mod tests {
         let file_id = writer.end_file().unwrap();
 
         assert_eq!(writer.file_size(file_id), 5000);
-        let inode = writer.inodes.get(&file_id).unwrap();
+        let inode = &writer.inodes[&file_id];
         assert_eq!(inode.size, 5000);
         // disk_num_bytes must be padded to a multiple of 4096
         assert_eq!(inode.disk_num_bytes, 8192);
@@ -1581,7 +1581,7 @@ mod tests {
         let _child2_id = writer.mkdir("usr/lib/modules", &meta).unwrap();
 
         // In Btrfs on-disk format, directory nlink MUST be 1
-        let parent = writer.inodes.get(&parent_id).unwrap();
+        let parent = &writer.inodes[&parent_id];
         assert_eq!(parent.nlink, 1);
     }
 }

@@ -297,12 +297,14 @@ bob:$6$bobpasshash...:19700:0:99999:7:::
                 password_hash: "old".into(),
                 groups: vec!["wheel".into()],
                 shell: "/bin/bash".into(),
+                dotfiles: None,
             },
             config::User {
                 name: "charlie".into(),
                 password_hash: "old".into(),
                 groups: vec![],
                 shell: "/bin/bash".into(),
+                dotfiles: None,
             },
         ];
 

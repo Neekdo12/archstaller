@@ -77,6 +77,7 @@ mod tests {
                 password_hash: "$6$abc".into(),
                 groups: vec!["wheel".into()],
                 shell: "/bin/bash".into(),
+                dotfiles: None,
             }],
             services: vec!["sshd.service".into()],
             kernel_params: vec!["quiet".into()],

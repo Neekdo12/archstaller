@@ -110,11 +110,11 @@ pub fn str2hashbuf(msg: &[u8], buf: &mut [u32; 4]) {
     let limit = len.min(16);
     let mut buf_idx = 0;
 
-    for i in 0..limit {
+    for (i, &b) in msg.iter().enumerate().take(limit) {
         if i % 4 == 0 {
             val = pad;
         }
-        val = (msg[i] as u32).wrapping_add(val << 8);
+        val = (b as u32).wrapping_add(val << 8);
         if i % 4 == 3 {
             buf[buf_idx] = val;
             buf_idx += 1;
@@ -418,17 +418,18 @@ impl<S: Storage> F2fsWriter<S> {
         self.inodes.insert(root_ino, root_rec);
         self.path_to_ino.insert(String::new(), root_ino);
 
-        let mut entries = Vec::new();
-        entries.push(Dentry {
-            ino: root_ino,
-            name: String::from("."),
-            file_type: F2FS_FT_DIR,
-        });
-        entries.push(Dentry {
-            ino: root_ino,
-            name: String::from(".."),
-            file_type: F2FS_FT_DIR,
-        });
+        let entries = vec![
+            Dentry {
+                ino: root_ino,
+                name: String::from("."),
+                file_type: F2FS_FT_DIR,
+            },
+            Dentry {
+                ino: root_ino,
+                name: String::from(".."),
+                file_type: F2FS_FT_DIR,
+            },
+        ];
         self.dir_entries.insert(root_ino, entries);
 
         Ok(())
@@ -519,17 +520,18 @@ impl<S: Storage> F2fsWriter<S> {
                     };
                     self.inodes.insert(new_dir_ino, rec);
 
-                    let mut entries = Vec::new();
-                    entries.push(Dentry {
-                        ino: new_dir_ino,
-                        name: String::from("."),
-                        file_type: F2FS_FT_DIR,
-                    });
-                    entries.push(Dentry {
-                        ino: curr_ino,
-                        name: String::from(".."),
-                        file_type: F2FS_FT_DIR,
-                    });
+                    let entries = vec![
+                        Dentry {
+                            ino: new_dir_ino,
+                            name: String::from("."),
+                            file_type: F2FS_FT_DIR,
+                        },
+                        Dentry {
+                            ino: curr_ino,
+                            name: String::from(".."),
+                            file_type: F2FS_FT_DIR,
+                        },
+                    ];
                     self.dir_entries.insert(new_dir_ino, entries);
 
                     self.add_entry_to_parent(curr_ino, new_dir_ino, p, F2FS_FT_DIR)?;
@@ -557,9 +559,9 @@ impl<S: Storage> F2fsWriter<S> {
         // Update directory size: each 214 slots spans 4096 bytes
         let total_slots: usize = entries
             .iter()
-            .map(|e| (e.name.len() + F2FS_SLOT_LEN - 1) / F2FS_SLOT_LEN)
+            .map(|e| e.name.len().div_ceil(F2FS_SLOT_LEN))
             .sum();
-        let blks = (total_slots + NR_DENTRY_IN_BLOCK - 1) / NR_DENTRY_IN_BLOCK;
+        let blks = total_slots.div_ceil(NR_DENTRY_IN_BLOCK);
         if let Some(parent_node) = self.inodes.get_mut(&parent_ino) {
             parent_node.size = (blks.max(1) * F2FS_BLKSIZE) as u64;
             if file_type == F2FS_FT_DIR {
@@ -633,17 +635,18 @@ impl<S: Storage> F2fsWriter<S> {
 
         self.inodes.insert(ino, rec);
 
-        let mut entries = Vec::new();
-        entries.push(Dentry {
-            ino,
-            name: String::from("."),
-            file_type: F2FS_FT_DIR,
-        });
-        entries.push(Dentry {
-            ino: parent_ino,
-            name: String::from(".."),
-            file_type: F2FS_FT_DIR,
-        });
+        let entries = vec![
+            Dentry {
+                ino,
+                name: String::from("."),
+                file_type: F2FS_FT_DIR,
+            },
+            Dentry {
+                ino: parent_ino,
+                name: String::from(".."),
+                file_type: F2FS_FT_DIR,
+            },
+        ];
         self.dir_entries.insert(ino, entries);
 
         self.add_entry_to_parent(parent_ino, ino, &name, F2FS_FT_DIR)?;
@@ -968,7 +971,7 @@ impl<S: Storage> F2fsWriter<S> {
         for entry in entries {
             let name_bytes = entry.name.as_bytes();
             let name_len = name_bytes.len();
-            let slots_needed = (name_len + F2FS_SLOT_LEN - 1) / F2FS_SLOT_LEN;
+            let slots_needed = name_len.div_ceil(F2FS_SLOT_LEN);
 
             if current_slot + slots_needed > NR_DENTRY_IN_BLOCK {
                 // Flush full dentry block
@@ -1253,7 +1256,9 @@ impl<S: Storage> F2fsWriter<S> {
         let cp_ver = 1u64;
 
         for ino in inos {
-            let rec = self.inodes.get(&ino).unwrap().clone();
+            let Some(rec) = self.inodes.get(&ino).cloned() else {
+                continue;
+            };
             let log_type = if rec.kind == FileKind::Dir {
                 CURSEG_HOT_NODE
             } else {
@@ -1542,9 +1547,9 @@ mod tests {
         assert_eq!(components("etc/hostname").unwrap(), vec!["etc", "hostname"]);
         assert_eq!(components("/etc//hostname/").unwrap(), vec!["etc", "hostname"]);
         assert_eq!(components("file").unwrap(), vec!["file"]);
-        assert!(components("etc/../hostname").is_err());
+        components("etc/../hostname").unwrap_err();
         let long_str = "a".repeat(256);
-        assert!(components(&long_str).is_err());
+        components(&long_str).unwrap_err();
     }
 
     #[test]
@@ -1715,15 +1720,15 @@ mod tests {
         let meta = Meta::default();
 
         // Write without begin_file -> Invalid
-        assert!(fs.write_file(b"data").is_err());
+        fs.write_file(b"data").unwrap_err();
         // End without begin_file -> Invalid
-        assert!(fs.end_file().is_err());
+        fs.end_file().unwrap_err();
 
         fs.begin_file("a.txt", &meta).unwrap();
         // Begin while another is open -> Invalid
-        assert!(fs.begin_file("b.txt", &meta).is_err());
+        fs.begin_file("b.txt", &meta).unwrap_err();
         // Mkdir while file is open -> Invalid
-        assert!(fs.mkdir("dir", &meta).is_err());
+        fs.mkdir("dir", &meta).unwrap_err();
         fs.end_file().unwrap();
     }
 
@@ -1762,13 +1767,13 @@ mod tests {
 
         let chr_id = fs.mknod("dev_null", FileKind::CharDev, 1, 3, &meta).unwrap();
         assert_eq!(fs.lookup("dev_null"), Some(chr_id));
-        let rec = fs.inodes.get(&(chr_id as u32)).unwrap();
+        let rec = &fs.inodes[&(chr_id as u32)];
         assert_eq!(rec.rdev, (1, 3));
         assert_eq!(rec.mode & S_IFCHR, S_IFCHR);
 
         let blk_id = fs.mknod("dev_sda", FileKind::BlockDev, 8, 0, &meta).unwrap();
         assert_eq!(fs.lookup("dev_sda"), Some(blk_id));
-        let rec_blk = fs.inodes.get(&(blk_id as u32)).unwrap();
+        let rec_blk = &fs.inodes[&(blk_id as u32)];
         assert_eq!(rec_blk.rdev, (8, 0));
         assert_eq!(rec_blk.mode & S_IFBLK, S_IFBLK);
     }
@@ -1807,7 +1812,7 @@ mod tests {
         assert_eq!(f, 5);
 
         assert_eq!(w.file_size(f), 6);
-        assert!(w.finish().is_ok());
+        w.finish().unwrap();
     }
 
     #[test]
@@ -1817,15 +1822,15 @@ mod tests {
 
         // Data block allocation in WARM_DATA (segment 4)
         let b1 = fs.alloc_data_block(CURSEG_WARM_DATA).unwrap();
-        assert_eq!(b1, fs.layout.main_blkaddr + 4 * F2FS_BLKS_PER_SEG + 0);
+        assert_eq!(b1, fs.layout.main_blkaddr + 4 * F2FS_BLKS_PER_SEG);
         let b2 = fs.alloc_data_block(CURSEG_WARM_DATA).unwrap();
         assert_eq!(b2, fs.layout.main_blkaddr + 4 * F2FS_BLKS_PER_SEG + 1);
 
         // Node block allocation in WARM_NODE (segment 1)
         let n1 = fs.alloc_node_block(CURSEG_WARM_NODE).unwrap();
-        assert_eq!(n1, fs.layout.main_blkaddr + 1 * F2FS_BLKS_PER_SEG + 0);
+        assert_eq!(n1, fs.layout.main_blkaddr + F2FS_BLKS_PER_SEG);
         let n2 = fs.alloc_node_block(CURSEG_WARM_NODE).unwrap();
-        assert_eq!(n2, fs.layout.main_blkaddr + 1 * F2FS_BLKS_PER_SEG + 1);
+        assert_eq!(n2, fs.layout.main_blkaddr + F2FS_BLKS_PER_SEG + 1);
     }
 
     #[test]
@@ -1851,7 +1856,7 @@ mod tests {
 
         // Adding entry updates parent directory size
         fs.add_entry_to_parent(F2FS_ROOT_INO, 10, "file1", F2FS_FT_REG_FILE).unwrap();
-        let root_size = fs.inodes.get(&F2FS_ROOT_INO).unwrap().size;
+        let root_size = fs.inodes[&F2FS_ROOT_INO].size;
         assert_eq!(root_size, F2FS_BLKSIZE as u64);
     }
 
@@ -1964,9 +1969,9 @@ mod tests {
 
         fs.end_file().unwrap();
         // First finish succeeds
-        assert!(fs.finish().is_ok());
+        fs.finish().unwrap();
         // Second finish is idempotent and succeeds
-        assert!(fs.finish().is_ok());
+        fs.finish().unwrap();
     }
 
     #[test]
@@ -2170,7 +2175,7 @@ mod tests {
         assert_eq!(e2_blk, 1);
 
         // 3. Verify root dentry bitmap in first dentry block has bit 0 set to 0x01 (LE bit 0)
-        let root_rec = writer.inodes.get(&F2FS_ROOT_INO).unwrap();
+        let root_rec = &writer.inodes[&F2FS_ROOT_INO];
         let root_dentry_pblk = root_rec.dentry_block_addrs[0];
         let mut dentry_blk = [0u8; F2FS_BLKSIZE];
         writer.storage.read_at(root_dentry_pblk as u64 * F2FS_BLKSIZE as u64, &mut dentry_blk).unwrap();

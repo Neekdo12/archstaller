@@ -1,4 +1,8 @@
 #![no_std]
+#![expect(
+    clippy::indexing_slicing,
+    reason = "on-disk layout serialization uses known fixed offsets and bit operations"
+)]
 
 extern crate alloc;
 

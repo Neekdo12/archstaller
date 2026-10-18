@@ -1,6 +1,6 @@
 use crate::app::{App, Page};
 use crate::dialogs;
-use crate::ui::{self, Kind};
+use crate::ui;
 use gtk::glib;
 use gtk::prelude::*;
 use std::rc::Rc;
@@ -10,17 +10,12 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     ui::heading(
         content,
         "First-boot scripts",
-        "Run as root on the installed system, in this order, at the end of the first boot.",
-    );
-    ui::note(
-        content,
-        Kind::Warn,
-        "Scripts are code. A failing script only logs a warning.",
+        "Run as root on the installed system. Scripts execute in configured phases (pre-service or post-service).",
     );
 
     let c = ui::card(content, Some("Scripts in this config"));
     if cfg.scripts.is_empty() {
-        ui::hint(&c, "None yet.");
+        ui::hint(&c, "No scripts configured yet.");
     }
     for (i, s) in cfg.scripts.iter().enumerate() {
         let src = match hostcfg::scripts::source(s) {
@@ -33,9 +28,12 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         let id = ui::strong(&s.id);
         id.set_width_request(100);
         r.append(&id);
+        let phase = s.phase.as_deref().unwrap_or("post-service");
+        let phase_chip = ui::chip(phase, if phase == "pre-service" { "chip-accent" } else { "" });
+        r.append(&phase_chip);
         let d = ui::dim(&format!("{src}  {}", s.args.join(" ")));
         d.set_ellipsize(gtk::pango::EllipsizeMode::End);
-        d.set_tooltip_text(Some(&format!("{src}  {}", s.args.join(" "))));
+        d.set_tooltip_text(Some(&format!("{src}  {} (phase: {phase})", s.args.join(" "))));
         d.set_hexpand(true);
         r.append(&d);
         let a = app.clone();
@@ -54,12 +52,13 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         let id = ui::strong(b.id);
         id.set_hexpand(true);
         r.append(&id);
-        let (a, bid) = (app.clone(), b.id);
+        let (a, bid, bphase) = (app.clone(), b.id, b.phase);
         r.append(&ui::button("Add", move || {
             a.edit(move |m| {
                 if !m.cfg.scripts.iter().any(|s| s.id == bid) {
                     m.cfg.scripts.push(config::Script {
                         id: bid.into(),
+                        phase: Some(bphase.into()),
                         ..Default::default()
                     });
                 }
@@ -161,20 +160,29 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
             });
         }));
     }
+    let is_pre_service = Rc::new(std::cell::Cell::new(false));
+    let pre_box = {
+        let p = is_pre_service.clone();
+        ui::check("Run in pre-service phase (before enabling services)", false, move |on| p.set(on))
+    };
+    c.append(&pre_box);
     c.append(&ack);
     {
         let a = app.clone();
+        let is_pre = is_pre_service.clone();
         add.connect_clicked(move |_| {
             let (f, u, s) = (
                 file.text().to_string(),
                 url.text().to_string(),
                 sha.text().to_string(),
             );
+            let phase = if is_pre.get() { "pre-service" } else { "post-service" };
             let script = config::Script {
                 id: id.text().to_string(),
                 file: (!f.is_empty()).then(|| f.clone()),
                 url: (f.is_empty() && !u.is_empty()).then(|| u.clone()),
                 sha256: (f.is_empty() && !s.is_empty()).then(|| s.clone()),
+                phase: Some(phase.into()),
                 ..Default::default()
             };
             a.edit(move |m| m.cfg.scripts.push(script));

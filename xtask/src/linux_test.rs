@@ -131,7 +131,8 @@ fn boot_qemu(
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
         while let Ok(n) = out.read(&mut buf) {
-            if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
+            let Some(slice) = buf.get(..n) else { break };
+            if n == 0 || tx.send(slice.to_vec()).is_err() {
                 break;
             }
         }

@@ -3,8 +3,29 @@
 # data files in /var/lib/archstaller; nothing from the config is interpolated into this script.
 set -u
 D=/var/lib/archstaller
+export ARCHSTALLER_DATA="$D"
+export ARCHSTALLER_OVERLAY="$D/overlay"
 say() { echo "archstaller-firstboot: $*" | tee /dev/console; }
 fail() { say "FAILED: $*"; exit 1; }
+
+run_scripts() {
+    local target_phase="$1"
+    [ -s "$D/scripts.list" ] || return 0
+    while IFS=: read -r idx sid phase sargs; do
+        [ -n "$idx" ] || continue
+        if [ -z "$sargs" ] && [ "$phase" != "pre-service" ] && [ "$phase" != "post-service" ]; then
+            sargs="$phase"
+            phase="post-service"
+        fi
+        [ "$phase" = "$target_phase" ] || continue
+        read -r -a sargv <<< "$sargs"
+        say "running $phase script $sid"
+        # stdin is /dev/null: otherwise a script that reads input eats the rest of scripts.list.
+        timeout 900 bash "$D/scripts/$idx.sh" "${sargv[@]}" < /dev/null 2>&1 | head -c 65536
+        rc=${PIPESTATUS[0]}
+        if [ "$rc" -eq 0 ]; then say "script $sid: done"; else say "warning: script $sid exited with status $rc"; fi
+    done < "$D/scripts.list"
+}
 
 say "initializing pacman keyring"
 pacman-key --init || fail "pacman-key --init"
@@ -148,11 +169,78 @@ if [ -s "$D/userarchives.list" ]; then
     done < "$D/userarchives.list"
 fi
 
+# GitHub Dotfiles & Stow: clone or download dotfiles repository into ~/dotfiles and link via stow.
+if [ -s "$D/dotfiles.list" ]; then
+    say "setting up user dotfiles and stow"
+    while IFS=: read -r uname repo dir branch stow pkgs; do
+        [ -n "$uname" ] || continue
+        home=$(getent passwd "$uname" | cut -d: -f6)
+        grp=$(id -gn "$uname")
+        [ -n "$home" ] && [ -d "$home" ] || continue
+        target_dir="$home/$dir"
+        say "fetching dotfiles for $uname from $repo into ~/$dir"
+
+        # Check internet connectivity
+        if ! ping -c 1 -W 2 1.1.1.1 >/dev/null 2>&1 && ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
+            if systemctl is-enabled NetworkManager >/dev/null 2>&1; then
+                systemctl start NetworkManager || true
+                for _ in {1..15}; do
+                    ping -c 1 -W 1 1.1.1.1 >/dev/null 2>&1 && break
+                    sleep 1
+                done
+            fi
+        fi
+
+        cloned=0
+        if command -v git >/dev/null 2>&1; then
+            clone_cmd=(git clone --depth 1)
+            [ -n "$branch" ] && clone_cmd+=(-b "$branch")
+            clone_cmd+=("https://github.com/$repo.git" "$target_dir")
+            if runuser -u "$uname" -- "${clone_cmd[@]}"; then
+                cloned=1
+            fi
+        fi
+        if [ "$cloned" -eq 0 ]; then
+            runuser -u "$uname" -- mkdir -p "$target_dir"
+            branch_name="${branch:-main}"
+            tar_url="https://github.com/$repo/archive/refs/heads/${branch_name}.tar.gz"
+            if curl -fSL --retry 3 --connect-timeout 10 "$tar_url" | runuser -u "$uname" -- bsdtar -xzf - --strip-components=1 -C "$target_dir"; then
+                cloned=1
+            fi
+        fi
+
+        if [ "$cloned" -eq 1 ]; then
+            chown -R "$uname:$grp" "$target_dir" || true
+            say "dotfiles successfully installed for $uname"
+            if [ "$stow" = "1" ]; then
+                if command -v stow >/dev/null 2>&1; then
+                    say "stowing dotfiles for $uname in ~/$dir"
+                    if [ -n "$pkgs" ]; then
+                        for pkg in $pkgs; do
+                            runuser -u "$uname" -- stow -d "$target_dir" -t "$home" "$pkg" || say "warning: stow package $pkg failed for $uname"
+                        done
+                    else
+                        runuser -u "$uname" -- stow -d "$target_dir" -t "$home" . || say "warning: stow . failed for $uname"
+                    fi
+                    say "stow completed for $uname"
+                else
+                    say "warning: stow is not installed, skipping stow linking for $uname"
+                fi
+            fi
+        else
+            say "warning: could not download dotfiles from $repo for $uname"
+        fi
+    done < "$D/dotfiles.list"
+fi
+
 # AUR packages are built on the next boot by archstaller-aur.service, once the network is up; enabling it here
 # does not wait for it, so a missing network never blocks this first boot.
 if [ -s "$D/aur.list" ]; then
     systemctl enable archstaller-aur.service || say "warning: could not enable the AUR build service"
 fi
+
+# Pre-service scripts: runs before custom services and systemctl enable
+run_scripts "pre-service"
 
 # Custom systemd services: installed into /etc/systemd/system (root) or ~/.config/systemd/user (user).
 if [ -s "$D/custom_services.list" ]; then
@@ -205,20 +293,8 @@ if grep -qx 'systemd-resolved.service' "$D/services.list" 2>/dev/null; then
         say "warning: could not point /etc/resolv.conf at systemd-resolved"
 fi
 
-# Configured scripts (config `scripts`), in order, as root. Each runs from a file under $D/scripts; its
-# arguments are plain words from scripts.list (validated: no spaces, quotes or shell syntax) passed as
-# separate arguments. Output is bounded, a failure or timeout only warns.
-if [ -s "$D/scripts.list" ]; then
-    while IFS=: read -r idx sid sargs; do
-        [ -n "$idx" ] || continue
-        read -r -a sargv <<< "$sargs"
-        say "running script $sid"
-        # stdin is /dev/null: otherwise a script that reads input eats the rest of scripts.list.
-        timeout 900 bash "$D/scripts/$idx.sh" "${sargv[@]}" < /dev/null 2>&1 | head -c 65536
-        rc=${PIPESTATUS[0]}
-        if [ "$rc" -eq 0 ]; then say "script $sid: done"; else say "warning: script $sid exited with status $rc"; fi
-    done < "$D/scripts.list"
-fi
+# Post-service scripts (default phase)
+run_scripts "post-service"
 
 # The journal is created when the file system is written (crates/ext4w), not here: adding one with
 # `tune2fs -j` while the root is mounted leaves a /.journal file that only a later fsck turns into the

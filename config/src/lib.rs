@@ -120,6 +120,9 @@ pub struct Script {
     /// The script itself, filled in by `xtask`.
     #[serde(default)]
     pub content: Option<Vec<u8>>,
+    /// Execution phase: "pre-service" (before service enablement) or "post-service" (after, default).
+    #[serde(default)]
+    pub phase: Option<String>,
 }
 
 /// The largest script the installer will embed or download.
@@ -357,6 +360,62 @@ pub struct Disk {
     pub btrfs: Option<BtrfsConfig>,
 }
 
+pub fn default_dotfiles_dir() -> String {
+    "dotfiles".into()
+}
+
+/// Validates GitHub repository identifier (e.g. `owner/repo` or `https://github.com/owner/repo`).
+pub fn valid_github_repo(s: &str) -> bool {
+    let clean = s
+        .strip_prefix("https://github.com/")
+        .or_else(|| s.strip_prefix("http://github.com/"))
+        .unwrap_or(s)
+        .strip_suffix(".git")
+        .unwrap_or(s)
+        .trim_matches('/');
+
+    let mut parts = clean.split('/');
+    let (Some(owner), Some(repo), None) = (parts.next(), parts.next(), parts.next()) else {
+        return false;
+    };
+    if owner.is_empty() || repo.is_empty() || owner.len() > 100 || repo.len() > 100 {
+        return false;
+    }
+    let valid_char = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.';
+    owner.chars().all(valid_char) && repo.chars().all(valid_char)
+}
+
+/// User dotfiles configured from a GitHub repository, with optional GNU Stow linking.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserDotfiles {
+    /// GitHub repository: "owner/repo" or "https://github.com/owner/repo".
+    pub repo: String,
+    /// Target directory inside user's home (default: "dotfiles").
+    #[serde(default = "default_dotfiles_dir")]
+    pub dir: String,
+    /// Git branch or tag (default: "main").
+    #[serde(default)]
+    pub branch: Option<String>,
+    /// Whether to run GNU Stow to symlink configuration files into $HOME.
+    #[serde(default = "default_true")]
+    pub stow: bool,
+    /// Specific package subdirectories to stow (empty = stow all or top-level).
+    #[serde(default)]
+    pub packages: Vec<String>,
+}
+
+impl Default for UserDotfiles {
+    fn default() -> Self {
+        UserDotfiles {
+            repo: String::new(),
+            dir: default_dotfiles_dir(),
+            branch: None,
+            stow: true,
+            packages: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     pub name: String,
@@ -364,6 +423,8 @@ pub struct User {
     pub password_hash: String,
     pub groups: Vec<String>,
     pub shell: String,
+    #[serde(default)]
+    pub dotfiles: Option<UserDotfiles>,
 }
 
 /// Services that give the installed system a network (AUR packages are built once it has one).
@@ -531,6 +592,42 @@ impl Config {
             if !u.shell.starts_with('/') || !ident(&u.shell, "/_-.") {
                 return bad("shell", &u.shell);
             }
+            if let Some(ref dotfiles) = u.dotfiles {
+                if !valid_github_repo(&dotfiles.repo) {
+                    return Err(format!(
+                        "user '{}': invalid dotfiles repository '{}'",
+                        u.name, dotfiles.repo
+                    ));
+                }
+                if dotfiles.dir.is_empty()
+                    || dotfiles.dir.starts_with('/')
+                    || dotfiles.dir.contains("..")
+                    || dotfiles.dir.len() > 64
+                {
+                    return Err(format!(
+                        "user '{}': invalid dotfiles directory '{}'",
+                        u.name, dotfiles.dir
+                    ));
+                }
+                if let Some(ref branch) = dotfiles.branch {
+                    if branch.is_empty()
+                        || branch.chars().any(|c| c.is_whitespace() || c.is_control())
+                    {
+                        return Err(format!(
+                            "user '{}': invalid dotfiles branch '{branch}'",
+                            u.name
+                        ));
+                    }
+                }
+                for pkg in &dotfiles.packages {
+                    if pkg.is_empty() || pkg.contains('/') || pkg.contains("..") {
+                        return Err(format!(
+                            "user '{}': invalid stow package '{pkg}'",
+                            u.name
+                        ));
+                    }
+                }
+            }
         }
         for s in &self.services {
             if !ident(s, "@._:-\\") {
@@ -679,6 +776,13 @@ impl Config {
             if sc.content.as_ref().is_some_and(|c| c.len() > SCRIPT_MAX) {
                 return at("script is larger than 64 KiB");
             }
+            if let Some(ref ph) = sc.phase {
+                if ph != "pre-service" && ph != "post-service" {
+                    return at(&format!(
+                        "invalid script phase '{ph}' (must be 'pre-service' or 'post-service')"
+                    ));
+                }
+            }
         }
         if self.custom_services.len() > 32 {
             return Err("at most 32 custom_services".into());
@@ -792,6 +896,7 @@ mod tests {
             password_hash: format!("$6$abc${}", "a".repeat(86)),
             groups: vec!["wheel".into()],
             shell: "/bin/bash".into(),
+            dotfiles: None,
         };
         let mut c = base();
         c.users = vec![user("alice"), user("bob")];
@@ -811,6 +916,7 @@ mod tests {
             password_hash: format!("$6$abc${}", "a".repeat(86)),
             groups: vec![],
             shell: "/bin/bash".into(),
+            dotfiles: None,
         };
         let with_user = |n: &str| Config {
             users: vec![user(n)],
@@ -919,6 +1025,7 @@ mod tests {
             password_hash: format!("$6$abc${}", "a".repeat(86)),
             groups: vec![],
             shell: "/bin/bash".into(),
+            dotfiles: None,
         }];
         c.custom_services = vec![CustomService {
             name: "my-service.service".into(),
@@ -1140,5 +1247,131 @@ mod tests {
         c.validate().unwrap();
         c.disk.btrfs.as_mut().unwrap().compress = "none".into();
         c.validate().unwrap();
+    }
+
+    #[test]
+    fn dotfiles_validation_rules() {
+        let mut c = base();
+        let mut u = User {
+            name: "alice".into(),
+            password_hash: "$6$rounds=5000$usesomehash$9876543210zyxwvutsrqponmlkjihgfedcba".into(),
+            groups: vec!["wheel".into()],
+            shell: "/bin/bash".into(),
+            dotfiles: Some(UserDotfiles {
+                repo: "alice/dotfiles".into(),
+                dir: "dotfiles".into(),
+                branch: Some("main".into()),
+                stow: true,
+                packages: vec!["hypr".into(), "bash".into()],
+            }),
+        };
+        c.users = vec![u.clone()];
+        c.validate().unwrap();
+
+        // Valid full HTTPS URL
+        u.dotfiles = Some(UserDotfiles {
+            repo: "https://github.com/alice/my-dotfiles.git".into(),
+            dir: ".dotfiles".into(),
+            branch: None,
+            stow: true,
+            packages: vec![],
+        });
+        c.users = vec![u.clone()];
+        c.validate().unwrap();
+
+        // Invalid repo: empty
+        u.dotfiles = Some(UserDotfiles {
+            repo: "".into(),
+            dir: "dotfiles".into(),
+            branch: None,
+            stow: true,
+            packages: vec![],
+        });
+        c.users = vec![u.clone()];
+        assert!(c.validate().unwrap_err().contains("dotfiles repository"));
+
+        // Invalid repo: no slash (not owner/repo)
+        u.dotfiles = Some(UserDotfiles {
+            repo: "just-repo-name".into(),
+            dir: "dotfiles".into(),
+            branch: None,
+            stow: true,
+            packages: vec![],
+        });
+        c.users = vec![u.clone()];
+        assert!(c.validate().unwrap_err().contains("dotfiles repository"));
+
+        // Invalid repo: non-github domain
+        u.dotfiles = Some(UserDotfiles {
+            repo: "https://gitlab.com/alice/dotfiles".into(),
+            dir: "dotfiles".into(),
+            branch: None,
+            stow: true,
+            packages: vec![],
+        });
+        c.users = vec![u.clone()];
+        assert!(c.validate().unwrap_err().contains("dotfiles repository"));
+
+        // Invalid dir: absolute path
+        u.dotfiles = Some(UserDotfiles {
+            repo: "alice/dotfiles".into(),
+            dir: "/root/dotfiles".into(),
+            branch: None,
+            stow: true,
+            packages: vec![],
+        });
+        c.users = vec![u.clone()];
+        assert!(c.validate().unwrap_err().contains("dotfiles directory"));
+
+        // Invalid dir: path traversal
+        u.dotfiles = Some(UserDotfiles {
+            repo: "alice/dotfiles".into(),
+            dir: "../dotfiles".into(),
+            branch: None,
+            stow: true,
+            packages: vec![],
+        });
+        c.users = vec![u.clone()];
+        assert!(c.validate().unwrap_err().contains("dotfiles directory"));
+
+        // Invalid package name: path traversal
+        u.dotfiles = Some(UserDotfiles {
+            repo: "alice/dotfiles".into(),
+            dir: "dotfiles".into(),
+            branch: None,
+            stow: true,
+            packages: vec!["../../etc".into()],
+        });
+        c.users = vec![u.clone()];
+        assert!(c.validate().unwrap_err().contains("stow package"));
+    }
+
+    #[test]
+    fn script_phase_validation_rules() {
+        let mut c = base();
+        c.scripts = vec![Script {
+            id: "setup-pre".into(),
+            phase: Some("pre-service".into()),
+            content: Some(b"echo pre".to_vec()),
+            ..Default::default()
+        }];
+        c.validate().unwrap();
+
+        c.scripts = vec![Script {
+            id: "setup-post".into(),
+            phase: Some("post-service".into()),
+            content: Some(b"echo post".to_vec()),
+            ..Default::default()
+        }];
+        c.validate().unwrap();
+
+        // Invalid phase
+        c.scripts = vec![Script {
+            id: "setup-bad".into(),
+            phase: Some("during-install".into()),
+            content: Some(b"echo bad".to_vec()),
+            ..Default::default()
+        }];
+        assert!(c.validate().unwrap_err().contains("script phase"));
     }
 }

@@ -140,6 +140,14 @@ impl App {
         header.pack_end(&menu_btn);
         let preset_btn = gtk::MenuButton::builder().label("From preset").menu_model(&presets).sensitive(!preset_list.is_empty()).tooltip_text(if preset_list.is_empty() { "No presets found (install the package, run from a checkout or set ARCHSTALLER_ROOT)" } else { "Start a new, unsaved config from one of the repository's presets" }).build();
         header.pack_end(&preset_btn);
+
+        let reinstall_btn = gtk::Button::builder()
+            .label("Reinstall This Computer")
+            .icon_name("system-reboot-symbolic")
+            .tooltip_text("Quickly import this system's users, passwords, Wi-Fi profiles, and packages to create a reinstall configuration")
+            .build();
+        header.pack_start(&reinstall_btn);
+
         win.set_titlebar(Some(&header));
 
         // Sidebar.
@@ -196,7 +204,7 @@ impl App {
             .width_chars(8)
             .selectable(true)
             .build();
-        let problem_btn = gtk::Button::with_label("Go to the problem");
+        let problem_btn = gtk::Button::with_label("Fix issue");
         let status = gtk::Label::builder()
             .xalign(1.0)
             .css_classes(["hint"])
@@ -276,6 +284,12 @@ impl App {
                 if let Some(p) = first {
                     a.show(page_of(p.area));
                 }
+            });
+        }
+        {
+            let a = app.clone();
+            reinstall_btn.connect_clicked(move |_| {
+                a.preset_doc("reinstall".into());
             });
         }
         app.install_actions(gapp);
@@ -470,13 +484,12 @@ impl App {
         self.problem.remove_css_class("note-ok");
         match problems.first() {
             Some(p) => {
-                self.problem.set_text(&format!("Invalid: {}", p.message));
+                self.problem.set_text(&format!("Issue: {}", p.message));
                 self.problem.add_css_class("note-bad");
                 self.problem_btn.set_visible(true);
             }
             None => {
-                self.problem
-                    .set_text("The config is valid (the same checks as the command line).");
+                self.problem.set_text("Valid configuration");
                 self.problem.add_css_class("note-ok");
                 self.problem_btn.set_visible(false);
             }
@@ -554,6 +567,9 @@ impl App {
             match Model::from_preset(&path) {
                 Ok(m) => {
                     a.load(m, format!("New config from preset {name} (unsaved)"));
+                    if name == "reinstall" {
+                        crate::pages::users::open_shadow_auth_dialog(&a);
+                    }
                     // Presets erase the largest disk: say so before the user builds anything from it.
                     a.show(Page::Disk);
                     if a.st.borrow().model.cfg.disk.auto_largest {

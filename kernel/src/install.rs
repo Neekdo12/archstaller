@@ -666,7 +666,6 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
         *dst = u32::from_le_bytes(*chunk);
     }
     let storage = RegionStorage(Region::new(disk.as_mut(), root_off, root_len));
-    #[allow(unreachable_patterns)]
     let w: Rc<RefCell<dyn FsWriter + '_>> = match cfg.disk.filesystem {
         #[cfg(feature = "ext4")]
         config::FsType::Ext4 => {
@@ -739,6 +738,12 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
             .map_err(dbg_err("mkfs.f2fs"))?;
             Rc::new(RefCell::new(writer))
         }
+        #[cfg(not(all(
+            feature = "ext4",
+            feature = "btrfs",
+            feature = "xfs",
+            feature = "f2fs"
+        )))]
         _ => {
             return Err(format!(
                 "filesystem '{}' is not compiled into this installer kernel build",
@@ -985,7 +990,7 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
             }
         };
         put(&w, &format!("{STATE_DIR}/scripts/{i}.sh"), 0o700, &data)?;
-        scripts.push_str(&format!("{i}:{}:{}\n", s.id, s.args.join(" ")));
+        scripts.push_str(&format_script_entry(i, s));
         println!(
             "script {} ({} bytes) will run at the end of the first boot",
             s.id,
@@ -1080,6 +1085,15 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
         0o600,
         users.as_bytes(),
     )?;
+    let dotfiles = format_dotfiles_list(&cfg.users);
+    if !dotfiles.is_empty() {
+        put(
+            &w,
+            &format!("{STATE_DIR}/dotfiles.list"),
+            0o644,
+            dotfiles.as_bytes(),
+        )?;
+    }
     put(
         &w,
         &format!("{STATE_DIR}/services.list"),
@@ -1375,6 +1389,27 @@ pub fn format_cmdline(cfg: &Config, root_uuid: &str) -> String {
     cmdline
 }
 
+pub(crate) fn format_dotfiles_list(users: &[config::User]) -> String {
+    let mut out = String::new();
+    for u in users {
+        if let Some(df) = &u.dotfiles {
+            let branch = df.branch.as_deref().unwrap_or("");
+            let stow = if df.stow { "1" } else { "0" };
+            let pkgs = df.packages.join(" ");
+            out.push_str(&format!(
+                "{}:{}:{}:{}:{}:{}\n",
+                u.name, df.repo, df.dir, branch, stow, pkgs
+            ));
+        }
+    }
+    out
+}
+
+pub(crate) fn format_script_entry(idx: usize, script: &config::Script) -> String {
+    let phase = script.phase.as_deref().unwrap_or("post-service");
+    format!("{idx}:{}:{phase}:{}\n", script.id, script.args.join(" "))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1503,5 +1538,51 @@ mod tests {
             0x32, 0x10,
         ];
         assert_eq!(uuid_text(&bytes), "01234567-89ab-cdef-fedc-ba9876543210");
+    }
+
+    #[test]
+    fn formats_dotfiles_list_correctly() {
+        let users = alloc::vec![
+            config::User {
+                name: "alice".into(),
+                password_hash: "$6$hash".into(),
+                groups: alloc::vec![],
+                shell: "/bin/bash".into(),
+                dotfiles: Some(config::UserDotfiles {
+                    repo: "alice/dots".into(),
+                    dir: "dotfiles".into(),
+                    branch: Some("main".into()),
+                    stow: true,
+                    packages: alloc::vec!["nvim".into(), "tmux".into()],
+                }),
+            },
+            config::User {
+                name: "bob".into(),
+                password_hash: "$6$hash".into(),
+                groups: alloc::vec![],
+                shell: "/bin/bash".into(),
+                dotfiles: None,
+            },
+        ];
+        let out = format_dotfiles_list(&users);
+        assert_eq!(out, "alice:alice/dots:dotfiles:main:1:nvim tmux\n");
+    }
+
+    #[test]
+    fn formats_script_entry_with_phases() {
+        let s1 = config::Script {
+            id: "pre-script".into(),
+            phase: Some("pre-service".into()),
+            args: alloc::vec!["--arg1".into(), "value".into()],
+            ..Default::default()
+        };
+        let s2 = config::Script {
+            id: "post-script".into(),
+            phase: None,
+            args: alloc::vec![],
+            ..Default::default()
+        };
+        assert_eq!(format_script_entry(0, &s1), "0:pre-script:pre-service:--arg1 value\n");
+        assert_eq!(format_script_entry(1, &s2), "1:post-script:post-service:\n");
     }
 }

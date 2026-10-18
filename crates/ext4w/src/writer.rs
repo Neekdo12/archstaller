@@ -1410,7 +1410,7 @@ impl<S: Storage> disk::FsWriter for Ext4Writer<S> {
     }
 
     fn read_file(&mut self, id: u64, offset: u64, buf: &mut [u8]) -> disk::Result<usize> {
-        let ino = u32::try_from(id).map_err(|_| disk::Error::NotFound)?;
+        let ino = u32::try_from(id).map_err(|_err| disk::Error::NotFound)?;
         self.read_file(ino, offset, buf).map_err(to_disk_err)
     }
 

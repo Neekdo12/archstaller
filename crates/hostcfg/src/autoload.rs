@@ -49,6 +49,7 @@ pub fn discover_live_system_privileged(
                 password_hash: hash,
                 groups: u.groups,
                 shell: u.shell,
+                dotfiles: None,
             });
         }
     }
@@ -223,6 +224,7 @@ pub fn autoload_live_system_authenticated(cfg: &mut config::Config, pw: Option<&
                 password_hash: hash,
                 groups: u.groups.clone(),
                 shell: u.shell.clone(),
+                dotfiles: None,
             });
         }
     }

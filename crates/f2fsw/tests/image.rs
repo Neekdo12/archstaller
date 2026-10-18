@@ -17,20 +17,20 @@ struct FileStorage(File);
 
 impl Storage for FileStorage {
     fn write_at(&mut self, offset: u64, data: &[u8]) -> disk::Result<()> {
-        self.0.seek(SeekFrom::Start(offset)).map_err(|_| disk::Error::Io)?;
-        self.0.write_all(data).map_err(|_| disk::Error::Io)
+        self.0.seek(SeekFrom::Start(offset)).map_err(|_err| disk::Error::Io)?;
+        self.0.write_all(data).map_err(|_err| disk::Error::Io)
     }
 
     fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> disk::Result<()> {
-        self.0.seek(SeekFrom::Start(offset)).map_err(|_| disk::Error::Io)?;
-        self.0.read_exact(buf).map_err(|_| disk::Error::Io)
+        self.0.seek(SeekFrom::Start(offset)).map_err(|_err| disk::Error::Io)?;
+        self.0.read_exact(buf).map_err(|_err| disk::Error::Io)
     }
 }
 
 fn temp_image_path(name: &str) -> PathBuf {
     let mut p = std::env::temp_dir();
     p.push(format!("f2fsw-test-{}-{name}.img", std::process::id()));
-    let _ = std::fs::remove_file(&p);
+    drop(std::fs::remove_file(&p));
     p
 }
 
@@ -111,7 +111,7 @@ fn test_full_arch_root_f2fs_image() {
     // 3. Write a large binary file (> 32 KiB, multiple blocks)
     let mut large_bin = Vec::with_capacity(36000);
     for i in 0..36000 {
-        large_bin.push((i % 251) as u8);
+        large_bin.push(u8::try_from(i % 251).unwrap());
     }
     fs.begin_file("usr/bin/archstaler-bin", &file_meta).unwrap();
     fs.write_file(&large_bin[..10000]).unwrap();
@@ -195,5 +195,5 @@ fn test_full_arch_root_f2fs_image() {
     assert_eq!(cp_crc, expected_cp_crc);
 
     // Cleanup temp file
-    let _ = std::fs::remove_file(&img_path);
+    drop(std::fs::remove_file(&img_path));
 }

@@ -82,6 +82,44 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
             });
         });
         ui::row(&user_box, "Password hash", &he);
+
+        let df_box = ui::hbox(8);
+        if let Some(df) = &u.dotfiles {
+            let info = format!(
+                "dotfiles: {} -> ~/{} (branch: {}, stow: {})",
+                df.repo,
+                df.dir,
+                df.branch.as_deref().unwrap_or("main"),
+                if df.stow { "yes" } else { "no" }
+            );
+            let df_lbl = ui::dim(&info);
+            df_lbl.set_hexpand(true);
+            df_lbl.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            df_box.append(&df_lbl);
+
+            let a = app.clone();
+            df_box.append(&ui::button("Edit dotfiles", move || {
+                open_dotfiles_dialog(&a, i);
+            }));
+
+            let a = app.clone();
+            df_box.append(&ui::button("Clear dotfiles", move || {
+                a.edit(move |m| {
+                    if let Some(user) = m.cfg.users.get_mut(i) {
+                        user.dotfiles = None;
+                    }
+                });
+                a.rebuild(Page::Users);
+            }));
+        } else {
+            let a = app.clone();
+            let df_btn = ui::button("Configure GitHub Dotfiles…", move || {
+                open_dotfiles_dialog(&a, i);
+            });
+            df_btn.set_tooltip_text(Some("Clone a dotfiles repo from GitHub into ~/dotfiles and link via GNU Stow"));
+            df_box.append(&df_btn);
+        }
+        user_box.append(&df_box);
         c.append(&user_box);
     }
 
@@ -107,6 +145,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
                         password_hash: hash.clone(),
                         groups: u.groups.clone(),
                         shell: u.shell.clone(),
+                        dotfiles: None,
                     });
                     added += 1;
                 } else {
@@ -265,8 +304,40 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     c.append(&mode_switch);
     ui::row(&c, "Groups", &grp);
     ui::row(&c, "Shell", &sh);
+
+    let enable_dotfiles = ui::check("Clone dotfiles from GitHub for this user", false, |_| {});
+    let dotfiles_card = ui::vbox(6);
+    dotfiles_card.set_visible(false);
+
+    let df_repo = ui::entry("", |_| {});
+    ui::row(&dotfiles_card, "GitHub repo", &df_repo);
+    ui::hint(&dotfiles_card, "Format: username/repository (e.g. kubik/dotfiles)");
+
+    let df_dir = ui::entry("dotfiles", |_| {});
+    ui::row(&dotfiles_card, "Target dir", &df_dir);
+
+    let df_branch = ui::entry("main", |_| {});
+    ui::row(&dotfiles_card, "Git branch", &df_branch);
+
+    let df_stow = ui::check("Link dotfiles into $HOME with GNU Stow", true, |_| {});
+    dotfiles_card.append(&df_stow);
+
+    let df_pkgs = ui::entry("", |_| {});
+    ui::row(&dotfiles_card, "Stow packages", &df_pkgs);
+    ui::hint(&dotfiles_card, "Space-separated packages (leave empty to stow repository root)");
+
     {
-        let (a, name, pw, hash_entry, grp, sh, is_plain) = (
+        let dc = dotfiles_card.clone();
+        enable_dotfiles.connect_toggled(move |btn| {
+            dc.set_visible(btn.is_active());
+        });
+    }
+
+    c.append(&enable_dotfiles);
+    c.append(&dotfiles_card);
+
+    {
+        let (a, name, pw, hash_entry, grp, sh, is_plain, en_df, d_repo, d_dir, d_branch, d_stow, d_pkgs) = (
             app.clone(),
             name.clone(),
             pw.clone(),
@@ -274,6 +345,12 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
             grp.clone(),
             sh.clone(),
             is_plain_mode,
+            enable_dotfiles,
+            df_repo,
+            df_dir,
+            df_branch,
+            df_stow,
+            df_pkgs,
         );
         add.connect_clicked(move |_| {
             let groups: Vec<String> = grp
@@ -286,6 +363,28 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
             let shell_path = sh.text().trim().to_string();
             let plain = *is_plain.borrow();
 
+            let dotfiles = if en_df.is_active() && !d_repo.text().trim().is_empty() {
+                let pkgs: Vec<String> = d_pkgs
+                    .text()
+                    .split_whitespace()
+                    .map(|s| s.to_string())
+                    .collect();
+                let branch = d_branch.text().trim().to_string();
+                Some(config::UserDotfiles {
+                    repo: d_repo.text().trim().to_string(),
+                    dir: if d_dir.text().trim().is_empty() {
+                        "dotfiles".into()
+                    } else {
+                        d_dir.text().trim().to_string()
+                    },
+                    branch: if branch.is_empty() { None } else { Some(branch) },
+                    stow: d_stow.is_active(),
+                    packages: pkgs,
+                })
+            } else {
+                None
+            };
+
             if plain {
                 match hostcfg::password::hash(pw.text().as_str()) {
                     Ok(h) => {
@@ -294,6 +393,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
                             password_hash: h,
                             groups,
                             shell: shell_path,
+                            dotfiles,
                         };
                         a.edit(move |m| m.cfg.users.push(user));
                         a.rebuild(Page::Users);
@@ -306,6 +406,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
                     password_hash: hash_entry.text().trim().to_string(),
                     groups,
                     shell: shell_path,
+                    dotfiles,
                 };
                 a.edit(move |m| m.cfg.users.push(user));
                 a.rebuild(Page::Users);
@@ -362,15 +463,9 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     c.append(&root_auth_btn);
 
     let c = ui::card(content, Some("Home directory archives & configs"));
-    ui::note(
+    ui::hint(
         &c,
-        Kind::Warn,
-        "Archives are extracted into every configured user's home directory (.config, dotfiles, scripts). Supports .tar.zst (recommended), .tar.xz, .tar.gz, .tar.bz2, and .zip up to 256 MiB. Downloads and disk extractions run on first boot with full Linux drivers.",
-    );
-    ui::note(
-        &c,
-        Kind::Warn,
-        "A user config can execute code at login. Only use archives from sources you trust. Embedded archives are not supported on floppy disks.",
+        "Archives (.tar.zst, .tar.xz, .zip) extracted into each user's home directory on first boot.",
     );
 
     if cfg.user_archives.is_empty() {
@@ -987,5 +1082,123 @@ fn detect_archive_on_mount(mount: &str) -> Option<String> {
         }
     }
     None
+}
+
+pub fn open_dotfiles_dialog(app: &Rc<App>, user_idx: usize) {
+    let existing_user = {
+        let m = &app.st.borrow().model;
+        m.cfg.users.get(user_idx).cloned()
+    };
+    let Some(user) = existing_user else { return; };
+
+    let dialog = gtk::Window::builder()
+        .title(format!("GitHub Dotfiles & Stow — {}", user.name))
+        .transient_for(&app.win)
+        .modal(true)
+        .default_width(440)
+        .build();
+
+    let root = ui::vbox(10);
+    root.set_margin_top(16);
+    root.set_margin_bottom(16);
+    root.set_margin_start(16);
+    root.set_margin_end(16);
+
+    ui::heading(
+        &root,
+        &format!("Dotfiles for {}", user.name),
+        "Clones or downloads a repository from GitHub on first boot and optionally links configurations using GNU Stow.",
+    );
+
+    let (curr_repo, curr_dir, curr_branch, curr_stow, curr_pkgs) = if let Some(df) = &user.dotfiles {
+        (
+            df.repo.clone(),
+            df.dir.clone(),
+            df.branch.clone().unwrap_or_else(|| "main".into()),
+            df.stow,
+            df.packages.join(" "),
+        )
+    } else {
+        ("".into(), "dotfiles".into(), "main".into(), true, "".into())
+    };
+
+    let repo_ent = ui::entry(&curr_repo, |_| {});
+    ui::row(&root, "GitHub repo", &repo_ent);
+    ui::hint(&root, "Format: username/repo (e.g. username/dotfiles)");
+
+    let dir_ent = ui::entry(&curr_dir, |_| {});
+    ui::row(&root, "Target directory", &dir_ent);
+    ui::hint(&root, "Subfolder in home directory (defaults to ~/dotfiles)");
+
+    let branch_ent = ui::entry(&curr_branch, |_| {});
+    ui::row(&root, "Branch", &branch_ent);
+
+    let stow_chk = ui::check("Link with GNU Stow (stow -t ~)", curr_stow, |_| {});
+    root.append(&stow_chk);
+
+    let pkgs_ent = ui::entry(&curr_pkgs, |_| {});
+    ui::row(&root, "Stow packages", &pkgs_ent);
+    ui::hint(&root, "Space-separated directories inside dotfiles to stow (leave empty to stow .)");
+
+    let err_lbl = ui::dim("");
+    root.append(&err_lbl);
+
+    let actions = ui::hbox(8);
+    let cancel = ui::button("Cancel", {
+        let d = dialog.clone();
+        move || d.close()
+    });
+    actions.append(&cancel);
+
+    let save_btn = ui::primary("Save", {
+        let a = app.clone();
+        let d = dialog.clone();
+        let r_ent = repo_ent.clone();
+        let d_ent = dir_ent.clone();
+        let b_ent = branch_ent.clone();
+        let s_chk = stow_chk.clone();
+        let p_ent = pkgs_ent.clone();
+        let err = err_lbl.clone();
+        move || {
+            let repo = r_ent.text().trim().to_string();
+            if repo.is_empty() || !repo.contains('/') {
+                err.set_text("Please enter a valid GitHub repository (username/repo)");
+                return;
+            }
+            let dir = if d_ent.text().trim().is_empty() {
+                "dotfiles".to_string()
+            } else {
+                d_ent.text().trim().to_string()
+            };
+            let branch = b_ent.text().trim().to_string();
+            let branch_opt = if branch.is_empty() { None } else { Some(branch) };
+            let stow = s_chk.is_active();
+            let packages = p_ent
+                .text()
+                .split_whitespace()
+                .map(|s| s.to_string())
+                .collect();
+
+            a.edit(move |m| {
+                if let Some(u) = m.cfg.users.get_mut(user_idx) {
+                    u.dotfiles = Some(config::UserDotfiles {
+                        repo,
+                        dir,
+                        branch: branch_opt,
+                        stow,
+                        packages,
+                    });
+                }
+            });
+            a.set_status(format!("Configured dotfiles for user '{}'", user.name));
+            a.rebuild(Page::Users);
+            d.close();
+        }
+    });
+    actions.append(&save_btn);
+    root.append(&actions);
+
+    dialog.set_child(Some(&root));
+    dialog.present();
 }
 

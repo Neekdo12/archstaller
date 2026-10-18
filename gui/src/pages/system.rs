@@ -1,5 +1,6 @@
 use crate::app::App;
 use crate::ui;
+use gtk::glib;
 use gtk::prelude::*;
 use std::rc::Rc;
 
@@ -91,24 +92,45 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     c.append(&auto_lang_btn);
 
     let c = ui::card(content, Some("System Overlays & Hardware Configurations"));
-    ui::note(
+    ui::hint(
         &c,
-        ui::Kind::Warn,
-        "System overlays preserve configurations across reinstall: Wi-Fi/Ethernet network profiles (/etc/NetworkManager/system-connections/, /var/lib/iwd/), Bluetooth paired devices (/var/lib/bluetooth/), SSH host keys (/etc/ssh/ssh_host_*), fingerprint PAM settings (/etc/pam.d/) and enrolled biometrics (/var/lib/fprint/), and zram swap (/etc/systemd/zram-generator.conf). Files are written directly to the root filesystem during installation and preserved in the first-boot overlay.",
+        "System overlays embed files or directories into root (e.g. Wi-Fi connections, SSH keys, custom services).",
     );
 
     if cfg.system_files.is_empty() {
         ui::hint(
             &c,
-            "No system overlay files configured. Network connections, Bluetooth pairings, SSH keys, and biometric fingerprint templates will not be restored unless autoloaded.",
+            "No system overlay files configured.",
         );
     } else {
         for (idx, sf) in cfg.system_files.iter().enumerate() {
             let row = ui::hbox(8);
-            let p_lbl = ui::strong(&sf.path);
+            let category = if sf.path.starts_with("etc/NetworkManager") || sf.path.starts_with("var/lib/iwd") {
+                "Network"
+            } else if sf.path.starts_with("var/lib/bluetooth") {
+                "Bluetooth"
+            } else if sf.path.starts_with("etc/ssh") {
+                "SSH"
+            } else if sf.path.starts_with("var/lib/fprint") || sf.path.starts_with("etc/pam.d") {
+                "Biometric"
+            } else if sf.path.starts_with("etc/systemd/zram") {
+                "Zram"
+            } else if sf.file.as_ref().is_some_and(|f| std::path::Path::new(f).is_dir()) {
+                "Directory"
+            } else {
+                "Custom"
+            };
+            row.append(&ui::chip(category, "chip-accent"));
+
+            let display_name = if sf.path.is_empty() {
+                sf.file.as_deref().unwrap_or("/")
+            } else {
+                &sf.path
+            };
+            let p_lbl = ui::strong(display_name);
             p_lbl.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
-            p_lbl.set_width_chars(10);
-            p_lbl.set_tooltip_text(Some(&sf.path));
+            p_lbl.set_width_chars(16);
+            p_lbl.set_tooltip_text(Some(display_name));
             p_lbl.set_hexpand(true);
             row.append(&p_lbl);
 
@@ -118,7 +140,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
             if let Some(content) = &sf.content {
                 row.append(&ui::dim(&format!("{} B", content.len())));
             } else if let Some(file) = &sf.file {
-                let f_lbl = ui::dim(&format!("file: {file}"));
+                let f_lbl = ui::dim(&format!("src: {file}"));
                 f_lbl.set_ellipsize(gtk::pango::EllipsizeMode::Start);
                 f_lbl.set_tooltip_text(Some(file));
                 row.append(&f_lbl);
@@ -135,22 +157,64 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         }
     }
 
-    let act_box = ui::vbox(8);
+    let act_box = ui::hbox(8);
     let a = app.clone();
     let auth_autoload_btn = ui::button(
-        "Autoload network & biometric settings (sudo / root)",
+        "Import hardware & network credentials (sudo/root)",
         move || {
             crate::pages::users::open_shadow_auth_dialog(&a);
         },
     );
     auth_autoload_btn.set_tooltip_text(Some(
-        "Detects NetworkManager/iwd connections, Bluetooth pairings, SSH host keys, PAM fprint configuration, biometric templates in /var/lib/fprint/, and zram config.",
+        "Detects NetworkManager/iwd connections, Bluetooth pairings, SSH host keys, PAM fprint, and zram config.",
     ));
     act_box.append(&auth_autoload_btn);
 
+    let a = app.clone();
+    let add_dir_btn = ui::button("Add directory overlay…", move || {
+        let a = a.clone();
+        glib::spawn_future_local(async move {
+            if let Some(path) = crate::dialogs::open_folder(a.win.upcast_ref(), "Select overlay directory", None).await {
+                a.edit(|m| {
+                    m.cfg.system_files.push(config::SystemFile {
+                        path: "".into(),
+                        mode: 0o644,
+                        file: Some(path.to_string_lossy().to_string()),
+                        content: None,
+                    });
+                });
+                a.set_status(format!("Added directory overlay: {}", path.display()));
+                a.rebuild_all();
+            }
+        });
+    });
+    add_dir_btn.set_tooltip_text(Some("Select a local directory whose files will be recursively merged into root /"));
+    act_box.append(&add_dir_btn);
+
+    let a = app.clone();
+    let add_file_btn = ui::button("Add file…", move || {
+        let a = a.clone();
+        glib::spawn_future_local(async move {
+            if let Some(path) = crate::dialogs::open_file(a.win.upcast_ref(), "Select file to overlay", None).await {
+                let target_name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "custom.conf".into());
+                a.edit(|m| {
+                    m.cfg.system_files.push(config::SystemFile {
+                        path: format!("etc/{target_name}"),
+                        mode: 0o644,
+                        file: Some(path.to_string_lossy().to_string()),
+                        content: None,
+                    });
+                });
+                a.set_status(format!("Added file overlay: {}", path.display()));
+                a.rebuild_all();
+            }
+        });
+    });
+    act_box.append(&add_file_btn);
+
     if !cfg.system_files.is_empty() {
         let a = app.clone();
-        let clear_btn = ui::button("Clear all system overlays", move || {
+        let clear_btn = ui::button("Clear all", move || {
             a.edit(|m| m.cfg.system_files.clear());
             a.set_status("Cleared all system overlay files.");
             a.rebuild_all();

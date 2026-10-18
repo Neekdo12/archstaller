@@ -348,6 +348,18 @@
         "shell": {
           "description": "Login shell, for example `/bin/bash`.",
           "type": "string"
+        },
+        "dotfiles": {
+          "description": "User dotfiles configured from a GitHub repository, with optional GNU Stow linking.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UserDotfiles"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "additionalProperties": false,
@@ -356,6 +368,45 @@
         "password_hash",
         "groups",
         "shell"
+      ]
+    },
+    "UserDotfiles": {
+      "type": "object",
+      "properties": {
+        "repo": {
+          "description": "GitHub repository: \"owner/repo\" or \"https://github.com/owner/repo\".",
+          "type": "string"
+        },
+        "dir": {
+          "description": "Target directory inside user's home (default: \"dotfiles\").",
+          "type": "string",
+          "default": "dotfiles"
+        },
+        "branch": {
+          "description": "Git branch or tag (default: \"main\").",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "stow": {
+          "description": "Whether to run GNU Stow to symlink configuration files into $HOME.",
+          "type": "boolean",
+          "default": true
+        },
+        "packages": {
+          "description": "Specific package subdirectories to stow (empty = stow all or top-level).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "repo"
       ]
     },
     "FirstBoot": {
@@ -454,6 +505,14 @@
         },
         "sha256": {
           "description": "Lower-case hex SHA-256 of the script at `url`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "phase": {
+          "description": "Execution phase: \"pre-service\" (before service enablement) or \"post-service\" (after, default).",
           "type": [
             "string",
             "null"

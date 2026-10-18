@@ -11,7 +11,9 @@
 
 ## Checklist
 
-- [ ] `cargo test --release -p pgp-lite --features std -p pkg -p ext4w -p disk -p initrd -p hostcfg -p archstaller-gui -p loadcore` passes
+- [ ] Test-Driven Development (TDD) followed: tests with edge cases written first before implementation; all functions tested
+- [ ] `cargo test --workspace` passes cleanly
+- [ ] `cargo clippy --workspace --all-targets` passes with zero warnings
 - [ ] `cargo xtask build` works, and `cargo xtask size` stays within the budget (see `sizes.md`) if the kernel or the ISO contents changed
 - [ ] `OVERVIEW.md` is updated in this change if a crate, workflow step, config field, boot or install step, driver, or ISO layout changed (edit it in place; no history)
 - [ ] Shared formats changed on **all** sides: `crates/bootinfo` payload and BIOS patch formats with `xtask` (`iso.rs`, `bios.rs`) and `kernel/src/install.rs`; `config/src/lib.rs` with the hostcfg side and `cargo xtask gen-schema`
