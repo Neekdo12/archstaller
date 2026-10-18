@@ -88,6 +88,8 @@ pub const DRIVERS: &[Driver] = &[
     Driver { id: "igb", class: DriverClass::Network, description: "Intel igb / igc", status: "tested in QEMU" },
     Driver { id: "r8169", class: DriverClass::Network, description: "Realtek RTL8168/8111/8125/8126", status: "verified on one real board" },
     Driver { id: "rtl8139", class: DriverClass::Network, description: "Realtek RTL8139", status: "tested in QEMU" },
+    Driver { id: "e100", class: DriverClass::Network, description: "Intel 8255x PRO/100", status: "tested in QEMU" },
+    Driver { id: "pcnet32", class: DriverClass::Network, description: "AMD PCnet32 / PCnet-FAST", status: "tested in QEMU" },
 ];
 
 pub fn driver(id: &str) -> Option<&'static Driver> {

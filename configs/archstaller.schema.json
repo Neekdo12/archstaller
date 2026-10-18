@@ -115,6 +115,11 @@
           "description": "Hardware test mode: probe, read disks (never write), resolve packages, print a report, reboot.",
           "type": "boolean",
           "default": false
+        },
+        "bootloader": {
+          "description": "Bootloader to install: \"grub\", \"systemd-boot\", or \"limine\". Defaults to \"grub\".",
+          "$ref": "#/$defs/Bootloader",
+          "default": "grub"
         }
       },
       "additionalProperties": false,
@@ -230,6 +235,14 @@
       "required": [
         "name",
         "mount"
+      ]
+    },
+    "Bootloader": {
+      "type": "string",
+      "enum": [
+        "grub",
+        "systemd-boot",
+        "limine"
       ]
     },
     "Packages": {
@@ -710,7 +723,9 @@
               "e1000",
               "igb",
               "r8169",
-              "rtl8139"
+              "rtl8139",
+              "e100",
+              "pcnet32"
             ]
           },
           "default": null

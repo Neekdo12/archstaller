@@ -35,7 +35,7 @@ postcard = { version = "1", default-features = false, features = ["alloc"] }
 [features]
 # Installer drivers (see hostcfg's catalogue); all on by default, `xtask` builds with only the
 # ones the config's `installer_drivers` lists.
-default = ["ext4", "virtio-blk", "virtio-net", "ahci", "ata", "alx", "vmxnet3", "nvme", "e1000", "igb", "r8169", "rtl8139"]
+default = ["ext4", "virtio-blk", "virtio-net", "ahci", "ata", "alx", "vmxnet3", "nvme", "e1000", "igb", "r8169", "rtl8139", "e100", "pcnet32"]
 ext4 = ["dep:ext4w"]
 btrfs = ["dep:btrfsw"]
 xfs = ["dep:xfsw"]
@@ -52,6 +52,8 @@ e1000 = ["drivers/e1000"]
 igb = ["drivers/igb"]
 r8169 = ["drivers/r8169"]
 rtl8139 = ["drivers/rtl8139"]
+e100 = ["drivers/e100"]
+pcnet32 = ["drivers/pcnet32"]
 # Verbose driver and network tracing (the tester preset always builds with it).
 debug = ["hal/debug"]
 fault-test = []

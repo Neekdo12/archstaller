@@ -75,6 +75,9 @@ fn qemu(opts: &Options, disk: &Path, cdrom: Option<&Path>, log: &Path) -> Result
         "e1000" => cmd.args(["-device", "e1000,netdev=n0"]),
         "e1000e" => cmd.args(["-device", "e1000e,netdev=n0"]),
         "igb" => cmd.args(["-device", "igb,netdev=n0"]),
+        "rtl8139" => cmd.args(["-device", "rtl8139,netdev=n0"]),
+        "e100" | "i82559er" => cmd.args(["-device", "i82559er,netdev=n0"]),
+        "pcnet" | "pcnet32" => cmd.args(["-device", "pcnet,netdev=n0"]),
         // Any other QEMU PCI NIC model (vmxnet3, pcnet, i82559er, ne2k_pci, tulip, ...): `--nic <model>`.
         model
             if model

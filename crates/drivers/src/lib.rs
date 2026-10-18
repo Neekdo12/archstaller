@@ -26,6 +26,10 @@ pub mod r8169;
 mod r8169_chip;
 #[cfg(feature = "rtl8139")]
 pub mod rtl8139;
+#[cfg(feature = "e100")]
+pub mod e100;
+#[cfg(feature = "pcnet32")]
+pub mod pcnet32;
 #[cfg(any(feature = "virtio-blk", feature = "virtio-net"))]
 pub mod virtio;
 #[cfg(feature = "vmxnet3")]
@@ -62,6 +66,14 @@ pub fn net_driver_for(vendor: u16, device: u16) -> Option<&'static str> {
     #[cfg(feature = "rtl8139")]
     if rtl8139::recognizes(vendor, device) {
         return Some("rtl8139");
+    }
+    #[cfg(feature = "e100")]
+    if e100::recognizes(vendor, device) {
+        return Some("e100");
+    }
+    #[cfg(feature = "pcnet32")]
+    if pcnet32::recognizes(vendor, device) {
+        return Some("pcnet32");
     }
     #[cfg(feature = "alx")]
     if alx::recognizes(vendor, device) {
@@ -101,6 +113,10 @@ pub fn probe_all() -> Devices {
         vmxnet3::probe(&dev, &mut devs);
         #[cfg(feature = "rtl8139")]
         rtl8139::probe(&dev, &mut devs);
+        #[cfg(feature = "e100")]
+        e100::probe(&dev, &mut devs);
+        #[cfg(feature = "pcnet32")]
+        pcnet32::probe(&dev, &mut devs);
     }
     devs
 }

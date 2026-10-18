@@ -97,6 +97,8 @@ pub fn run_iso(iso: &Path, opts: &Options) -> Result<()> {
         "e1000e" => cmd.args(["-device", "e1000e,netdev=n0"]),
         "igb" => cmd.args(["-device", "igb,netdev=n0"]),
         "rtl8139" => cmd.args(["-device", "rtl8139,netdev=n0"]),
+        "e100" | "i82559er" => cmd.args(["-device", "i82559er,netdev=n0"]),
+        "pcnet" | "pcnet32" => cmd.args(["-device", "pcnet,netdev=n0"]),
         // RNDIS (QEMU's usb-net default); needs the usb-tethering kernel feature, which iso.rs enables.
         // No NIC at all (exercises the installer paths that run when no wired link exists).
         "none" => &mut cmd,
