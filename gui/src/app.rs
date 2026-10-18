@@ -25,6 +25,7 @@ pub enum Page {
     Scripts,
     Toml,
     Iso,
+    Help,
 }
 
 pub const PAGES: &[(Page, &str, &str, Option<Area>)] = &[
@@ -40,14 +41,32 @@ pub const PAGES: &[(Page, &str, &str, Option<Area>)] = &[
     (
         Page::Services,
         "services",
-        "Services & kernel",
+        "Services & bootloader",
         Some(Area::Services),
     ),
     (Page::Build, "build", "Build & drivers", Some(Area::Build)),
     (Page::Scripts, "scripts", "Scripts", Some(Area::Scripts)),
     (Page::Toml, "toml", "TOML source", None),
     (Page::Iso, "iso", "Build ISO", None),
+    (Page::Help, "help", "Help & Reference", None),
 ];
+
+#[must_use]
+pub fn icon_of(page: Page) -> &'static str {
+    match page {
+        Page::System => "computer-symbolic",
+        Page::Disk => "drive-harddisk-symbolic",
+        Page::Packages => "system-software-install-symbolic",
+        Page::Users => "avatar-default-symbolic",
+        Page::Services => "emblem-system-symbolic",
+        Page::Build => "applications-engineering-symbolic",
+        Page::Scripts => "text-x-script-symbolic",
+        Page::Toml => "text-x-generic-symbolic",
+        Page::Iso => "media-optical-symbolic",
+        Page::Help => "help-browser-symbolic",
+    }
+}
+
 
 pub fn page_of(area: Area) -> Page {
     PAGES
@@ -156,8 +175,11 @@ impl App {
             .css_classes(["navigation-sidebar", "sidebar-list"])
             .build();
         let mut nav_marks = Vec::new();
-        for (_, _, name, _) in PAGES {
-            let r = ui::hbox(6);
+        for (page, _, name, _) in PAGES {
+            let r = ui::hbox(8);
+            let icon = gtk::Image::from_icon_name(icon_of(*page));
+            icon.set_pixel_size(16);
+            icon.add_css_class("dim-label");
             let l = gtk::Label::builder()
                 .label(*name)
                 .xalign(0.0)
@@ -165,15 +187,47 @@ impl App {
                 .build();
             let mark = gtk::Label::builder().label("").build();
             mark.add_css_class("nav-bad");
+            r.append(&icon);
             r.append(&l);
             r.append(&mark);
             nav.append(&r);
             nav_marks.push(mark);
         }
+        nav.set_header_func(|row, before| {
+            if before.is_none() && row.index() == 0 {
+                let header = gtk::Label::builder()
+                    .label("CONFIGURATION")
+                    .xalign(0.0)
+                    .css_classes(["dim-label"])
+                    .margin_top(8)
+                    .margin_bottom(4)
+                    .margin_start(10)
+                    .build();
+                let f = header.attributes().unwrap_or_default();
+                f.insert(gtk::pango::AttrFontDesc::new(&gtk::pango::FontDescription::from_string("bold 8")));
+                header.set_attributes(Some(&f));
+                row.set_header(Some(&header));
+            } else if row.index() == 7 {
+                let header = gtk::Label::builder()
+                    .label("OUTPUT & TOOLS")
+                    .xalign(0.0)
+                    .css_classes(["dim-label"])
+                    .margin_top(16)
+                    .margin_bottom(4)
+                    .margin_start(10)
+                    .build();
+                let f = header.attributes().unwrap_or_default();
+                f.insert(gtk::pango::AttrFontDesc::new(&gtk::pango::FontDescription::from_string("bold 8")));
+                header.set_attributes(Some(&f));
+                row.set_header(Some(&header));
+            } else {
+                row.set_header(None::<&gtk::Widget>);
+            }
+        });
         let side = gtk::ScrolledWindow::builder()
             .child(&nav)
             .hscrollbar_policy(gtk::PolicyType::Never)
-            .width_request(170)
+            .width_request(190)
             .vexpand(true)
             .build();
 
@@ -388,7 +442,7 @@ impl App {
         ui::clear(content);
         self.refreshers.borrow_mut().remove(&page);
         let raw = self.st.borrow().model.raw.is_some();
-        if raw && !matches!(page, Page::Toml | Page::Iso) {
+        if raw && !matches!(page, Page::Toml | Page::Iso | Page::Help) {
             ui::heading(
                 content,
                 PAGES
@@ -421,6 +475,7 @@ impl App {
             Page::Scripts => pages::scripts::build(self, content),
             Page::Toml => pages::toml::build(self, content),
             Page::Iso => pages::iso::build(self, content),
+            Page::Help => pages::help::build(self, content),
         }
     }
 

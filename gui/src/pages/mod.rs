@@ -2,6 +2,7 @@
 //! controls write back through `App::edit`.
 pub mod build_page;
 pub mod disk;
+pub mod help;
 pub mod iso;
 pub mod packages;
 pub mod scripts;
