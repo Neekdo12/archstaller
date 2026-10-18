@@ -170,7 +170,7 @@ fn schema(check: bool) -> Result<()> {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|test|linux-test|check-presets|gen-schema|coverage|aur-pin|keyring|update-keyring|rpi-build|rpi-run|rpi-test|floppy|floppy-run|floppy-test> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme|ide] [--nic virtio|e1000|e1000e|igb|rtl8139|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--profile super-small|large] [--progress json] [--workdir DIR] [--disk-gib N (e2e)] [--limit BYTES] [--qemu|--all (test)]")?;
+    let (cmd, rest) = args.split_first().ok_or("usage: cargo xtask <build|presets|run|size|e2e|test|linux-test|check-presets|gen-schema|coverage|aur-pin|keyring|update-keyring|rpi-build|rpi-run|rpi-test|floppy|floppy-run|floppy-test> [--config FILE] [--out FILE] [--bios|--uefi] [--disk virtio|ahci|nvme|ide] [--nic virtio|e1000|e1000e|igb|rtl8139|e100|pcnet|usb-rndis|none] [--headless] [--selftest] [--usb] [--tethering|--no-tethering (presets)] [--debug] [--profile super-small|large] [--progress json] [--workdir DIR] [--disk-gib N (e2e)] [--limit BYTES] [--qemu|--all (test)]")?;
     if cmd == "aur-pin" {
         return aur::pin(rest);
     }
