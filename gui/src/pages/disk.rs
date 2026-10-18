@@ -1,6 +1,6 @@
 use crate::app::App;
 use crate::dialogs;
-use crate::ui::{self, Kind};
+use crate::ui;
 use gtk::glib;
 use gtk::prelude::*;
 use std::rc::Rc;
@@ -10,10 +10,9 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     ui::heading(content, "Target disk", "The installer erases the disk it selects. Name it by serial number, or let it take the largest one.");
     let c = ui::card(content, Some("Which disk"));
 
-    let warn = ui::note(
+    let warn = ui::hint(
         &c,
-        Kind::Warn,
-        "Every machine that boots this ISO loses its largest disk.",
+        "Warning: Every machine that boots this ISO will erase its largest disk automatically.",
     );
     warn.set_visible(cfg.disk.auto_largest);
     let selectors = ui::vbox(8);

@@ -78,6 +78,103 @@ pub struct Disk {
     pub auto_largest: bool,
     /// Size of the EFI system partition in MiB.
     pub esp_mib: u32,
+    /// Root filesystem type (ext4, btrfs, xfs, f2fs). Defaults to ext4.
+    #[serde(default)]
+    pub filesystem: FsType,
+    /// Btrfs options (subvolumes, compression) when filesystem is btrfs.
+    #[serde(default)]
+    pub btrfs: Option<BtrfsConfig>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum FsType {
+    #[default]
+    Ext4,
+    Btrfs,
+    Xfs,
+    F2fs,
+}
+
+impl From<FsType> for config::FsType {
+    fn from(f: FsType) -> Self {
+        match f {
+            FsType::Ext4 => config::FsType::Ext4,
+            FsType::Btrfs => config::FsType::Btrfs,
+            FsType::Xfs => config::FsType::Xfs,
+            FsType::F2fs => config::FsType::F2fs,
+        }
+    }
+}
+
+impl From<config::FsType> for FsType {
+    fn from(f: config::FsType) -> Self {
+        match f {
+            config::FsType::Ext4 => FsType::Ext4,
+            config::FsType::Btrfs => FsType::Btrfs,
+            config::FsType::Xfs => FsType::Xfs,
+            config::FsType::F2fs => FsType::F2fs,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BtrfsSubvol {
+    pub name: String,
+    pub mount: String,
+}
+
+impl From<BtrfsSubvol> for config::BtrfsSubvol {
+    fn from(s: BtrfsSubvol) -> Self {
+        config::BtrfsSubvol {
+            name: s.name,
+            mount: s.mount,
+        }
+    }
+}
+
+impl From<&config::BtrfsSubvol> for BtrfsSubvol {
+    fn from(s: &config::BtrfsSubvol) -> Self {
+        BtrfsSubvol {
+            name: s.name.clone(),
+            mount: s.mount.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BtrfsConfig {
+    #[serde(default = "default_btrfs_subvolumes")]
+    pub subvolumes: Vec<BtrfsSubvol>,
+    #[serde(default = "config::default_zstd")]
+    pub compress: String,
+}
+
+fn default_btrfs_subvolumes() -> Vec<BtrfsSubvol> {
+    config::default_btrfs_subvolumes()
+        .iter()
+        .map(Into::into)
+        .collect()
+}
+
+impl From<BtrfsConfig> for config::BtrfsConfig {
+    fn from(b: BtrfsConfig) -> Self {
+        config::BtrfsConfig {
+            subvolumes: b.subvolumes.into_iter().map(Into::into).collect(),
+            compress: b.compress,
+        }
+    }
+}
+
+impl From<&config::BtrfsConfig> for BtrfsConfig {
+    fn from(b: &config::BtrfsConfig) -> Self {
+        BtrfsConfig {
+            subvolumes: b.subvolumes.iter().map(Into::into).collect(),
+            compress: b.compress.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -93,6 +190,49 @@ pub struct Packages {
     pub aur: Vec<Aur>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UserDotfiles {
+    /// GitHub repository: "owner/repo" or "https://github.com/owner/repo".
+    pub repo: String,
+    /// Target directory inside user's home (default: "dotfiles").
+    #[serde(default = "config::default_dotfiles_dir")]
+    pub dir: String,
+    /// Git branch or tag (default: "main").
+    #[serde(default)]
+    pub branch: Option<String>,
+    /// Whether to run GNU Stow to symlink configuration files into $HOME.
+    #[serde(default = "config::default_true")]
+    pub stow: bool,
+    /// Specific package subdirectories to stow (empty = stow all or top-level).
+    #[serde(default)]
+    pub packages: Vec<String>,
+}
+
+impl From<UserDotfiles> for config::UserDotfiles {
+    fn from(d: UserDotfiles) -> Self {
+        config::UserDotfiles {
+            repo: d.repo,
+            dir: d.dir,
+            branch: d.branch,
+            stow: d.stow,
+            packages: d.packages,
+        }
+    }
+}
+
+impl From<&config::UserDotfiles> for UserDotfiles {
+    fn from(d: &config::UserDotfiles) -> Self {
+        UserDotfiles {
+            repo: d.repo.clone(),
+            dir: d.dir.clone(),
+            branch: d.branch.clone(),
+            stow: d.stow,
+            packages: d.packages.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct User {
@@ -104,6 +244,9 @@ pub struct User {
     pub groups: Vec<String>,
     /// Login shell, for example `/bin/bash`.
     pub shell: String,
+    /// User dotfiles configured from a GitHub repository, with optional GNU Stow linking.
+    #[serde(default)]
+    pub dotfiles: Option<UserDotfiles>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -127,6 +270,9 @@ pub struct FirstBoot {
     /// Zip archives extracted into every user's home directory (a failed download only warns).
     #[serde(default)]
     pub user_archives: Vec<UserArchive>,
+    /// System files written into the root filesystem during installation and preserved via first-boot overlay.
+    #[serde(default)]
+    pub system_files: Vec<SystemFile>,
 }
 
 /// A custom systemd service unit, either inline or from a local file.
@@ -158,11 +304,45 @@ pub struct UserFile {
     pub dest: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UserArchive {
-    /// `https://` URL of a zip file (at most 16 MiB).
-    pub url: String,
+    /// Remote HTTP/HTTPS URL of the archive, downloaded during first boot.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Path of a local archive file (relative to config or absolute), embedded in the ISO payload.
+    #[serde(default)]
+    pub file: Option<String>,
+    /// Filesystem UUID of a disk/partition containing the archive.
+    #[serde(default)]
+    pub disk_uuid: Option<String>,
+    /// Path to the archive inside the partition identified by `disk_uuid` (defaults to "home.tar.zst").
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Optional lower-case hex SHA-256 digest of the archive.
+    #[serde(default)]
+    pub sha256: Option<String>,
+}
+
+fn default_mode_644() -> u16 {
+    0o644
+}
+
+/// A system file written into the root filesystem during installation and preserved via first-boot overlay.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SystemFile {
+    /// Target path relative to root, e.g. "etc/NetworkManager/system-connections/Home.nmconnection".
+    pub path: String,
+    /// Unix permission mode, e.g. 0o600 or 0o644.
+    #[serde(default = "default_mode_644")]
+    pub mode: u16,
+    /// Path of a local file, relative to the config file or absolute.
+    #[serde(default)]
+    pub file: Option<String>,
+    /// Inline file content.
+    #[serde(default)]
+    pub content: Option<String>,
 }
 
 /// A first-boot script. Exactly one source: none of `file`/`url` (a built-in script of that `id`),
@@ -184,6 +364,9 @@ pub struct Script {
     /// Lower-case hex SHA-256 of the script at `url`.
     #[serde(default)]
     pub sha256: Option<String>,
+    /// Execution phase: "pre-service" (before service enablement) or "post-service" (after, default).
+    #[serde(default)]
+    pub phase: Option<String>,
 }
 
 /// One AUR package, pinned to the reviewed recipe.
@@ -291,9 +474,22 @@ impl AsConfig {
                 confirm_serial: self.install.disk.confirm_serial,
                 auto_largest: self.install.disk.auto_largest,
                 esp_mib: self.install.disk.esp_mib,
+                filesystem: self.install.disk.filesystem.into(),
+                btrfs: self.install.disk.btrfs.map(Into::into),
             },
             mirrors: self.install.mirrors,
-            packages: self.packages.explicit,
+            packages: {
+                let mut pkgs = self.packages.explicit;
+                if self
+                    .users
+                    .iter()
+                    .any(|u| u.dotfiles.as_ref().is_some_and(|d| d.stow))
+                    && !pkgs.iter().any(|p| p == "stow")
+                {
+                    pkgs.push("stow".into());
+                }
+                pkgs
+            },
             providers: self.packages.providers.into_iter().collect(),
             root_password_hash: self.system.root_password_hash,
             users: self
@@ -304,6 +500,7 @@ impl AsConfig {
                     password_hash: u.password_hash,
                     groups: u.groups,
                     shell: u.shell,
+                    dotfiles: u.dotfiles.map(Into::into),
                 })
                 .collect(),
             services: self.first_boot.services,
@@ -321,7 +518,25 @@ impl AsConfig {
                 .first_boot
                 .user_archives
                 .into_iter()
-                .map(|a| config::UserArchive { url: a.url })
+                .map(|a| config::UserArchive {
+                    url: a.url,
+                    file: a.file,
+                    content: None,
+                    disk_uuid: a.disk_uuid,
+                    path: a.path,
+                    sha256: a.sha256,
+                })
+                .collect(),
+            system_files: self
+                .first_boot
+                .system_files
+                .into_iter()
+                .map(|sf| config::SystemFile {
+                    path: sf.path,
+                    mode: sf.mode,
+                    file: sf.file,
+                    content: sf.content.map(|c| c.into_bytes()),
+                })
                 .collect(),
             dry_run: self.install.dry_run,
             scripts: self
@@ -335,6 +550,7 @@ impl AsConfig {
                     url: s.url,
                     sha256: s.sha256,
                     content: None,
+                    phase: s.phase,
                 })
                 .collect(),
             custom_services: self
@@ -394,6 +610,8 @@ impl AsConfig {
                     confirm_serial: cfg.disk.confirm_serial.clone(),
                     auto_largest: cfg.disk.auto_largest,
                     esp_mib: cfg.disk.esp_mib,
+                    filesystem: cfg.disk.filesystem.into(),
+                    btrfs: cfg.disk.btrfs.as_ref().map(Into::into),
                 },
                 mirrors: cfg.mirrors.clone(),
                 dry_run: cfg.dry_run,
@@ -425,6 +643,7 @@ impl AsConfig {
                     password_hash: u.password_hash.clone(),
                     groups: u.groups.clone(),
                     shell: u.shell.clone(),
+                    dotfiles: u.dotfiles.as_ref().map(Into::into),
                 })
                 .collect(),
             first_boot: FirstBoot {
@@ -453,6 +672,7 @@ impl AsConfig {
                         file: s.file.clone(),
                         url: s.url.clone(),
                         sha256: s.sha256.clone(),
+                        phase: s.phase.clone(),
                     })
                     .collect(),
                 user_files: cfg
@@ -466,7 +686,26 @@ impl AsConfig {
                 user_archives: cfg
                     .user_archives
                     .iter()
-                    .map(|a| UserArchive { url: a.url.clone() })
+                    .map(|a| UserArchive {
+                        url: a.url.clone(),
+                        file: a.file.clone(),
+                        disk_uuid: a.disk_uuid.clone(),
+                        path: a.path.clone(),
+                        sha256: a.sha256.clone(),
+                    })
+                    .collect(),
+                system_files: cfg
+                    .system_files
+                    .iter()
+                    .map(|sf| SystemFile {
+                        path: sf.path.clone(),
+                        mode: sf.mode,
+                        file: sf.file.clone(),
+                        content: sf
+                            .content
+                            .as_ref()
+                            .and_then(|c| std::str::from_utf8(c).ok().map(|s| s.to_string())),
+                    })
                     .collect(),
             },
             build: AsBuild {
@@ -484,4 +723,66 @@ pub fn json_schema() -> serde_json::Value {
         .into_generator()
         .into_root_schema_for::<AsConfig>();
     serde_json::to_value(schema).expect("a schema is JSON")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_user_dotfiles_and_stow_in_toml() {
+        let toml_str = r#"
+schema = 1
+
+[system]
+hostname = "archbox"
+timezone = "UTC"
+locale = "en_US.UTF-8"
+keymap = "us"
+
+[install]
+mirrors = ["https://geo.mirror.pkgbuild.com/$repo/os/$arch"]
+[install.disk]
+confirm_serial = "S123"
+esp_mib = 512
+
+[packages]
+explicit = ["base", "linux"]
+
+[[users]]
+name = "kubik"
+password_hash = "$6$rounds=5000$saltsalt$9876543210zyxwvutsrqponmlkjihgfedcba"
+groups = ["wheel"]
+shell = "/bin/bash"
+
+[users.dotfiles]
+repo = "kubik/dotfiles"
+dir = "dotfiles"
+stow = true
+packages = ["hypr", "bash"]
+
+[[first_boot.scripts]]
+id = "pre-setup"
+phase = "pre-service"
+file = "scripts/pre.sh"
+"#;
+
+        let as_cfg: AsConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(as_cfg.users.len(), 1);
+        let u = &as_cfg.users[0];
+        let df = u.dotfiles.as_ref().unwrap();
+        assert_eq!(df.repo, "kubik/dotfiles");
+        assert_eq!(df.dir, "dotfiles");
+        assert!(df.stow);
+        assert_eq!(df.packages, vec!["hypr", "bash"]);
+
+        let sc = &as_cfg.first_boot.scripts[0];
+        assert_eq!(sc.id, "pre-setup");
+        assert_eq!(sc.phase.as_deref(), Some("pre-service"));
+
+        let (cfg, _host) = as_cfg.into_parts().unwrap();
+        assert!(cfg.packages.contains(&"stow".to_string()));
+        assert_eq!(cfg.users[0].dotfiles.as_ref().unwrap().repo, "kubik/dotfiles");
+        assert_eq!(cfg.scripts[0].phase.as_deref(), Some("pre-service"));
+    }
 }

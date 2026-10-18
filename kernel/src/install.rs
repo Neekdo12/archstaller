@@ -10,10 +10,18 @@ use alloc::vec::Vec;
 use config::Config;
 use core::cell::{Cell, RefCell};
 use disk::fat32::{Fat32Writer, Options as FatOptions};
+use disk::fs::{FileKind, FsWriter, Meta};
 use disk::gpt::Layout;
 use disk::region::Region;
 use drivers::Devices;
-use ext4w::{Ext4Writer, FileKind, Meta, Options as ExtOptions, Storage};
+#[cfg(feature = "ext4")]
+use ext4w::{Ext4Writer, Options as ExtOptions};
+#[cfg(feature = "btrfs")]
+use btrfsw::{BtrfsWriter, Options as BtrfsOptions, SubvolConfig as BtrfsSubvolConfig};
+#[cfg(feature = "xfs")]
+use xfsw::{Options as XfsOptions, XfsWriter};
+#[cfg(feature = "f2fs")]
+use f2fsw::{F2fsWriter, Options as F2fsOptions};
 use hal::BlockDevice;
 use net::client::Client;
 use pgp_lite::Keyring;
@@ -47,7 +55,8 @@ pub(crate) fn dbg_err<E: core::fmt::Debug>(ctx: &'static str) -> impl FnOnce(E) 
 
 struct RegionStorage<'a>(Region<'a>);
 
-impl Storage for RegionStorage<'_> {
+#[cfg(feature = "ext4")]
+impl ext4w::Storage for RegionStorage<'_> {
     fn write_at(&mut self, offset: u64, data: &[u8]) -> ext4w::Result<()> {
         self.0.write_at(offset, data).map_err(|_e| ext4w::Error::Io)
     }
@@ -56,17 +65,26 @@ impl Storage for RegionStorage<'_> {
     }
 }
 
+impl disk::fs::Storage for RegionStorage<'_> {
+    fn write_at(&mut self, offset: u64, data: &[u8]) -> disk::Result<()> {
+        self.0.write_at(offset, data).map_err(|_e| disk::Error::Io)
+    }
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> disk::Result<()> {
+        self.0.read_at(offset, buf).map_err(|_e| disk::Error::Io)
+    }
+}
+
 /// Streams a file back out of the filesystem being written.
-struct CacheReader<S: Storage> {
-    w: Rc<RefCell<Ext4Writer<S>>>,
-    ino: u32,
+struct CacheReader<'a> {
+    w: Rc<RefCell<dyn FsWriter + 'a>>,
+    ino: u64,
     pos: u64,
     size: u64,
     buf: Vec<u8>,
     off: usize,
 }
 
-impl<S: Storage> Read for CacheReader<S> {
+impl Read for CacheReader<'_> {
     fn read(&mut self, out: &mut [u8]) -> pkg::Result<usize> {
         if self.off == self.buf.len() {
             let n = (self.size - self.pos).min(256 * 1024) as usize;
@@ -194,7 +212,6 @@ fn select_largest(devs: &mut Devices) -> R<Box<dyn BlockDevice>> {
 }
 
 pub(crate) const USER_FILE_MAX: usize = 1 << 20;
-pub(crate) const USER_ARCHIVE_MAX: usize = 16 << 20;
 
 /// Downloads a small optional file; any failure is reported as text, never as a hard error.
 pub(crate) fn fetch_optional(
@@ -286,14 +303,14 @@ pub(crate) fn fetch_to_vec(
 }
 
 /// Downloads `p` into the cache file, verifying size, SHA-256 and the PGP signature.
-fn download_package<S: Storage>(
+fn download_package(
     client: &Client,
     stack: &mut net::Stack,
     cfg: &Config,
-    w: &Rc<RefCell<Ext4Writer<S>>>,
+    w: &Rc<RefCell<dyn FsWriter + '_>>,
     keyring: &Keyring,
     p: &Package,
-) -> R<u32> {
+) -> R<u64> {
     if p.pgpsig.is_empty() {
         return Err(format!("{}: database has no signature", p.name));
     }
@@ -396,7 +413,7 @@ impl KernelIndex {
 
     /// The kernel the first boot starts: the `linux` package's if it is installed, else the first one
     /// found. `firstboot.sh` makes the same choice for the boot loader.
-    fn select<S: Storage>(&self, w: &Rc<RefCell<Ext4Writer<S>>>) -> R<&KernelFiles> {
+    fn select<'k, 'a>(&'k self, w: &Rc<RefCell<dyn FsWriter + 'a>>) -> R<&'k KernelFiles> {
         let mut first = None;
         for k in self.kernels.values().filter(|k| k.vmlinuz.is_some()) {
             let base = k.pkgbase.as_deref().and_then(|p| read_whole(w, p).ok());
@@ -415,9 +432,9 @@ fn clean_path(p: &str) -> &str {
     p.trim_start_matches("./").trim_end_matches('/')
 }
 
-fn extract_package<S: Storage>(
-    w: &Rc<RefCell<Ext4Writer<S>>>,
-    ino: u32,
+fn extract_package(
+    w: &Rc<RefCell<dyn FsWriter + '_>>,
+    ino: u64,
     size: u64,
     idx: &mut KernelIndex,
 ) -> R<()> {
@@ -502,7 +519,7 @@ fn extract_package<S: Storage>(
     Ok(())
 }
 
-fn read_whole<S: Storage>(w: &Rc<RefCell<Ext4Writer<S>>>, path: &str) -> R<Vec<u8>> {
+fn read_whole(w: &Rc<RefCell<dyn FsWriter + '_>>, path: &str) -> R<Vec<u8>> {
     let mut wr = w.borrow_mut();
     let ino = wr
         .lookup(path)
@@ -513,18 +530,18 @@ fn read_whole<S: Storage>(w: &Rc<RefCell<Ext4Writer<S>>>, path: &str) -> R<Vec<u
     Ok(out)
 }
 
-struct ExtModules<'a, S: Storage> {
-    w: &'a Rc<RefCell<Ext4Writer<S>>>,
+struct FsModules<'a> {
+    w: Rc<RefCell<dyn FsWriter + 'a>>,
     idx: &'a BTreeMap<String, String>,
 }
 
-impl<S: Storage> initrd::modules::ModuleSource for ExtModules<'_, S> {
+impl initrd::modules::ModuleSource for FsModules<'_> {
     fn find(&mut self, name: &str) -> Option<Vec<u8>> {
-        read_whole(self.w, self.idx.get(name)?).ok()
+        read_whole(&self.w, self.idx.get(name)?).ok()
     }
 }
 
-fn put<S: Storage>(w: &Rc<RefCell<Ext4Writer<S>>>, path: &str, mode: u16, data: &[u8]) -> R<()> {
+fn put(w: &Rc<RefCell<dyn FsWriter + '_>>, path: &str, mode: u16, data: &[u8]) -> R<()> {
     let meta = Meta {
         mode,
         mtime: time::unix_time(),
@@ -636,6 +653,7 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
         .map_err(dbg_err("writing the partition table"))?;
     println!("partition table written");
 
+    let mut idx = KernelIndex::default();
     let root_uuid: [u8; 16] = random();
     let (root_off, root_len) = layout.byte_range(Layout::ROOT);
     let now = time::unix_time();
@@ -648,19 +666,91 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
         *dst = u32::from_le_bytes(*chunk);
     }
     let storage = RegionStorage(Region::new(disk.as_mut(), root_off, root_len));
-    let writer = Ext4Writer::new(
-        storage,
-        root_len,
-        ExtOptions {
-            label: "archroot".into(),
-            uuid: root_uuid,
-            hash_seed,
-            now,
-            reserved_percent: 1,
-        },
-    )
-    .map_err(dbg_err("mkfs"))?;
-    let w = Rc::new(RefCell::new(writer));
+    let w: Rc<RefCell<dyn FsWriter + '_>> = match cfg.disk.filesystem {
+        #[cfg(feature = "ext4")]
+        config::FsType::Ext4 => {
+            let writer = Ext4Writer::new(
+                storage,
+                root_len,
+                ExtOptions {
+                    label: "archroot".into(),
+                    uuid: root_uuid,
+                    hash_seed,
+                    now,
+                    reserved_percent: 1,
+                },
+            )
+            .map_err(dbg_err("mkfs.ext4"))?;
+            Rc::new(RefCell::new(writer))
+        }
+        #[cfg(feature = "btrfs")]
+        config::FsType::Btrfs => {
+            let default_subvols = config::default_btrfs_subvolumes();
+            let subvols_cfg = match &cfg.disk.btrfs {
+                Some(b) => &b.subvolumes,
+                None => &default_subvols,
+            };
+            let subvolumes = subvols_cfg
+                .iter()
+                .map(|s| BtrfsSubvolConfig {
+                    name: s.name.clone(),
+                    mount: s.mount.clone(),
+                })
+                .collect();
+            let writer = BtrfsWriter::new(
+                storage,
+                root_len,
+                BtrfsOptions {
+                    label: "archroot".into(),
+                    uuid: root_uuid,
+                    now,
+                    subvolumes,
+                },
+            )
+            .map_err(dbg_err("mkfs.btrfs"))?;
+            Rc::new(RefCell::new(writer))
+        }
+        #[cfg(feature = "xfs")]
+        config::FsType::Xfs => {
+            let writer = XfsWriter::new(
+                storage,
+                root_len,
+                XfsOptions {
+                    label: "archroot".into(),
+                    uuid: root_uuid,
+                    now,
+                },
+            )
+            .map_err(dbg_err("mkfs.xfs"))?;
+            Rc::new(RefCell::new(writer))
+        }
+        #[cfg(feature = "f2fs")]
+        config::FsType::F2fs => {
+            let writer = F2fsWriter::new(
+                storage,
+                root_len,
+                F2fsOptions {
+                    label: "archroot".into(),
+                    uuid: root_uuid,
+                    now,
+                },
+            )
+            .map_err(dbg_err("mkfs.f2fs"))?;
+            Rc::new(RefCell::new(writer))
+        }
+        #[cfg(not(all(
+            feature = "ext4",
+            feature = "btrfs",
+            feature = "xfs",
+            feature = "f2fs"
+        )))]
+        _ => {
+            return Err(format!(
+                "filesystem '{}' is not compiled into this installer kernel build",
+                cfg.disk.filesystem.as_str()
+            ));
+        }
+    };
     {
         let mut wr = w.borrow_mut();
         for (d, mode) in [
@@ -688,7 +778,6 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
     }
 
     // 14. Download, verify, extract.
-    let mut idx = KernelIndex::default();
     let n = resolution.packages.len();
     let (mut done, started) = (0u64, now_ms());
     for (i, s) in resolution.packages.iter().enumerate() {
@@ -722,13 +811,13 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
     let esp_volume_id = u32::from_le_bytes(random::<4>());
     let root_uuid_text = uuid_text(&root_uuid);
     let esp_uuid_text = format!("{:04X}-{:04X}", esp_volume_id >> 16, esp_volume_id & 0xffff);
-    let cmdline = format_cmdline(&root_uuid_text, &cfg.kernel_params);
+    let cmdline = format_cmdline(cfg, &root_uuid_text);
     let overlay = |p: &str| format!("{STATE_DIR}/overlay/{p}");
     let mut etc_files: Vec<(String, u16, Vec<u8>)> = Vec::new();
     etc_files.push((
         "etc/fstab".into(),
         0o644,
-        format_fstab(&root_uuid_text, &esp_uuid_text).into_bytes(),
+        format_fstab(cfg, &root_uuid_text, &esp_uuid_text).into_bytes(),
     ));
     etc_files.push((
         "etc/hostname".into(),
@@ -806,6 +895,20 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
             .map_err(dbg_err("localtime"))?;
     }
 
+    for sf in &cfg.system_files {
+        if let Some(content) = &sf.content {
+            let clean_path = sf.path.trim_start_matches('/');
+            put(&w, clean_path, sf.mode, content)?;
+            put(&w, &overlay(clean_path), sf.mode, content)?;
+            println!(
+                "system file {} ({} bytes, mode {:o})",
+                clean_path,
+                content.len(),
+                sf.mode
+            );
+        }
+    }
+
     // Per-user files from third-party servers. An unreachable server only costs a warning.
     let mut userfiles = String::new();
     for (i, f) in cfg.user_files.iter().enumerate() {
@@ -826,17 +929,25 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
     )?;
     let mut userarchives = String::new();
     for (i, a) in cfg.user_archives.iter().enumerate() {
-        match fetch_optional(&client, &mut stack, &a.url, USER_ARCHIVE_MAX) {
-            // A server that answers 200 with an error page must not be unpacked as an archive.
-            Ok(data) if !data.starts_with(b"PK\x03\x04") => {
-                println!("warning: skipping {}: not a zip archive", a.url)
+        let sha = a.sha256.as_deref().unwrap_or("");
+        if let Some(data) = &a.content {
+            if !config::is_supported_archive(data) {
+                println!("warning: skipping user archive #{i}: unknown archive format");
+                continue;
             }
-            Ok(data) => {
-                put(&w, &format!("{STATE_DIR}/userarchives/{i}"), 0o644, &data)?;
-                userarchives.push_str(&format!("{i}\n"));
-                println!("user archive {} -> ~/ ({} bytes)", a.url, data.len());
-            }
-            Err(e) => println!("warning: skipping {}: {e}", a.url),
+            put(&w, &format!("{STATE_DIR}/userarchives/{i}"), 0o644, data)?;
+            userarchives.push_str(&format!("{i}:embedded:::{sha}\n"));
+            println!("user archive #{i} (embedded, {} bytes) -> ~/", data.len());
+        } else if let Some(url) = &a.url {
+            userarchives.push_str(&format!("{i}:url:{url}::{sha}\n"));
+            println!("user archive #{i} from {url} will be downloaded on first boot");
+        } else if let Some(uuid) = &a.disk_uuid {
+            let path = a.path.as_deref().unwrap_or("home.tar.zst");
+            userarchives.push_str(&format!("{i}:uuid:{uuid}:{path}:{sha}\n"));
+            println!("user archive #{i} from disk UUID {uuid} ({path}) will be loaded on first boot");
+        } else if let Some(file) = &a.file {
+            userarchives.push_str(&format!("{i}:file:{file}::{sha}\n"));
+            println!("user archive #{i} from file {file} will be loaded on first boot");
         }
     }
     put(
@@ -879,7 +990,7 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
             }
         };
         put(&w, &format!("{STATE_DIR}/scripts/{i}.sh"), 0o700, &data)?;
-        scripts.push_str(&format!("{i}:{}:{}\n", s.id, s.args.join(" ")));
+        scripts.push_str(&format_script_entry(i, s));
         println!(
             "script {} ({} bytes) will run at the end of the first boot",
             s.id,
@@ -974,6 +1085,15 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
         0o600,
         users.as_bytes(),
     )?;
+    let dotfiles = format_dotfiles_list(&cfg.users);
+    if !dotfiles.is_empty() {
+        put(
+            &w,
+            &format!("{STATE_DIR}/dotfiles.list"),
+            0o644,
+            dotfiles.as_bytes(),
+        )?;
+    }
     put(
         &w,
         &format!("{STATE_DIR}/services.list"),
@@ -1073,8 +1193,14 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
     // depmod hook has run, so nothing can be modprobed before then.
     // The "ata_*"/"pata_*" drivers are for controllers the firmware set to IDE ("compatible") mode, which
     // the AHCI driver does not handle; a module the kernel package lacks is skipped.
-    let wanted = [
-        "ext4",
+    let fs_module = match cfg.disk.filesystem {
+        config::FsType::Ext4 => "ext4",
+        config::FsType::Btrfs => "btrfs",
+        config::FsType::Xfs => "xfs",
+        config::FsType::F2fs => "f2fs",
+    };
+    let mut wanted = alloc::vec![
+        fs_module,
         "nvme",
         "ahci",
         "ata_piix",
@@ -1095,9 +1221,13 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
         "nls_cp437",
         "nls_ascii",
     ];
+    if cfg.disk.filesystem == config::FsType::Btrfs {
+        wanted.push("zstd");
+        wanted.push("xxhash_generic");
+    }
     let resolved = {
-        let mut src = ExtModules {
-            w: &w,
+        let mut src = FsModules {
+            w: w.clone(),
             idx: &kernel.modules,
         };
         initrd::modules::resolve(&mut src, &[], &wanted, &builtin)
@@ -1106,13 +1236,10 @@ pub fn run(cfg: &Config, devs: &mut Devices, keyring: &Keyring, boot: &BootFiles
     println!("initramfs modules: {:?}", resolved.order);
     let initramfs = initrd::modules::build_initramfs(boot.tiny_init, &resolved);
 
-    let rw = Rc::try_unwrap(w)
-        .map_err(|_e| "internal error: filesystem still shared")?
-        .into_inner();
-    let mut rw = rw;
-    rw.finish()
+    w.borrow_mut()
+        .finish()
         .map_err(dbg_err("finishing the root filesystem"))?;
-    drop(rw);
+    drop(w);
     println!("root filesystem written");
 
     // ESP and boot loader.
@@ -1207,24 +1334,116 @@ fn uuid_text(u: &[u8; 16]) -> String {
     )
 }
 
-pub fn format_fstab(root_uuid: &str, esp_uuid: &str) -> String {
-    format!(
-        "UUID={root_uuid} / ext4 rw,relatime 0 1\nUUID={esp_uuid} /boot vfat rw,relatime,fmask=0077,dmask=0077,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro 0 2\n"
-    )
+pub fn format_fstab(cfg: &Config, root_uuid: &str, esp_uuid: &str) -> String {
+    let mut fstab = String::new();
+    match cfg.disk.filesystem {
+        config::FsType::Ext4 => {
+            fstab.push_str(&format!("UUID={root_uuid} / ext4 rw,relatime 0 1\n"));
+        }
+        config::FsType::Btrfs => {
+            let default_subvols = config::default_btrfs_subvolumes();
+            let (subvols, compress) = match &cfg.disk.btrfs {
+                Some(b) => (&b.subvolumes, b.compress.as_str()),
+                None => (&default_subvols, "zstd"),
+            };
+            for sv in subvols {
+                fstab.push_str(&format!(
+                    "UUID={root_uuid} {} btrfs rw,noatime,compress={},subvol={} 0 0\n",
+                    sv.mount, compress, sv.name
+                ));
+            }
+        }
+        config::FsType::Xfs => {
+            fstab.push_str(&format!("UUID={root_uuid} / xfs rw,relatime 0 1\n"));
+        }
+        config::FsType::F2fs => {
+            fstab.push_str(&format!("UUID={root_uuid} / f2fs rw,noatime 0 1\n"));
+        }
+    }
+    fstab.push_str(&format!(
+        "UUID={esp_uuid} /boot vfat rw,relatime,fmask=0077,dmask=0077,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro 0 2\n"
+    ));
+    fstab
 }
 
-pub fn format_cmdline(root_uuid: &str, extra_params: &[String]) -> String {
-    let mut cmdline = format!("root=UUID={root_uuid} rw");
-    for k in extra_params {
+pub fn format_cmdline(cfg: &Config, root_uuid: &str) -> String {
+    let mut cmdline = match cfg.disk.filesystem {
+        config::FsType::Ext4 | config::FsType::Xfs | config::FsType::F2fs => {
+            format!("root=UUID={root_uuid} rw")
+        }
+        config::FsType::Btrfs => {
+            let root_subvol = cfg
+                .disk
+                .btrfs
+                .as_ref()
+                .and_then(|b| b.subvolumes.iter().find(|s| s.mount == "/"))
+                .map(|s| s.name.as_str())
+                .unwrap_or("@");
+            format!("root=UUID={root_uuid} rw rootflags=subvol={root_subvol}")
+        }
+    };
+    for k in &cfg.kernel_params {
         cmdline.push(' ');
         cmdline.push_str(k);
     }
     cmdline
 }
 
+pub(crate) fn format_dotfiles_list(users: &[config::User]) -> String {
+    let mut out = String::new();
+    for u in users {
+        if let Some(df) = &u.dotfiles {
+            let branch = df.branch.as_deref().unwrap_or("");
+            let stow = if df.stow { "1" } else { "0" };
+            let pkgs = df.packages.join(" ");
+            out.push_str(&format!(
+                "{}:{}:{}:{}:{}:{}\n",
+                u.name, df.repo, df.dir, branch, stow, pkgs
+            ));
+        }
+    }
+    out
+}
+
+pub(crate) fn format_script_entry(idx: usize, script: &config::Script) -> String {
+    let phase = script.phase.as_deref().unwrap_or("post-service");
+    format!("{idx}:{}:{phase}:{}\n", script.id, script.args.join(" "))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_config() -> Config {
+        Config {
+            hostname: "test".into(),
+            timezone: "UTC".into(),
+            locale: "en_US.UTF-8".into(),
+            keymap: "us".into(),
+            disk: config::Disk {
+                model: None,
+                confirm_serial: "serial".into(),
+                auto_largest: false,
+                esp_mib: 512,
+                filesystem: config::FsType::Ext4,
+                btrfs: None,
+            },
+            mirrors: alloc::vec![],
+            packages: alloc::vec![],
+            providers: alloc::vec![],
+            root_password_hash: None,
+            users: alloc::vec![],
+            services: alloc::vec![],
+            kernel_params: alloc::vec![],
+            user_files: alloc::vec![],
+            user_archives: alloc::vec![],
+            system_files: alloc::vec![],
+            dry_run: false,
+            scripts: alloc::vec![],
+            custom_services: alloc::vec![],
+            aur: alloc::vec![],
+        }
+    }
 
     #[test]
     fn parses_locale_charset() {
@@ -1235,16 +1454,80 @@ mod tests {
     }
 
     #[test]
-    fn formats_valid_fstab() {
-        let fstab = format_fstab("1234-5678", "ABCD-EF01");
-        assert!(fstab.contains("UUID=1234-5678 / ext4"));
+    fn formats_valid_fstab_for_all_filesystems() {
+        let mut cfg = test_config();
+
+        // Ext4
+        cfg.disk.filesystem = config::FsType::Ext4;
+        let fstab = format_fstab(&cfg, "1234-5678", "ABCD-EF01");
+        assert!(fstab.contains("UUID=1234-5678 / ext4 rw,relatime 0 1"));
+        assert!(fstab.contains("UUID=ABCD-EF01 /boot vfat"));
+
+        // Btrfs (default subvolumes)
+        cfg.disk.filesystem = config::FsType::Btrfs;
+        let fstab = format_fstab(&cfg, "1234-5678", "ABCD-EF01");
+        assert!(fstab.contains("UUID=1234-5678 / btrfs rw,noatime,compress=zstd,subvol=@ 0 0"));
+        assert!(fstab.contains("UUID=1234-5678 /home btrfs rw,noatime,compress=zstd,subvol=@home 0 0"));
+        assert!(fstab.contains("UUID=ABCD-EF01 /boot vfat"));
+
+        // Btrfs (custom subvolumes & compression)
+        cfg.disk.btrfs = Some(config::BtrfsConfig {
+            subvolumes: alloc::vec![
+                config::BtrfsSubvol { name: "rootfs".into(), mount: "/".into() },
+                config::BtrfsSubvol { name: "data".into(), mount: "/mnt/data".into() },
+            ],
+            compress: "lzo".into(),
+        });
+        let fstab = format_fstab(&cfg, "1234-5678", "ABCD-EF01");
+        assert!(fstab.contains("UUID=1234-5678 / btrfs rw,noatime,compress=lzo,subvol=rootfs 0 0"));
+        assert!(fstab.contains("UUID=1234-5678 /mnt/data btrfs rw,noatime,compress=lzo,subvol=data 0 0"));
+
+        // Xfs
+        cfg.disk.filesystem = config::FsType::Xfs;
+        let fstab = format_fstab(&cfg, "1234-5678", "ABCD-EF01");
+        assert!(fstab.contains("UUID=1234-5678 / xfs rw,relatime 0 1"));
+        assert!(fstab.contains("UUID=ABCD-EF01 /boot vfat"));
+
+        // F2fs
+        cfg.disk.filesystem = config::FsType::F2fs;
+        let fstab = format_fstab(&cfg, "1234-5678", "ABCD-EF01");
+        assert!(fstab.contains("UUID=1234-5678 / f2fs rw,noatime 0 1"));
         assert!(fstab.contains("UUID=ABCD-EF01 /boot vfat"));
     }
 
     #[test]
-    fn formats_kernel_cmdline() {
-        let extra = alloc::vec!["quiet".to_string(), "loglevel=3".to_string()];
-        let cmdline = format_cmdline("test-uuid-1234", &extra);
+    fn formats_kernel_cmdline_for_all_filesystems() {
+        let mut cfg = test_config();
+        cfg.kernel_params = alloc::vec!["quiet".to_string(), "loglevel=3".to_string()];
+
+        // Ext4
+        cfg.disk.filesystem = config::FsType::Ext4;
+        let cmdline = format_cmdline(&cfg, "test-uuid-1234");
+        assert_eq!(cmdline, "root=UUID=test-uuid-1234 rw quiet loglevel=3");
+
+        // Btrfs (default)
+        cfg.disk.filesystem = config::FsType::Btrfs;
+        let cmdline = format_cmdline(&cfg, "test-uuid-1234");
+        assert_eq!(cmdline, "root=UUID=test-uuid-1234 rw rootflags=subvol=@ quiet loglevel=3");
+
+        // Btrfs (custom root subvolume)
+        cfg.disk.btrfs = Some(config::BtrfsConfig {
+            subvolumes: alloc::vec![
+                config::BtrfsSubvol { name: "arch_root".into(), mount: "/".into() },
+            ],
+            compress: "zstd".into(),
+        });
+        let cmdline = format_cmdline(&cfg, "test-uuid-1234");
+        assert_eq!(cmdline, "root=UUID=test-uuid-1234 rw rootflags=subvol=arch_root quiet loglevel=3");
+
+        // Xfs
+        cfg.disk.filesystem = config::FsType::Xfs;
+        let cmdline = format_cmdline(&cfg, "test-uuid-1234");
+        assert_eq!(cmdline, "root=UUID=test-uuid-1234 rw quiet loglevel=3");
+
+        // F2fs
+        cfg.disk.filesystem = config::FsType::F2fs;
+        let cmdline = format_cmdline(&cfg, "test-uuid-1234");
         assert_eq!(cmdline, "root=UUID=test-uuid-1234 rw quiet loglevel=3");
     }
 
@@ -1255,5 +1538,51 @@ mod tests {
             0x32, 0x10,
         ];
         assert_eq!(uuid_text(&bytes), "01234567-89ab-cdef-fedc-ba9876543210");
+    }
+
+    #[test]
+    fn formats_dotfiles_list_correctly() {
+        let users = alloc::vec![
+            config::User {
+                name: "alice".into(),
+                password_hash: "$6$hash".into(),
+                groups: alloc::vec![],
+                shell: "/bin/bash".into(),
+                dotfiles: Some(config::UserDotfiles {
+                    repo: "alice/dots".into(),
+                    dir: "dotfiles".into(),
+                    branch: Some("main".into()),
+                    stow: true,
+                    packages: alloc::vec!["nvim".into(), "tmux".into()],
+                }),
+            },
+            config::User {
+                name: "bob".into(),
+                password_hash: "$6$hash".into(),
+                groups: alloc::vec![],
+                shell: "/bin/bash".into(),
+                dotfiles: None,
+            },
+        ];
+        let out = format_dotfiles_list(&users);
+        assert_eq!(out, "alice:alice/dots:dotfiles:main:1:nvim tmux\n");
+    }
+
+    #[test]
+    fn formats_script_entry_with_phases() {
+        let s1 = config::Script {
+            id: "pre-script".into(),
+            phase: Some("pre-service".into()),
+            args: alloc::vec!["--arg1".into(), "value".into()],
+            ..Default::default()
+        };
+        let s2 = config::Script {
+            id: "post-script".into(),
+            phase: None,
+            args: alloc::vec![],
+            ..Default::default()
+        };
+        assert_eq!(format_script_entry(0, &s1), "0:pre-script:pre-service:--arg1 value\n");
+        assert_eq!(format_script_entry(1, &s2), "1:post-script:post-service:\n");
     }
 }

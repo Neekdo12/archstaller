@@ -103,6 +103,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
             .label(drivers)
             .xalign(0.0)
             .wrap(true)
+            .selectable(true)
             .build(),
     );
     for l in scripts {
@@ -113,6 +114,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
                 .label(l)
                 .xalign(0.0)
                 .wrap(true)
+                .selectable(true)
                 .build(),
         );
     }
@@ -262,6 +264,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         .xalign(0.0)
         .wrap(true)
         .use_markup(true)
+        .selectable(true)
         .build();
     c.append(&stages);
     let error = gtk::Label::builder()
@@ -288,6 +291,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     let summary = gtk::Label::builder()
         .xalign(0.0)
         .wrap(true)
+        .selectable(true)
         .css_classes(["hint"])
         .build();
     c.append(&summary);
@@ -316,6 +320,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         .xalign(0.0)
         .hexpand(true)
         .wrap(true)
+        .selectable(true)
         .build();
     let r = ui::hbox(8);
     r.append(&ui::button("Pick an ISO…", {
@@ -430,7 +435,11 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         let h = ui::hint(&c, &format!("{} {}  {}", v.name, v.fs, sizes));
         h.set_margin_start(24);
     }
-    let drive_note = gtk::Label::builder().xalign(0.0).wrap(true).build();
+    let drive_note = gtk::Label::builder()
+        .xalign(0.0)
+        .wrap(true)
+        .selectable(true)
+        .build();
     c.append(&drive_note);
     if let Some(v) = selected.and_then(|i| volumes.get(i)) {
         if !media::is_ventoy(v, &volumes) {
@@ -441,6 +450,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
             .xalign(0.0)
             .hexpand(true)
             .wrap(true)
+            .selectable(true)
             .label(
                 app.st
                     .borrow()
@@ -1180,6 +1190,7 @@ fn older_prompt(
         &gtk::Label::builder()
             .label("The stick already holds an earlier build of this ISO:")
             .xalign(0.0)
+            .selectable(true)
             .build(),
     );
     for f in &files {
@@ -1192,10 +1203,21 @@ fn older_prompt(
                     size
                 ))
                 .xalign(0.0)
+                .selectable(true)
                 .build(),
         );
     }
-    b.append(&gtk::Label::builder().label("Delete the old one(s) for good, or keep them and store the new ISO under another name.").xalign(0.0).wrap(true).max_width_chars(60).build());
+    b.append(
+        &gtk::Label::builder()
+            .label(
+                "Delete the old one(s) for good, or keep them and store the new ISO under another name.",
+            )
+            .xalign(0.0)
+            .wrap(true)
+            .max_width_chars(60)
+            .selectable(true)
+            .build(),
+    );
     let entry = ui::entry(&new_name, |_| {});
     ui::row(&b, "New name", &entry);
     let taken = ui::hint(&b, "That name is taken; choose another.");
@@ -1456,6 +1478,7 @@ fn flash_show(
     let target_label = gtk::Label::builder()
         .label("Target Media:")
         .xalign(0.0)
+        .selectable(true)
         .build();
     let dropdown = gtk::DropDown::from_strings(&[
         "USB Flash Drive (x86_64)",
@@ -1554,8 +1577,13 @@ fn flash_show(
         .max_width_chars(70)
         .css_classes(["note-bad"])
         .visible(false)
+        .selectable(true)
         .build();
-    let prompt = gtk::Label::builder().xalign(0.0).visible(false).build();
+    let prompt = gtk::Label::builder()
+        .xalign(0.0)
+        .visible(false)
+        .selectable(true)
+        .build();
     let typed = gtk::Entry::builder().visible(false).build();
     let mut group: Option<gtk::CheckButton> = None;
     for cand in ok {

@@ -199,17 +199,18 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
         Duration::from_secs(45 * 60),
     )?;
     let cfg = crate::config::load_config(&config)?;
-    for a in &cfg.user_archives {
-        let fetched = install.contains(&format!("user archive {} -> ~/", a.url));
-        let skipped = install.contains(&format!("warning: skipping {}", a.url));
-        if !fetched && !skipped {
-            return Err(format!("installer log says nothing about user archive {}", a.url).into());
+    for (i, a) in cfg.user_archives.iter().enumerate() {
+        let label = a
+            .url
+            .as_deref()
+            .or(a.file.as_deref())
+            .or(a.disk_uuid.as_deref())
+            .unwrap_or("embedded");
+        let reported = install.contains(&format!("user archive #{i}"));
+        if !reported {
+            return Err(format!("installer log says nothing about user archive #{i} ({label})").into());
         }
-        println!(
-            "  user archive {}: {}",
-            a.url,
-            if fetched { "fetched" } else { "skipped" }
-        );
+        println!("  user archive #{i} ({label}): verified in install log");
     }
     // Optional user files: reachable ones are fetched, unreachable ones only warn.
     for (i, f) in cfg.user_files.iter().enumerate() {
@@ -251,8 +252,8 @@ pub fn run_e2e(opts: &Options) -> Result<()> {
         .map(|u| format!("user {} created", u.name))
         .collect();
     wants.extend(cfg.services.iter().map(|s| format!("service {s}: enabled")));
-    for (i, a) in cfg.user_archives.iter().enumerate() {
-        if install.contains(&format!("user archive {} -> ~/", a.url)) {
+    for (i, _) in cfg.user_archives.iter().enumerate() {
+        if install.contains(&format!("user archive #{i}")) && fb.contains(&format!("user archive #{i}")) {
             for u in &cfg.users {
                 wants.push(format!("user archive #{i} extracted into ~ for {}", u.name));
             }

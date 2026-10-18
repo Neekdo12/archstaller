@@ -37,7 +37,7 @@ pub fn css(dark: bool) -> String {
 .sidebar-list row {{ padding: 4px 6px; }}
 /* Check and radio indicators keep a crisp, normalized size across all themes. */
 checkbutton check,
-checkbutton radio {{
+checkbutton.radio check {{
     min-width: 18px;
     min-height: 18px;
     padding: 0;
@@ -52,10 +52,10 @@ checkbutton radio {{
     -gtk-icon-source: none;
 }}
 checkbutton check:hover,
-checkbutton radio:hover {{
+checkbutton.radio check:hover {{
     border-color: alpha(currentColor, 0.7);
 }}
-checkbutton radio {{
+checkbutton.radio check {{
     border-radius: 9999px;
 }}
 checkbutton check:checked {{
@@ -64,7 +64,7 @@ checkbutton check:checked {{
     border-color: {accent_bg};
     color: {accent_fg};
 }}
-checkbutton radio:checked {{
+checkbutton.radio check:checked {{
     -gtk-icon-source: -gtk-icontheme('radio-checked-symbolic');
     color: {accent_bg};
     border-color: {accent_bg};
@@ -74,9 +74,18 @@ checkbutton radio:checked {{
 }
 
 /// Whether the active theme draws light text on a dark background.
-pub fn is_dark(w: &impl IsA<gtk::Widget>) -> bool {
-    let c = w.color();
-    0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue() > 0.5
+pub fn is_dark(_w: &impl IsA<gtk::Widget>) -> bool {
+    if let Some(settings) = gtk::Settings::default() {
+        if settings.is_gtk_application_prefer_dark_theme() {
+            return true;
+        }
+        if let Some(theme) = settings.gtk_theme_name() {
+            if theme.to_lowercase().contains("dark") {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -113,9 +122,11 @@ pub fn page_shell() -> (gtk::ScrolledWindow, gtk::Box) {
     content.set_margin_end(24);
     content.set_hexpand(true);
     let scroll = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Automatic)
+        .hscrollbar_policy(gtk::PolicyType::Never)
         .vexpand(true)
         .hexpand(true)
+        .min_content_width(320)
+        .propagate_natural_width(false)
         .child(&content)
         .build();
     (scroll, content)
@@ -125,6 +136,7 @@ pub fn heading(content: &gtk::Box, title: &str, sub: &str) {
     let t = gtk::Label::builder()
         .label(title)
         .xalign(0.0)
+        .selectable(true)
         .css_classes(["page-title"])
         .build();
     content.append(&t);
@@ -134,6 +146,7 @@ pub fn heading(content: &gtk::Box, title: &str, sub: &str) {
                 .label(sub)
                 .xalign(0.0)
                 .wrap(true)
+                .selectable(true)
                 .css_classes(["page-sub"])
                 .build(),
         );
@@ -148,6 +161,7 @@ pub fn card(content: &gtk::Box, title: Option<&str>) -> gtk::Box {
             &gtk::Label::builder()
                 .label(t)
                 .xalign(0.0)
+                .selectable(true)
                 .css_classes(["card-title"])
                 .build(),
         );
@@ -164,6 +178,7 @@ pub fn row(parent: &gtk::Box, label: &str, w: &impl IsA<gtk::Widget>) -> gtk::Bo
         .xalign(0.0)
         .width_request(130)
         .valign(gtk::Align::Center)
+        .selectable(true)
         .build();
     r.append(&l);
     w.set_hexpand(true);
@@ -182,7 +197,8 @@ pub fn hint(parent: &gtk::Box, text: &str) -> gtk::Label {
         .label(text)
         .xalign(0.0)
         .wrap(true)
-        .selectable(false)
+        .wrap_mode(gtk::pango::WrapMode::WordChar)
+        .selectable(true)
         .css_classes(["hint"])
         .build();
     parent.append(&l);
@@ -194,6 +210,8 @@ pub fn note(parent: &gtk::Box, kind: Kind, text: &str) -> gtk::Label {
         .label(text)
         .xalign(0.0)
         .wrap(true)
+        .wrap_mode(gtk::pango::WrapMode::WordChar)
+        .selectable(true)
         .css_classes([kind.class()])
         .build();
     parent.append(&l);
@@ -204,6 +222,7 @@ pub fn chip(text: &str, extra: &str) -> gtk::Label {
     let l = gtk::Label::builder()
         .label(text)
         .valign(gtk::Align::Center)
+        .selectable(true)
         .build();
     l.add_css_class("chip");
     if !extra.is_empty() {
@@ -217,6 +236,7 @@ pub fn strong(text: &str) -> gtk::Label {
         .label(format!("<b>{}</b>", gtk::glib::markup_escape_text(text)))
         .use_markup(true)
         .xalign(0.0)
+        .selectable(true)
         .build()
 }
 
@@ -224,6 +244,7 @@ pub fn dim(text: &str) -> gtk::Label {
     gtk::Label::builder()
         .label(text)
         .xalign(0.0)
+        .selectable(true)
         .css_classes(["hint"])
         .build()
 }
@@ -260,7 +281,11 @@ pub fn check(label: &str, active: bool, on_toggle: impl Fn(bool) + 'static) -> g
 }
 
 pub fn entry(initial: &str, on_change: impl Fn(&str) + 'static) -> gtk::Entry {
-    let e = gtk::Entry::builder().text(initial).hexpand(true).build();
+    let e = gtk::Entry::builder()
+        .text(initial)
+        .hexpand(true)
+        .width_chars(10)
+        .build();
     e.connect_changed(move |e| on_change(e.text().as_str()));
     e
 }
@@ -269,6 +294,7 @@ pub fn password(on_change: impl Fn(&str) + 'static) -> gtk::PasswordEntry {
     let e = gtk::PasswordEntry::builder()
         .show_peek_icon(true)
         .hexpand(true)
+        .width_chars(10)
         .build();
     e.connect_changed(move |e| on_change(e.text().as_str()));
     e
@@ -376,6 +402,9 @@ pub fn lines_editor(
     gtk::ScrolledWindow::builder()
         .min_content_height(height)
         .max_content_height(height)
+        .min_content_width(200)
+        .hscrollbar_policy(gtk::PolicyType::Automatic)
+        .propagate_natural_width(false)
         .child(&view)
         .has_frame(true)
         .build()

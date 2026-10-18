@@ -39,7 +39,8 @@
         "scripts": [],
         "custom_services": [],
         "user_files": [],
-        "user_archives": []
+        "user_archives": [],
+        "system_files": []
       }
     },
     "build": {
@@ -148,11 +149,87 @@
           "type": "integer",
           "format": "uint32",
           "minimum": 0
+        },
+        "filesystem": {
+          "description": "Root filesystem type (ext4, btrfs, xfs, f2fs). Defaults to ext4.",
+          "$ref": "#/$defs/FsType",
+          "default": "ext4"
+        },
+        "btrfs": {
+          "description": "Btrfs options (subvolumes, compression) when filesystem is btrfs.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BtrfsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "additionalProperties": false,
       "required": [
         "esp_mib"
+      ]
+    },
+    "FsType": {
+      "type": "string",
+      "enum": [
+        "ext4",
+        "btrfs",
+        "xfs",
+        "f2fs"
+      ]
+    },
+    "BtrfsConfig": {
+      "type": "object",
+      "properties": {
+        "subvolumes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BtrfsSubvol"
+          },
+          "default": [
+            {
+              "name": "@",
+              "mount": "/"
+            },
+            {
+              "name": "@home",
+              "mount": "/home"
+            },
+            {
+              "name": "@snapshots",
+              "mount": "/.snapshots"
+            },
+            {
+              "name": "@var_log",
+              "mount": "/var/log"
+            }
+          ]
+        },
+        "compress": {
+          "type": "string",
+          "default": "zstd"
+        }
+      },
+      "additionalProperties": false
+    },
+    "BtrfsSubvol": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "mount": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "mount"
       ]
     },
     "Packages": {
@@ -271,6 +348,18 @@
         "shell": {
           "description": "Login shell, for example `/bin/bash`.",
           "type": "string"
+        },
+        "dotfiles": {
+          "description": "User dotfiles configured from a GitHub repository, with optional GNU Stow linking.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UserDotfiles"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "additionalProperties": false,
@@ -279,6 +368,45 @@
         "password_hash",
         "groups",
         "shell"
+      ]
+    },
+    "UserDotfiles": {
+      "type": "object",
+      "properties": {
+        "repo": {
+          "description": "GitHub repository: \"owner/repo\" or \"https://github.com/owner/repo\".",
+          "type": "string"
+        },
+        "dir": {
+          "description": "Target directory inside user's home (default: \"dotfiles\").",
+          "type": "string",
+          "default": "dotfiles"
+        },
+        "branch": {
+          "description": "Git branch or tag (default: \"main\").",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "stow": {
+          "description": "Whether to run GNU Stow to symlink configuration files into $HOME.",
+          "type": "boolean",
+          "default": true
+        },
+        "packages": {
+          "description": "Specific package subdirectories to stow (empty = stow all or top-level).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "repo"
       ]
     },
     "FirstBoot": {
@@ -331,6 +459,14 @@
             "$ref": "#/$defs/UserArchive"
           },
           "default": []
+        },
+        "system_files": {
+          "description": "System files written into the root filesystem during installation and preserved via first-boot overlay.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SystemFile"
+          },
+          "default": []
         }
       },
       "additionalProperties": false
@@ -369,6 +505,14 @@
         },
         "sha256": {
           "description": "Lower-case hex SHA-256 of the script at `url`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "phase": {
+          "description": "Execution phase: \"pre-service\" (before service enablement) or \"post-service\" (after, default).",
           "type": [
             "string",
             "null"
@@ -446,13 +590,84 @@
       "type": "object",
       "properties": {
         "url": {
-          "description": "`https://` URL of a zip file (at most 16 MiB).",
+          "description": "Remote HTTP/HTTPS URL of the archive, downloaded during first boot.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "file": {
+          "description": "Path of a local archive file (relative to config or absolute), embedded in the ISO payload.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "disk_uuid": {
+          "description": "Filesystem UUID of a disk/partition containing the archive.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "path": {
+          "description": "Path to the archive inside the partition identified by `disk_uuid` (defaults to \"home.tar.zst\").",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "sha256": {
+          "description": "Optional lower-case hex SHA-256 digest of the archive.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "SystemFile": {
+      "description": "A system file written into the root filesystem during installation and preserved via first-boot overlay.",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "Target path relative to root, e.g. \"etc/NetworkManager/system-connections/Home.nmconnection\".",
           "type": "string"
+        },
+        "mode": {
+          "description": "Unix permission mode, e.g. 0o600 or 0o644.",
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "default": 420
+        },
+        "file": {
+          "description": "Path of a local file, relative to the config file or absolute.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "content": {
+          "description": "Inline file content.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
         }
       },
       "additionalProperties": false,
       "required": [
-        "url"
+        "path"
       ]
     },
     "AsBuild": {

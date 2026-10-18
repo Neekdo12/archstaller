@@ -17,3 +17,5 @@
 !/packaging/aur/*/PKGBUILD
 !/packaging/aur/*/PKGBUILD.local.in
 !/packaging/aur/*/.SRCINFO
+/logs
+/journals

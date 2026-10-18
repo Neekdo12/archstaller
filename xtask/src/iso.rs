@@ -241,11 +241,10 @@ fn build_kernel(
     if wants_debug(opts, loaded) {
         features.push("debug".into());
     }
-    // `installer_drivers` in the config narrows the drivers; without it the kernel's defaults (all) apply.
-    if loaded.host.installer_drivers.is_some() {
-        cmd.arg("--no-default-features");
-        features.extend(loaded.host.drivers().into_iter().map(String::from));
-    }
+    // Always compile only the chosen filesystem writer and drivers:
+    cmd.arg("--no-default-features");
+    features.push(loaded.config.disk.filesystem.as_str().into());
+    features.extend(loaded.host.drivers().into_iter().map(String::from));
     cmd.args(["--features", &features.join(",")]);
     run(&mut cmd)?;
     Ok(kernel_path(profile))
@@ -342,6 +341,7 @@ pub struct Components {
     pub efi: Vec<u8>,
     pub payload: Vec<u8>,
     pub resolved: hostcfg::host::Resolved,
+    pub config: config::Config,
 }
 
 pub fn build_components(opts: &Options) -> Result<Components> {
@@ -412,6 +412,7 @@ pub fn build_components(opts: &Options) -> Result<Components> {
         efi,
         payload,
         resolved,
+        config: loaded.config,
     })
 }
 

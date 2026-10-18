@@ -77,13 +77,13 @@ pub struct App {
 impl App {
     pub fn new(gapp: &gtk::Application) -> Rc<App> {
         // A default size that fits the screen: laptops are smaller than 1180x780.
-        let (mut w, mut h) = (1100, 740);
+        let (mut w, mut h) = (880, 680);
         if let Some(m) = gtk::gdk::Display::default()
             .and_then(|d| d.monitors().item(0))
             .and_then(|m| m.downcast::<gtk::gdk::Monitor>().ok())
         {
             let g = m.geometry();
-            w = w.min(g.width() * 9 / 10);
+            w = w.min(g.width() * 85 / 100);
             h = h.min(g.height() * 85 / 100);
         }
         let win = gtk::ApplicationWindow::builder()
@@ -92,10 +92,16 @@ impl App {
             .default_width(w)
             .default_height(h)
             .build();
+        win.set_size_request(380, 400);
 
         // Header bar: file and tools menus, the sidebar toggle, the document name.
         let header = gtk::HeaderBar::new();
-        let title = gtk::Label::builder().label("untitled").build();
+        let title = gtk::Label::builder()
+            .label("untitled")
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .width_chars(8)
+            .selectable(true)
+            .build();
         header.set_title_widget(Some(&title));
         let sidebar_toggle = gtk::ToggleButton::builder()
             .icon_name("sidebar-show-symbolic")
@@ -134,6 +140,14 @@ impl App {
         header.pack_end(&menu_btn);
         let preset_btn = gtk::MenuButton::builder().label("From preset").menu_model(&presets).sensitive(!preset_list.is_empty()).tooltip_text(if preset_list.is_empty() { "No presets found (install the package, run from a checkout or set ARCHSTALLER_ROOT)" } else { "Start a new, unsaved config from one of the repository's presets" }).build();
         header.pack_end(&preset_btn);
+
+        let reinstall_btn = gtk::Button::builder()
+            .label("Reinstall This Computer")
+            .icon_name("system-reboot-symbolic")
+            .tooltip_text("Quickly import this system's users, passwords, Wi-Fi profiles, and packages to create a reinstall configuration")
+            .build();
+        header.pack_start(&reinstall_btn);
+
         win.set_titlebar(Some(&header));
 
         // Sidebar.
@@ -186,21 +200,27 @@ impl App {
             .xalign(0.0)
             .hexpand(true)
             .ellipsize(gtk::pango::EllipsizeMode::End)
+            .max_width_chars(25)
+            .width_chars(8)
+            .selectable(true)
             .build();
-        let problem_btn = gtk::Button::with_label("Go to the problem");
+        let problem_btn = gtk::Button::with_label("Fix issue");
         let status = gtk::Label::builder()
             .xalign(1.0)
             .css_classes(["hint"])
             .ellipsize(gtk::pango::EllipsizeMode::Start)
-            .max_width_chars(60)
+            .max_width_chars(25)
+            .width_chars(8)
+            .selectable(true)
             .build();
         bar.append(&problem);
         bar.append(&problem_btn);
         bar.append(&status);
 
         let body = ui::hbox(0);
+        let sep = gtk::Separator::new(gtk::Orientation::Vertical);
         body.append(&side);
-        body.append(&gtk::Separator::new(gtk::Orientation::Vertical));
+        body.append(&sep);
         body.append(&stack);
         let root = ui::vbox(0);
         root.append(&body);
@@ -225,7 +245,11 @@ impl App {
         });
         {
             let side = side.clone();
-            sidebar_toggle.connect_toggled(move |t| side.set_visible(t.is_active()));
+            let sep = sep.clone();
+            sidebar_toggle.connect_toggled(move |t| {
+                side.set_visible(t.is_active());
+                sep.set_visible(t.is_active());
+            });
         }
         // A narrow window hides the sidebar (the toggle brings it back); a wide one shows it again.
         {
@@ -260,6 +284,12 @@ impl App {
                 if let Some(p) = first {
                     a.show(page_of(p.area));
                 }
+            });
+        }
+        {
+            let a = app.clone();
+            reinstall_btn.connect_clicked(move |_| {
+                a.preset_doc("reinstall".into());
             });
         }
         app.install_actions(gapp);
@@ -424,6 +454,7 @@ impl App {
     pub fn set_status(&self, msg: impl Into<String>) {
         let msg = msg.into();
         self.status.set_text(&msg);
+        self.status.set_tooltip_text(Some(&msg));
         self.st.borrow_mut().status = msg;
     }
 
@@ -453,13 +484,12 @@ impl App {
         self.problem.remove_css_class("note-ok");
         match problems.first() {
             Some(p) => {
-                self.problem.set_text(&format!("Invalid: {}", p.message));
+                self.problem.set_text(&format!("Issue: {}", p.message));
                 self.problem.add_css_class("note-bad");
                 self.problem_btn.set_visible(true);
             }
             None => {
-                self.problem
-                    .set_text("The config is valid (the same checks as the command line).");
+                self.problem.set_text("Valid configuration");
                 self.problem.add_css_class("note-ok");
                 self.problem_btn.set_visible(false);
             }
@@ -537,6 +567,9 @@ impl App {
             match Model::from_preset(&path) {
                 Ok(m) => {
                     a.load(m, format!("New config from preset {name} (unsaved)"));
+                    if name == "reinstall" {
+                        crate::pages::users::open_shadow_auth_dialog(&a);
+                    }
                     // Presets erase the largest disk: say so before the user builds anything from it.
                     a.show(Page::Disk);
                     if a.st.borrow().model.cfg.disk.auto_largest {

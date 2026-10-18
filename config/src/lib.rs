@@ -36,6 +36,9 @@ pub struct Config {
     /// `user_files`.
     #[serde(default)]
     pub user_archives: Vec<UserArchive>,
+    /// System files written into the root filesystem during installation and preserved via the first-boot overlay.
+    #[serde(default)]
+    pub system_files: Vec<SystemFile>,
     /// Hardware test mode: probe devices, read disks (never write), bring up the network, fetch
     /// and resolve the package databases, print a report and reboot. No disk is selected, so
     /// `disk.confirm_serial` is not needed. The kernel wraps every disk so writes are refused.
@@ -81,8 +84,6 @@ pub struct AurPackage {
     pub services: Vec<String>,
 }
 
-/// The most AUR packages a config can name.
-pub const AUR_MAX: usize = 16;
 
 fn hex(s: &str, n: usize) -> bool {
     s.len() == n
@@ -119,6 +120,9 @@ pub struct Script {
     /// The script itself, filled in by `xtask`.
     #[serde(default)]
     pub content: Option<Vec<u8>>,
+    /// Execution phase: "pre-service" (before service enablement) or "post-service" (after, default).
+    #[serde(default)]
+    pub phase: Option<String>,
 }
 
 /// The largest script the installer will embed or download.
@@ -186,10 +190,74 @@ impl Default for CustomService {
 /// The largest custom service unit file the installer will embed.
 pub const CUSTOM_SERVICE_MAX: usize = 64 * 1024;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// The largest archive the installer will embed or download (256 MiB).
+pub const USER_ARCHIVE_MAX: usize = 256 * 1024 * 1024;
+
+/// Detects whether `data` begins with valid magic bytes for `.tar.zst`, `.tar.xz`, `.tar.gz`,
+/// `.tar.bz2`, `.zip`, or POSIX `.tar`. All of these formats are supported by `bsdtar`.
+pub fn is_supported_archive(data: &[u8]) -> bool {
+    // PKZip (.zip)
+    data.starts_with(b"PK\x03\x04") || data.starts_with(b"PK\x05\x06")
+    // Zstandard (.tar.zst, .zst)
+    || data.starts_with(&[0x28, 0xb5, 0x2f, 0xfd])
+    // XZ (.tar.xz, .xz)
+    || data.starts_with(&[0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00])
+    // Gzip (.tar.gz, .gz)
+    || data.starts_with(&[0x1f, 0x8b])
+    // Bzip2 (.tar.bz2, .bz2)
+    || data.starts_with(b"BZh")
+    // POSIX tar (.tar) - "ustar" at offset 257
+    || data.get(257..262) == Some(b"ustar")
+}
+
+/// A user archive extracted into every configured user's home directory on the installed system.
+/// Supports `.tar.zst`, `.tar.xz`, `.tar.gz`, `.tar.bz2`, and `.zip` formats.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserArchive {
-    /// `https://` URL of a zip file (at most 16 MiB).
-    pub url: String,
+    /// Remote HTTP/HTTPS URL of the archive, downloaded during first boot.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Host-only path of a local archive file (relative to config or absolute), embedded in the ISO payload.
+    #[serde(default)]
+    pub file: Option<String>,
+    /// Archive bytes embedded in the ISO payload at build time.
+    #[serde(default)]
+    pub content: Option<Vec<u8>>,
+    /// Filesystem UUID of a disk/partition containing the archive.
+    #[serde(default)]
+    pub disk_uuid: Option<String>,
+    /// Path to the archive inside the partition identified by `disk_uuid` (defaults to "home.tar.zst").
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Optional lower-case hex SHA-256 digest of the archive.
+    #[serde(default)]
+    pub sha256: Option<String>,
+}
+
+/// A system file written into the root filesystem during installation and preserved in the first-boot overlay.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SystemFile {
+    /// Target path relative to root, e.g. "etc/NetworkManager/system-connections/Home.nmconnection".
+    pub path: String,
+    /// Unix permission bits (e.g. 0o600 for network keys, 0o644 for general configs).
+    pub mode: u16,
+    /// Host-only: path of a local file to read at build time.
+    #[serde(default)]
+    pub file: Option<String>,
+    /// File content embedded directly.
+    #[serde(default)]
+    pub content: Option<Vec<u8>>,
+}
+
+impl Default for SystemFile {
+    fn default() -> Self {
+        SystemFile {
+            path: String::new(),
+            mode: 0o644,
+            file: None,
+            content: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -198,6 +266,75 @@ pub struct UserFile {
     pub url: String,
     /// Destination relative to the home directory, for example `.config/hypr/hyprland.conf`.
     pub dest: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FsType {
+    #[default]
+    Ext4,
+    Btrfs,
+    Xfs,
+    F2fs,
+}
+
+impl FsType {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ext4 => "ext4",
+            Self::Btrfs => "btrfs",
+            Self::Xfs => "xfs",
+            Self::F2fs => "f2fs",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BtrfsSubvol {
+    pub name: String,
+    pub mount: String,
+}
+
+pub fn default_zstd() -> String {
+    "zstd".into()
+}
+
+pub fn default_btrfs_subvolumes() -> Vec<BtrfsSubvol> {
+    alloc::vec![
+        BtrfsSubvol {
+            name: "@".into(),
+            mount: "/".into(),
+        },
+        BtrfsSubvol {
+            name: "@home".into(),
+            mount: "/home".into(),
+        },
+        BtrfsSubvol {
+            name: "@snapshots".into(),
+            mount: "/.snapshots".into(),
+        },
+        BtrfsSubvol {
+            name: "@var_log".into(),
+            mount: "/var/log".into(),
+        },
+    ]
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BtrfsConfig {
+    #[serde(default = "default_btrfs_subvolumes")]
+    pub subvolumes: Vec<BtrfsSubvol>,
+    #[serde(default = "default_zstd")]
+    pub compress: String,
+}
+
+impl Default for BtrfsConfig {
+    fn default() -> Self {
+        Self {
+            subvolumes: default_btrfs_subvolumes(),
+            compress: default_zstd(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -215,6 +352,68 @@ pub struct Disk {
     pub auto_largest: bool,
     /// ESP size in MiB.
     pub esp_mib: u32,
+    /// Root filesystem type (ext4, btrfs, xfs, f2fs). Defaults to ext4.
+    #[serde(default)]
+    pub filesystem: FsType,
+    /// Btrfs options (subvolumes, compression) when filesystem is btrfs.
+    #[serde(default)]
+    pub btrfs: Option<BtrfsConfig>,
+}
+
+pub fn default_dotfiles_dir() -> String {
+    "dotfiles".into()
+}
+
+/// Validates GitHub repository identifier (e.g. `owner/repo` or `https://github.com/owner/repo`).
+pub fn valid_github_repo(s: &str) -> bool {
+    let clean = s
+        .strip_prefix("https://github.com/")
+        .or_else(|| s.strip_prefix("http://github.com/"))
+        .unwrap_or(s)
+        .strip_suffix(".git")
+        .unwrap_or(s)
+        .trim_matches('/');
+
+    let mut parts = clean.split('/');
+    let (Some(owner), Some(repo), None) = (parts.next(), parts.next(), parts.next()) else {
+        return false;
+    };
+    if owner.is_empty() || repo.is_empty() || owner.len() > 100 || repo.len() > 100 {
+        return false;
+    }
+    let valid_char = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.';
+    owner.chars().all(valid_char) && repo.chars().all(valid_char)
+}
+
+/// User dotfiles configured from a GitHub repository, with optional GNU Stow linking.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserDotfiles {
+    /// GitHub repository: "owner/repo" or "https://github.com/owner/repo".
+    pub repo: String,
+    /// Target directory inside user's home (default: "dotfiles").
+    #[serde(default = "default_dotfiles_dir")]
+    pub dir: String,
+    /// Git branch or tag (default: "main").
+    #[serde(default)]
+    pub branch: Option<String>,
+    /// Whether to run GNU Stow to symlink configuration files into $HOME.
+    #[serde(default = "default_true")]
+    pub stow: bool,
+    /// Specific package subdirectories to stow (empty = stow all or top-level).
+    #[serde(default)]
+    pub packages: Vec<String>,
+}
+
+impl Default for UserDotfiles {
+    fn default() -> Self {
+        UserDotfiles {
+            repo: String::new(),
+            dir: default_dotfiles_dir(),
+            branch: None,
+            stow: true,
+            packages: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -224,6 +423,8 @@ pub struct User {
     pub password_hash: String,
     pub groups: Vec<String>,
     pub shell: String,
+    #[serde(default)]
+    pub dotfiles: Option<UserDotfiles>,
 }
 
 /// Services that give the installed system a network (AUR packages are built once it has one).
@@ -248,10 +449,23 @@ fn ident(s: &str, extra: &str) -> bool {
 }
 
 fn crypt_hash(h: &str) -> bool {
-    h.starts_with("$6$")
-        && h.len() > 20
+    let valid_prefix = h.starts_with("$y$")
+        || h.starts_with("$gy$")
+        || h.starts_with("$7$")
+        || h.starts_with("$6$")
+        || h.starts_with("$5$")
+        || h.starts_with("$2b$")
+        || h.starts_with("$2y$")
+        || h.starts_with("$2a$")
+        || h.starts_with("$2x$")
+        || h.starts_with("$1$")
+        || h.starts_with("$argon2id$")
+        || h.starts_with("$argon2i$")
+        || h.starts_with("$argon2d$");
+    valid_prefix
+        && h.len() > 13
         && h.chars()
-            .all(|c| c.is_ascii_alphanumeric() || "$./".contains(c))
+            .all(|c| c.is_ascii_alphanumeric() || "$./=,+-".contains(c))
 }
 
 impl Config {
@@ -283,6 +497,41 @@ impl Config {
         if self.disk.esp_mib < 64 || self.disk.esp_mib > 8192 {
             return Err(format!("disk.esp_mib out of range: {}", self.disk.esp_mib));
         }
+        if self.disk.filesystem == FsType::Btrfs {
+            if let Some(b) = &self.disk.btrfs {
+                if b.subvolumes.is_empty() {
+                    return Err("btrfs.subvolumes must not be empty".into());
+                }
+                if !b.subvolumes.iter().any(|s| s.mount == "/") {
+                    return Err("btrfs.subvolumes must include a subvolume mounted at '/'".into());
+                }
+                for (i, s) in b.subvolumes.iter().enumerate() {
+                    if !ident(&s.name, "@_-") {
+                        return bad("btrfs subvolume name", &s.name);
+                    }
+                    if !s.mount.starts_with('/') {
+                        return bad("btrfs mount point (must start with '/')", &s.mount);
+                    }
+                    if b.subvolumes.iter().take(i).any(|o| o.name == s.name) {
+                        return bad("duplicate btrfs subvolume name", &s.name);
+                    }
+                    if b.subvolumes.iter().take(i).any(|o| o.mount == s.mount) {
+                        return bad("duplicate btrfs subvolume mount", &s.mount);
+                    }
+                }
+                let c = &b.compress;
+                let valid_compress = c == "none"
+                    || c == "zstd"
+                    || c.starts_with("zstd:")
+                    || c == "lzo";
+                if !valid_compress {
+                    return bad(
+                        "btrfs compression (supported: 'zstd', 'zstd:<level>', 'lzo', 'none')",
+                        c,
+                    );
+                }
+            }
+        }
         if self.mirrors.is_empty() {
             return Err("at least one mirror is required".into());
         }
@@ -309,7 +558,7 @@ impl Config {
         if let Some(h) = &self.root_password_hash {
             if !crypt_hash(h) {
                 return bad(
-                    "root_password_hash (need a $6$ SHA-512 crypt hash)",
+                    "root_password_hash (need a valid crypt hash, e.g. yescrypt $y$ or SHA-512 $6$)",
                     "<hidden>",
                 );
             }
@@ -331,7 +580,7 @@ impl Config {
             }
             if !crypt_hash(&u.password_hash) {
                 return bad(
-                    "password_hash (need a $6$ SHA-512 crypt hash) for user",
+                    "password_hash (need a valid crypt hash, e.g. yescrypt $y$ or SHA-512 $6$) for user",
                     &u.name,
                 );
             }
@@ -342,6 +591,42 @@ impl Config {
             }
             if !u.shell.starts_with('/') || !ident(&u.shell, "/_-.") {
                 return bad("shell", &u.shell);
+            }
+            if let Some(ref dotfiles) = u.dotfiles {
+                if !valid_github_repo(&dotfiles.repo) {
+                    return Err(format!(
+                        "user '{}': invalid dotfiles repository '{}'",
+                        u.name, dotfiles.repo
+                    ));
+                }
+                if dotfiles.dir.is_empty()
+                    || dotfiles.dir.starts_with('/')
+                    || dotfiles.dir.contains("..")
+                    || dotfiles.dir.len() > 64
+                {
+                    return Err(format!(
+                        "user '{}': invalid dotfiles directory '{}'",
+                        u.name, dotfiles.dir
+                    ));
+                }
+                if let Some(ref branch) = dotfiles.branch {
+                    if branch.is_empty()
+                        || branch.chars().any(|c| c.is_whitespace() || c.is_control())
+                    {
+                        return Err(format!(
+                            "user '{}': invalid dotfiles branch '{branch}'",
+                            u.name
+                        ));
+                    }
+                }
+                for pkg in &dotfiles.packages {
+                    if pkg.is_empty() || pkg.contains('/') || pkg.contains("..") {
+                        return Err(format!(
+                            "user '{}': invalid stow package '{pkg}'",
+                            u.name
+                        ));
+                    }
+                }
             }
         }
         for s in &self.services {
@@ -384,17 +669,34 @@ impl Config {
                 );
             }
         }
-        for a in &self.user_archives {
-            if !a.url.starts_with("https://")
-                || a.url
-                    .chars()
-                    .any(|c| c.is_whitespace() || c == '\'' || c == '"')
-            {
-                return bad("user_archives url (https:// only)", &a.url);
+        for (i, a) in self.user_archives.iter().enumerate() {
+            let at = |m: &str| Err(format!("user_archives[{}]: {m}", i + 1));
+            match (&a.url, &a.file, &a.content, &a.disk_uuid) {
+                (None, None, None, None) => {
+                    return at("must specify at least one of url, file, content, or disk_uuid");
+                }
+                (Some(u), ..)
+                    if (!u.starts_with("https://") && !u.starts_with("http://"))
+                        || u.chars().any(|c| c.is_whitespace() || c == '\'' || c == '"') =>
+                {
+                    return at(&format!("invalid url {u:?}"));
+                }
+                _ => {}
+            }
+            if let Some(h) = &a.sha256 {
+                if !hex(h, 64) {
+                    return at(&format!("invalid sha256 {h:?} (expected 64 lower-case hex characters)"));
+                }
             }
         }
-        if self.aur.len() > AUR_MAX {
-            return Err(format!("at most {AUR_MAX} aur_packages"));
+        for (i, sf) in self.system_files.iter().enumerate() {
+            let at = |m: &str| Err(format!("system_files[{}]: {m}", i + 1));
+            if sf.path.is_empty() || sf.path.starts_with('/') || sf.path.contains("..") {
+                return at(&format!("invalid relative path {:?}", sf.path));
+            }
+            if sf.file.is_none() && sf.content.is_none() {
+                return at("must specify file or content");
+            }
         }
         for (i, a) in self.aur.iter().enumerate() {
             let at = |m: &str| Err(format!("aur_packages[{}]: {m}", i + 1));
@@ -474,6 +776,13 @@ impl Config {
             if sc.content.as_ref().is_some_and(|c| c.len() > SCRIPT_MAX) {
                 return at("script is larger than 64 KiB");
             }
+            if let Some(ref ph) = sc.phase {
+                if ph != "pre-service" && ph != "post-service" {
+                    return at(&format!(
+                        "invalid script phase '{ph}' (must be 'pre-service' or 'post-service')"
+                    ));
+                }
+            }
         }
         if self.custom_services.len() > 32 {
             return Err("at most 32 custom_services".into());
@@ -542,6 +851,8 @@ mod tests {
                 confirm_serial: "S".into(),
                 auto_largest: false,
                 esp_mib: 512,
+                filesystem: FsType::Ext4,
+                btrfs: None,
             },
             mirrors: vec!["https://example.org/$repo/os/$arch".into()],
             packages: vec!["base".into()],
@@ -552,6 +863,7 @@ mod tests {
             kernel_params: vec![],
             user_files: vec![],
             user_archives: vec![],
+            system_files: vec![],
             dry_run: false,
             scripts: vec![],
             custom_services: vec![],
@@ -584,6 +896,7 @@ mod tests {
             password_hash: format!("$6$abc${}", "a".repeat(86)),
             groups: vec!["wheel".into()],
             shell: "/bin/bash".into(),
+            dotfiles: None,
         };
         let mut c = base();
         c.users = vec![user("alice"), user("bob")];
@@ -603,6 +916,7 @@ mod tests {
             password_hash: format!("$6$abc${}", "a".repeat(86)),
             groups: vec![],
             shell: "/bin/bash".into(),
+            dotfiles: None,
         };
         let with_user = |n: &str| Config {
             users: vec![user(n)],
@@ -622,6 +936,28 @@ mod tests {
         for bad in [".box", "box.", "a..b", "-box", "a.-b"] {
             assert!(with_host(bad).validate().is_err(), "hostname {bad:?}");
         }
+    }
+
+    #[test]
+    fn accepts_modern_crypt_hashes_and_rejects_bad_ones() {
+        let with_hash = |h: &str| {
+            let mut c = base();
+            c.root_password_hash = Some(h.into());
+            c.validate()
+        };
+        // SHA-512 ($6$)
+        with_hash("$6$abc$12345678901234567890").unwrap();
+        // Yescrypt ($y$)
+        with_hash("$y$j9T$12345678901234567890").unwrap();
+        // Bcrypt ($2b$)
+        with_hash("$2b$12$12345678901234567890").unwrap();
+        // Argon2 ($argon2id$)
+        with_hash("$argon2id$v=19$m=65536,t=3,p=4$12345678$123456789012").unwrap();
+        // Bad hashes
+        assert!(with_hash("plaintext_password").is_err());
+        assert!(with_hash("$6$short").is_err());
+        assert!(with_hash("").is_err());
+        assert!(with_hash("$invalid$abc1234567890").is_err());
     }
 
     #[test]
@@ -668,14 +1004,14 @@ mod tests {
         let mut c = base();
         c.aur = vec![pkg(), pkg()];
         assert!(c.validate().unwrap_err().contains("twice"));
-        c.aur = (0..=AUR_MAX)
+        c.aur = (0..50)
             .map(|i| AurPackage {
                 name: alloc::format!("p{i}"),
                 pkgbase: alloc::format!("p{i}"),
                 ..pkg()
             })
             .collect();
-        assert!(c.validate().unwrap_err().contains("at most"));
+        c.validate().unwrap();
         c.aur = vec![pkg()];
         c.services.clear();
         assert!(c.validate().unwrap_err().contains("needs a network"));
@@ -689,6 +1025,7 @@ mod tests {
             password_hash: format!("$6$abc${}", "a".repeat(86)),
             groups: vec![],
             shell: "/bin/bash".into(),
+            dotfiles: None,
         }];
         c.custom_services = vec![CustomService {
             name: "my-service.service".into(),
@@ -738,5 +1075,303 @@ mod tests {
         c.custom_services[0].file = None;
         c.custom_services[0].content = Some(alloc::vec![b'a'; CUSTOM_SERVICE_MAX + 1]);
         assert!(c.validate().unwrap_err().contains("larger than 64 KiB"));
+    }
+
+    #[test]
+    fn user_archive_rules() {
+        let mut c = base();
+        c.user_archives = vec![UserArchive {
+            url: Some("https://example.com/dotfiles.tar.zst".into()),
+            ..Default::default()
+        }];
+        c.validate().unwrap();
+
+        // Disk UUID source
+        c.user_archives = vec![UserArchive {
+            disk_uuid: Some("1234-5678".into()),
+            path: Some("home.tar.zst".into()),
+            ..Default::default()
+        }];
+        c.validate().unwrap();
+
+        // Local file source
+        c.user_archives = vec![UserArchive {
+            file: Some("/path/to/archive.tar.zst".into()),
+            ..Default::default()
+        }];
+        c.validate().unwrap();
+
+        // Embedded content source
+        c.user_archives = vec![UserArchive {
+            content: Some(b"dummy".to_vec()),
+            ..Default::default()
+        }];
+        c.validate().unwrap();
+
+        // Empty archive source
+        c.user_archives = vec![UserArchive::default()];
+        assert!(c.validate().unwrap_err().contains("at least one of"));
+
+        // Invalid URL
+        c.user_archives = vec![UserArchive {
+            url: Some("ftp://bad.com".into()),
+            ..Default::default()
+        }];
+        assert!(c.validate().unwrap_err().contains("invalid url"));
+    }
+
+    #[test]
+    fn system_file_rules() {
+        let mut c = base();
+        c.system_files = vec![SystemFile {
+            path: "etc/NetworkManager/system-connections/Home.nmconnection".into(),
+            mode: 0o600,
+            file: Some("connections/Home.nmconnection".into()),
+            content: None,
+        }];
+        c.validate().unwrap();
+
+        // Invalid path (absolute)
+        c.system_files[0].path = "/etc/passwd".into();
+        assert!(c.validate().unwrap_err().contains("invalid relative path"));
+
+        // Invalid path (path traversal)
+        c.system_files[0].path = "etc/../etc/passwd".into();
+        assert!(c.validate().unwrap_err().contains("invalid relative path"));
+
+        // Neither file nor content
+        c.system_files[0].path = "etc/good".into();
+        c.system_files[0].file = None;
+        c.system_files[0].content = None;
+        assert!(c.validate().unwrap_err().contains("must specify file or content"));
+    }
+
+    #[test]
+    fn filesystem_rules() {
+        let mut c = base();
+        assert_eq!(c.disk.filesystem, FsType::Ext4);
+        assert_eq!(c.disk.filesystem.as_str(), "ext4");
+        c.validate().unwrap();
+
+        // XFS and F2FS
+        c.disk.filesystem = FsType::Xfs;
+        assert_eq!(c.disk.filesystem.as_str(), "xfs");
+        c.validate().unwrap();
+
+        c.disk.filesystem = FsType::F2fs;
+        assert_eq!(c.disk.filesystem.as_str(), "f2fs");
+        c.validate().unwrap();
+
+        // Btrfs with default config
+        c.disk.filesystem = FsType::Btrfs;
+        assert_eq!(c.disk.filesystem.as_str(), "btrfs");
+        c.disk.btrfs = Some(BtrfsConfig::default());
+        c.validate().unwrap();
+
+        // Empty subvolumes
+        c.disk.btrfs = Some(BtrfsConfig {
+            subvolumes: vec![],
+            compress: "zstd".into(),
+        });
+        assert!(c.validate().unwrap_err().contains("subvolumes must not be empty"));
+
+        // Missing root mount
+        c.disk.btrfs = Some(BtrfsConfig {
+            subvolumes: vec![BtrfsSubvol {
+                name: "@home".into(),
+                mount: "/home".into(),
+            }],
+            compress: "zstd".into(),
+        });
+        assert!(c.validate().unwrap_err().contains("must include a subvolume mounted at '/'"));
+
+        // Duplicate subvolume name
+        c.disk.btrfs = Some(BtrfsConfig {
+            subvolumes: vec![
+                BtrfsSubvol {
+                    name: "@".into(),
+                    mount: "/".into(),
+                },
+                BtrfsSubvol {
+                    name: "@".into(),
+                    mount: "/home".into(),
+                },
+            ],
+            compress: "zstd".into(),
+        });
+        assert!(c.validate().unwrap_err().contains("duplicate btrfs subvolume name"));
+
+        // Duplicate mount point
+        c.disk.btrfs = Some(BtrfsConfig {
+            subvolumes: vec![
+                BtrfsSubvol {
+                    name: "@".into(),
+                    mount: "/".into(),
+                },
+                BtrfsSubvol {
+                    name: "@root2".into(),
+                    mount: "/".into(),
+                },
+            ],
+            compress: "zstd".into(),
+        });
+        assert!(c.validate().unwrap_err().contains("duplicate btrfs subvolume mount"));
+
+        // Invalid mount point (not starting with /)
+        c.disk.btrfs = Some(BtrfsConfig {
+            subvolumes: vec![
+                BtrfsSubvol {
+                    name: "@".into(),
+                    mount: "/".into(),
+                },
+                BtrfsSubvol {
+                    name: "@home".into(),
+                    mount: "home".into(),
+                },
+            ],
+            compress: "zstd".into(),
+        });
+        assert!(c.validate().unwrap_err().contains("must start with '/'"));
+
+        // Invalid compression
+        c.disk.btrfs = Some(BtrfsConfig {
+            subvolumes: default_btrfs_subvolumes(),
+            compress: "gzip".into(),
+        });
+        assert!(c.validate().unwrap_err().contains("btrfs compression"));
+
+        // Valid compression variations
+        c.disk.btrfs.as_mut().unwrap().compress = "zstd:3".into();
+        c.validate().unwrap();
+        c.disk.btrfs.as_mut().unwrap().compress = "lzo".into();
+        c.validate().unwrap();
+        c.disk.btrfs.as_mut().unwrap().compress = "none".into();
+        c.validate().unwrap();
+    }
+
+    #[test]
+    fn dotfiles_validation_rules() {
+        let mut c = base();
+        let mut u = User {
+            name: "alice".into(),
+            password_hash: "$6$rounds=5000$usesomehash$9876543210zyxwvutsrqponmlkjihgfedcba".into(),
+            groups: vec!["wheel".into()],
+            shell: "/bin/bash".into(),
+            dotfiles: Some(UserDotfiles {
+                repo: "alice/dotfiles".into(),
+                dir: "dotfiles".into(),
+                branch: Some("main".into()),
+                stow: true,
+                packages: vec!["hypr".into(), "bash".into()],
+            }),
+        };
+        c.users = vec![u.clone()];
+        c.validate().unwrap();
+
+        // Valid full HTTPS URL
+        u.dotfiles = Some(UserDotfiles {
+            repo: "https://github.com/alice/my-dotfiles.git".into(),
+            dir: ".dotfiles".into(),
+            branch: None,
+            stow: true,
+            packages: vec![],
+        });
+        c.users = vec![u.clone()];
+        c.validate().unwrap();
+
+        // Invalid repo: empty
+        u.dotfiles = Some(UserDotfiles {
+            repo: "".into(),
+            dir: "dotfiles".into(),
+            branch: None,
+            stow: true,
+            packages: vec![],
+        });
+        c.users = vec![u.clone()];
+        assert!(c.validate().unwrap_err().contains("dotfiles repository"));
+
+        // Invalid repo: no slash (not owner/repo)
+        u.dotfiles = Some(UserDotfiles {
+            repo: "just-repo-name".into(),
+            dir: "dotfiles".into(),
+            branch: None,
+            stow: true,
+            packages: vec![],
+        });
+        c.users = vec![u.clone()];
+        assert!(c.validate().unwrap_err().contains("dotfiles repository"));
+
+        // Invalid repo: non-github domain
+        u.dotfiles = Some(UserDotfiles {
+            repo: "https://gitlab.com/alice/dotfiles".into(),
+            dir: "dotfiles".into(),
+            branch: None,
+            stow: true,
+            packages: vec![],
+        });
+        c.users = vec![u.clone()];
+        assert!(c.validate().unwrap_err().contains("dotfiles repository"));
+
+        // Invalid dir: absolute path
+        u.dotfiles = Some(UserDotfiles {
+            repo: "alice/dotfiles".into(),
+            dir: "/root/dotfiles".into(),
+            branch: None,
+            stow: true,
+            packages: vec![],
+        });
+        c.users = vec![u.clone()];
+        assert!(c.validate().unwrap_err().contains("dotfiles directory"));
+
+        // Invalid dir: path traversal
+        u.dotfiles = Some(UserDotfiles {
+            repo: "alice/dotfiles".into(),
+            dir: "../dotfiles".into(),
+            branch: None,
+            stow: true,
+            packages: vec![],
+        });
+        c.users = vec![u.clone()];
+        assert!(c.validate().unwrap_err().contains("dotfiles directory"));
+
+        // Invalid package name: path traversal
+        u.dotfiles = Some(UserDotfiles {
+            repo: "alice/dotfiles".into(),
+            dir: "dotfiles".into(),
+            branch: None,
+            stow: true,
+            packages: vec!["../../etc".into()],
+        });
+        c.users = vec![u.clone()];
+        assert!(c.validate().unwrap_err().contains("stow package"));
+    }
+
+    #[test]
+    fn script_phase_validation_rules() {
+        let mut c = base();
+        c.scripts = vec![Script {
+            id: "setup-pre".into(),
+            phase: Some("pre-service".into()),
+            content: Some(b"echo pre".to_vec()),
+            ..Default::default()
+        }];
+        c.validate().unwrap();
+
+        c.scripts = vec![Script {
+            id: "setup-post".into(),
+            phase: Some("post-service".into()),
+            content: Some(b"echo post".to_vec()),
+            ..Default::default()
+        }];
+        c.validate().unwrap();
+
+        // Invalid phase
+        c.scripts = vec![Script {
+            id: "setup-bad".into(),
+            phase: Some("during-install".into()),
+            content: Some(b"echo bad".to_vec()),
+            ..Default::default()
+        }];
+        assert!(c.validate().unwrap_err().contains("script phase"));
     }
 }

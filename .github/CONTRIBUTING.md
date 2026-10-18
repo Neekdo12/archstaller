@@ -9,7 +9,7 @@ the architecture is in [`OVERVIEW.md`](../OVERVIEW.md) and [`docs/architecture.m
 - **Small and focused wins.** Open an issue first for anything that adds a driver, a preset, a config field
   or a dependency, so the size budget and the scope can be discussed.
 - **Out of scope** unless a spec in [`plans-implement/`](../plans-implement/) asks for it: Wi-Fi, SMP, Secure Boot,
-  an interactive UI, file systems other than ext4, architectures other than x86_64, USB beyond tethering.
+  an interactive UI, file systems other than ext4, btrfs, xfs, f2fs, architectures other than x86_64, USB beyond tethering.
 - Test machines matter more than code volume. A [hardware report](https://github.com/Neekdo12/archstaller/issues/new?template=hardware_report.yml)
   helps as much as a patch.
 
@@ -31,12 +31,12 @@ checks, and the preset build.
 ## Checks to run
 
 ```sh
-cargo xtask keyring                # once: builds target/keyring.bin, which the pgp-lite tests read
-cargo test --release -p pgp-lite --features std -p pkg -p ext4w -p disk -p initrd \
-    -p hostcfg -p archstaller-gui -p loadcore -p config -p net -p aurbuild -p xtask
+cargo xtask keyring                     # once: builds target/keyring.bin, which the pgp-lite tests read
+cargo test --workspace                  # all workspace unit and integration tests
+cargo clippy --workspace --all-targets  # zero warnings required across all crates and targets
 cargo xtask gen-schema --check          # configs/archstaller.schema.json matches the Rust schema
-cargo xtask build && cargo xtask size  # the ISO stays within the budget in sizes.md
-cargo xtask check-presets              # every preset still resolves (needs `pacman -Sy`)
+cargo xtask build && cargo xtask size   # the ISO stays within the budget in sizes.md
+cargo xtask check-presets               # every preset still resolves (needs `pacman -Sy`)
 ```
 
 For anything that changes how installation works, also run `cargo xtask e2e` (BIOS and `--uefi`). It downloads a
@@ -45,6 +45,8 @@ run on a schedule because Arch changes under us.
 
 ## Rules that are easy to miss
 
+- **Test-Driven Development (TDD)**: Write tests first with comprehensive edge cases before implementing functions; every public and internal function must have unit tests.
+- **Clippy compliance**: Code must pass `cargo clippy --workspace --all-targets` with zero warnings; suppressions require explicit `#[expect(lint_name, reason = "...")]` rather than bare `#[allow]`.
 - **`OVERVIEW.md` is documentation-as-code.** Edit it in place in the same change as the code (no changelog style).
 - **Shared formats change on every side at once.** `crates/bootinfo` payload and BIOS patch formats are shared with
   `xtask` (`iso.rs`, `bios.rs`) and `kernel/src/install.rs`. `config/src/lib.rs` is shared between `xtask` and the

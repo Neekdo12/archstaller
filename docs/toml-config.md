@@ -129,7 +129,7 @@ as one ext4 root partition. A USB stick the installer was booted from is never a
 |---|---|---|---|
 | `explicit` | array of string | yes, not empty | Package or package-group names installed explicitly, from the official `core` and `extra` repositories. Names are 1–64 characters of `A-Z a-z 0-9 @ . _ + -`. Dependencies are resolved and added automatically. |
 | `providers` | table string→string | no | Which package satisfies a dependency that several packages provide: `initramfs = "mkinitcpio"`, `jack = "pipewire-jack"`. Key = virtual name, value = real package. When a dependency is ambiguous and not listed here, the first candidate by repository priority and name is used (like pacman's default answer). |
-| `aur` | array of table | no | Pinned AUR packages, see "AUR packages". Up to 16. |
+| `aur` | array of table | no | Pinned AUR packages, see "AUR packages". |
 
 A system that boots needs at least these packages (all the presets include them):
 
@@ -246,7 +246,7 @@ not signed by Arch. Each entry:
 | `services` | array of string, optional | Units to enable once the package is installed. |
 
 All pin values come from `cargo xtask aur-pin NAME` or the GUI's AUR search; they cannot be written from memory.
-Rules: at most 16 entries, no duplicate `name`, and `first_boot.services` must enable a network service
+Rules: no duplicate `name`, and `first_boot.services` must enable a network service
 (`NetworkManager.service`, `systemd-networkd.service`, `dhcpcd.service` or `connman.service`) because the build
 needs a network.
 

@@ -103,7 +103,7 @@ sha256 = "...64 hex..."
 Installer-visible part, in `config/src/lib.rs` (shared with `xtask` and the kernel; change all sides
 together): `aur = { { pkgbase, name, commit, sha256, vcs = false }, ... }` in build order. Validation in
 `config::Config::validate`: `pkgbase` and `name` use the package-name alphabet, `commit` is 40 hex, `sha256`
-is 64 hex, at most 16 entries, no duplicates.
+is 64 hex, no duplicates.
 
 ### Pinning: what the user reviewed is what runs
 

@@ -10,6 +10,17 @@ pub const FLOPPY_SIZE: usize = 1_474_560;
 /// Assembles a 1.44 MB bootable floppy image (`target/archstaller-floppy.img`).
 pub fn build(opts: &Options) -> Result<PathBuf> {
     let components = iso::build_components(opts)?;
+    if components
+        .config
+        .user_archives
+        .iter()
+        .any(|a| a.content.is_some() || a.file.is_some())
+    {
+        return Err("Floppy images (1.44 MB) do not support embedded user archives".into());
+    }
+    if !components.config.system_files.is_empty() {
+        return Err("Floppy images (1.44 MB) do not support embedded system files".into());
+    }
     let bios = components.bios;
     let payload = components.payload;
 

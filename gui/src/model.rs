@@ -78,6 +78,8 @@ impl Model {
                     confirm_serial: String::new(),
                     auto_largest: false,
                     esp_mib: 1024,
+                    filesystem: config::FsType::Ext4,
+                    btrfs: None,
                 },
                 mirrors: vec!["https://geo.mirror.pkgbuild.com/$repo/os/$arch".into()],
                 packages: [
@@ -100,6 +102,7 @@ impl Model {
                 kernel_params: vec![],
                 user_files: vec![],
                 user_archives: vec![],
+                system_files: vec![],
                 dry_run: false,
                 aur: vec![],
                 scripts: vec![],
@@ -154,6 +157,9 @@ impl Model {
             {
                 *f = l.dir.join(&*f).to_string_lossy().into_owned();
             }
+        }
+        if path.file_stem().is_some_and(|s| s == "reinstall") {
+            hostcfg::autoload::autoload_live_system(&mut l.config);
         }
         Ok(Model {
             cfg: l.config,
@@ -357,6 +363,7 @@ mod tests {
             password_hash: hostcfg::password::hash("pw").unwrap(),
             groups: vec!["wheel".into()],
             shell: "/bin/bash".into(),
+            dotfiles: None,
         });
         m.cfg.scripts.push(config::Script {
             id: "enable-sshd".into(),
@@ -373,6 +380,50 @@ mod tests {
         assert_eq!(format!("{:?}", back.cfg), format!("{:?}", m.cfg));
         assert_eq!(back.host, m.host);
         assert_eq!(back.host.drivers(), vec!["virtio-blk", "nvme", "e1000"]);
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn reinstall_preset_and_dotfiles_roundtrip() {
+        let mut m = Model::starter();
+        m.cfg.disk.confirm_serial = "SER123".into();
+        m.cfg.users.push(config::User {
+            name: "kubik".into(),
+            password_hash: hostcfg::password::hash("pw").unwrap(),
+            groups: vec!["wheel".into()],
+            shell: "/bin/bash".into(),
+            dotfiles: Some(config::UserDotfiles {
+                repo: "kubik/dotfiles".into(),
+                dir: "dotfiles".into(),
+                branch: Some("main".into()),
+                stow: true,
+                packages: vec!["hypr".into(), "bash".into()],
+            }),
+        });
+        m.cfg.scripts.push(config::Script {
+            id: "pre-setup".into(),
+            file: Some("scripts/pre.sh".into()),
+            phase: Some("pre-service".into()),
+            args: vec!["--arg".into()],
+            ..Default::default()
+        });
+        assert!(m.problems().is_empty());
+        let dir = tmp("dotfiles-roundtrip");
+        let path = dir.join("c.toml");
+        m.save(&path).unwrap();
+
+        let back = Model::open(&path).unwrap();
+        assert!(back.raw.is_none());
+        let u = &back.cfg.users[0];
+        assert_eq!(u.name, "kubik");
+        let df = u.dotfiles.as_ref().unwrap();
+        assert_eq!(df.repo, "kubik/dotfiles");
+        assert_eq!(df.dir, "dotfiles");
+        assert_eq!(df.branch.as_deref(), Some("main"));
+        assert!(df.stow);
+        assert_eq!(df.packages, vec!["hypr", "bash"]);
+        assert_eq!(back.cfg.scripts[0].phase.as_deref(), Some("pre-service"));
+
         drop(std::fs::remove_dir_all(&dir));
     }
 
@@ -408,7 +459,17 @@ mod tests {
         let names: Vec<&str> = list.iter().map(|p| p.name.as_str()).collect();
         assert_eq!(
             names,
-            ["hyprland", "i3", "minimal", "omarchy", "plasma", "server", "sway", "tester"]
+            [
+                "hyprland",
+                "i3",
+                "minimal",
+                "omarchy",
+                "plasma",
+                "reinstall",
+                "server",
+                "sway",
+                "tester"
+            ]
         );
         for p in &list {
             assert!(!p.description.is_empty(), "{}", p.name);

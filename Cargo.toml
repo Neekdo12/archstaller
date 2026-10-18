@@ -2,7 +2,7 @@ cargo-features = ["panic-immediate-abort"]
 
 [workspace]
 resolver = "2"
-members = ["xtask", "kernel", "kernel-rpi", "config", "crates/hal", "crates/drivers", "crates/net", "crates/pgp-lite", "crates/pkg", "crates/ext4w", "crates/disk", "crates/initrd", "crates/usb", "crates/imobiledevice", "crates/usbnet", "crates/logring", "crates/exfatw", "tiny-init", "crates/bootinfo", "crates/hostcfg", "crates/aurbuild", "gui", "crates/loadcore", "boot/uefi", "boot/bios-s1", "boot/bios"]
+members = ["xtask", "kernel", "kernel-rpi", "config", "crates/hal", "crates/drivers", "crates/net", "crates/pgp-lite", "crates/pkg", "crates/ext4w", "crates/btrfsw", "crates/xfsw", "crates/f2fsw", "crates/disk", "crates/initrd", "crates/usb", "crates/imobiledevice", "crates/usbnet", "crates/logring", "crates/exfatw", "tiny-init", "crates/bootinfo", "crates/hostcfg", "crates/aurbuild", "gui", "crates/loadcore", "boot/uefi", "boot/bios-s1", "boot/bios"]
 
 [workspace.lints.clippy]
 # Don't Panic - prevent panics from unwraps and unsafe slicing or indexing

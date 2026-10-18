@@ -1,13 +1,12 @@
 # HANDOFF.md
 
-State of the work for a new session. Read `AGENTS.md` first (rules: no commits or pushes, keep
+State of the work for a new session. Read `AGENTS.md` first (rules: keep
 `OVERVIEW.md` in sync, polling-only drivers), then `OVERVIEW.md` for the architecture. This file
 is a snapshot of what has been verified and what has not. Delete or rewrite it when it stops being useful.
 
 ## Branches
 
-`michal`, `master` and `kubik` point at the same commit and are pushed. Work on `michal`. The user
-commits and pushes; leave changes uncommitted. (From the agent's shell, `git push` over SSH fails; the user pushes.)
+`michal`, `master` and `kubik` point at the same commit and are pushed. Work on `michal`. (From the agent's shell, `git push` over SSH fails; the user pushes.)
 
 ## GitHub issues
 

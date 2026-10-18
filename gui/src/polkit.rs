@@ -58,6 +58,17 @@ const AGENTS: &[&str] = &[
 
 static STARTED: Mutex<Option<Child>> = Mutex::new(None);
 
+/// Whether a polkit authentication agent is currently running or can be started.
+pub fn is_agent_available() -> bool {
+    let Ok(slot) = STARTED.lock() else {
+        return false;
+    };
+    slot.is_some()
+        || desktop_has_agent()
+        || agent_running()
+        || AGENTS.iter().any(|p| std::path::Path::new(p).is_file())
+}
+
 fn desktop_has_agent() -> bool {
     std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|d| {
         d.split(':')

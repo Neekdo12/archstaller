@@ -166,6 +166,13 @@ name = "bootinfo"
 version = "0.1.0"
 
 [[package]]
+name = "btrfsw"
+version = "0.1.0"
+dependencies = [
+ "disk",
+]
+
+[[package]]
 name = "byteorder"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -582,7 +589,15 @@ version = "0.1.0"
 name = "ext4w"
 version = "0.1.0"
 dependencies = [
+ "disk",
  "pkg",
+]
+
+[[package]]
+name = "f2fsw"
+version = "0.1.0"
+dependencies = [
+ "disk",
 ]
 
 [[package]]
@@ -1074,6 +1089,7 @@ name = "hostcfg"
 version = "0.1.0"
 dependencies = [
  "config",
+ "libc",
  "pkg",
  "postcard",
  "schemars",
@@ -1162,11 +1178,13 @@ name = "kernel"
 version = "0.1.0"
 dependencies = [
  "bootinfo",
+ "btrfsw",
  "config",
  "disk",
  "drivers",
  "exfatw",
  "ext4w",
+ "f2fsw",
  "getrandom",
  "hal",
  "imobiledevice",
@@ -1181,6 +1199,7 @@ dependencies = [
  "talc",
  "usb",
  "usbnet",
+ "xfsw",
 ]
 
 [[package]]
@@ -2466,13 +2485,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "xfsw"
+version = "0.1.0"
+dependencies = [
+ "disk",
+]
+
+[[package]]
 name = "xtask"
 version = "0.1.0"
 dependencies = [
  "aurbuild",
  "bootinfo",
+ "btrfsw",
+ "config",
+ "disk",
  "drivers",
  "ext4w",
+ "f2fsw",
  "hostcfg",
  "initrd",
  "miniz_oxide",
@@ -2480,6 +2510,7 @@ dependencies = [
  "pkg",
  "sha2 0.11.0",
  "usbnet",
+ "xfsw",
 ]
 
 [[package]]

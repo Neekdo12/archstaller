@@ -214,6 +214,8 @@ mod tests {
                 confirm_serial: "S".into(),
                 auto_largest: false,
                 esp_mib: 512,
+                filesystem: config::FsType::Ext4,
+                btrfs: None,
             },
             mirrors: vec!["https://example.org".into()],
             packages: vec!["base".into()],
@@ -224,6 +226,7 @@ mod tests {
             kernel_params: vec![],
             user_files: vec![],
             user_archives: vec![],
+            system_files: vec![],
             dry_run: false,
             scripts: vec![],
             custom_services: vec![CustomService {

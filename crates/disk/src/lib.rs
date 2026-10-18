@@ -6,8 +6,11 @@ extern crate alloc;
 
 pub mod crc32;
 pub mod fat32;
+pub mod fs;
 pub mod gpt;
 pub mod region;
+
+pub use fs::{FileKind, FsWriter, Meta, Storage};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {

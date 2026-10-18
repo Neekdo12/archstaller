@@ -352,7 +352,47 @@ fn render_import(app: &Rc<App>, p: &OfficialParts) {
                 );
             }
             if !rep.foreign.is_empty() {
-                ui::hint(&p.import, &format!("Installed from outside the repositories (AUR or local builds), not added: {}. An AUR package needs its recipe reviewed and pinned in the AUR card below.", rep.foreign.join(", ")));
+                let foreign_box = ui::vbox(6);
+                let head = ui::hbox(8);
+                head.append(&ui::strong(&format!(
+                    "{} foreign package(s) on system (AUR or local)",
+                    rep.foreign.len()
+                )));
+                let a = app.clone();
+                let aur_import = ui::button("Autoload AUR from system", move || {
+                    let (mirror, existing) = {
+                        let st = a.st.borrow();
+                        (
+                            st.model
+                                .cfg
+                                .mirrors
+                                .first()
+                                .cloned()
+                                .unwrap_or_else(|| "https://geo.mirror.pkgbuild.com/$repo/os/$arch".into()),
+                            st.model.cfg.aur.clone(),
+                        )
+                    };
+                    let cache = dirs::cache_dir()
+                        .unwrap_or_else(std::env::temp_dir)
+                        .join("archstaller-gui");
+                    a.st.borrow_mut().aur.start_autoload(existing, mirror, cache);
+                    a.refresh_page(Page::Packages);
+                });
+                aur_import.set_tooltip_text(Some("Reviews and pins the AUR packages found on this computer."));
+                head.append(&aur_import);
+                foreign_box.append(&head);
+
+                let list_label = gtk::Label::builder()
+                    .label(rep.foreign.join(", "))
+                    .xalign(0.0)
+                    .wrap(true)
+                    .wrap_mode(gtk::pango::WrapMode::WordChar)
+                    .max_width_chars(50)
+                    .selectable(true)
+                    .css_classes(["hint"])
+                    .build();
+                foreign_box.append(&list_label);
+                p.import.append(&foreign_box);
             }
         }
         Some(Err(e)) => {
@@ -470,6 +510,9 @@ fn resolution_card(app: &Rc<App>, d: &gtk::Box) {
                 &gtk::ScrolledWindow::builder()
                     .min_content_height(220)
                     .max_content_height(220)
+                    .min_content_width(200)
+                    .hscrollbar_policy(gtk::PolicyType::Automatic)
+                    .propagate_natural_width(false)
                     .has_frame(true)
                     .child(&view)
                     .build(),
@@ -484,14 +527,17 @@ fn resolution_card(app: &Rc<App>, d: &gtk::Box) {
 
 fn aur_card(app: &Rc<App>, d: &gtk::Box) {
     let c = ui::card(d, Some("AUR packages"));
-    ui::hint(&c, "Type a package name. It is built on the installed machine, at its second boot, from the recipe you review. Not signed by Arch.");
+    ui::hint(&c, "Type a package name or autoload from system. It is built on the installed machine, at its second boot, from the recipe you review. Not signed by Arch.");
 
     // Pinned packages: one compact row each.
     let pinned = app.st.borrow().model.cfg.aur.clone();
     let units = app.st.borrow().lists.services.clone();
     for (i, p) in pinned.iter().enumerate() {
         let r = ui::hbox(8);
-        r.append(&ui::strong(&p.name));
+        let name_lbl = ui::strong(&p.name);
+        name_lbl.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        name_lbl.set_tooltip_text(Some(&p.name));
+        r.append(&name_lbl);
         r.append(&ui::dim(&format!(
             "@ {}",
             p.commit.get(..p.commit.len().min(8)).unwrap_or(&p.commit)
@@ -515,6 +561,7 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
                 }
             });
         });
+        units_entry.set_width_chars(10);
         units_entry.set_placeholder_text(Some("units to enable"));
         units_entry.set_tooltip_text(Some(
             "systemd units to enable once this package is installed, comma separated",
@@ -580,6 +627,29 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
     }
     sr.append(&entry);
     sr.append(&go);
+    let a = app.clone();
+    let autoload_btn = ui::button("Autoload from system", move || {
+        let (mirror, existing) = {
+            let st = a.st.borrow();
+            (
+                st.model
+                    .cfg
+                    .mirrors
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "https://geo.mirror.pkgbuild.com/$repo/os/$arch".into()),
+                st.model.cfg.aur.clone(),
+            )
+        };
+        let cache = dirs::cache_dir()
+            .unwrap_or_else(std::env::temp_dir)
+            .join("archstaller-gui");
+        a.st.borrow_mut().aur.start_autoload(existing, mirror, cache);
+        a.refresh_page(Page::Packages);
+    });
+    autoload_btn.set_sensitive(!busy);
+    autoload_btn.set_tooltip_text(Some("Detects foreign/AUR packages installed on this computer (pacman -Qqem) and pins them."));
+    sr.append(&autoload_btn);
     if busy {
         let what = if pinning {
             "pinning…".to_string()
@@ -696,6 +766,7 @@ fn review(app: &Rc<App>, c: &gtk::Box, busy: bool) {
             .label(format!("• {w}"))
             .xalign(0.0)
             .wrap(true)
+            .selectable(true)
             .css_classes(["note-warn"])
             .build();
         inner.append(&l);
