@@ -16,8 +16,11 @@ fn put<T: Copy>(base: usize, off: usize, v: T) {
 }
 
 fn get<T: Copy>(k: &[u8], off: usize) -> T {
+    let end = off
+        .checked_add(core::mem::size_of::<T>())
+        .expect("the kernel image is too small");
     assert!(
-        off + core::mem::size_of::<T>() <= k.len(),
+        end <= k.len(),
         "the kernel image is too small"
     );
     // SAFETY: Bounds check above guarantees that `off` is within `k`.
@@ -224,4 +227,13 @@ mod tests {
         let bz = std::vec![0u8; 100];
         parse_bzimage_header(&bz).unwrap_err();
     }
+
+    #[test]
+    #[should_panic(expected = "the kernel image is too small")]
+    fn test_get_overflow_handling() {
+        let k = [0u8; 100];
+        let off = usize::MAX - 2;
+        let _val: u32 = get(&k, off);
+    }
 }
+

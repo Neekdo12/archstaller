@@ -596,6 +596,9 @@ impl Descriptors {
     }
     /// (kind, physical start, pages)
     fn each(&self, mut f: impl FnMut(u32, u64, u64)) {
+        if self.desc_size < 32 || self.buf.is_null() {
+            return;
+        }
         let mut off = 0;
         while off + 32 <= self.size {
             unsafe {
@@ -629,8 +632,8 @@ fn boot_installer(image: Handle, payload: *mut u8, payload_len: usize) {
     d.refresh();
     let mut top = 0;
     d.each(|k, start, pages| {
-        if matches!(k, 1..=7 | 9 | 10) {
-            top = top.max(start + pages * 4096);
+        if matches!(k, 1..=7 | 9 | 10 | 14) {
+            top = top.max(start.saturating_add(pages.saturating_mul(4096)));
         }
     });
     let size =
@@ -659,7 +662,7 @@ fn boot_installer(image: Handle, payload: *mut u8, payload_len: usize) {
     #[expect(clippy::deref_addrof, reason = "raw pointer deref to MAP")]
     unsafe {
         let map = &mut *(&raw mut MAP);
-        d.each(|k, start, pages| map.push(start, pages * 4096, translate(k)));
+        d.each(|k, start, pages| map.push(start, pages.saturating_mul(4096), translate(k)));
         map.normalize();
         loadcore::boot(
             map,
@@ -874,5 +877,20 @@ mod tests {
         assert_eq!(u[3], b'l' as u16);
         assert_eq!(u[4], b'o' as u16);
         assert_eq!(u[5], 0);
+    }
+
+    #[test]
+    fn descriptors_each_rejects_zero_desc_size() {
+        let mut buf = [0u8; 64];
+        let d = Descriptors {
+            buf: buf.as_mut_ptr(),
+            cap: 64,
+            size: 64,
+            desc_size: 0,
+            key: 0,
+        };
+        let mut count = 0;
+        d.each(|_, _, _| count += 1);
+        assert_eq!(count, 0);
     }
 }

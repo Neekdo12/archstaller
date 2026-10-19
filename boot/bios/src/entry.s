@@ -500,7 +500,7 @@ disk_init:
 # Probes the boot medium: reads LBA0 and the total sector count of the drive the firmware loaded us
 # from, into low memory for the 64-bit side to fingerprint (see bootinfo::BootMedium). Never fatal: a
 # BIOS that cannot answer leaves the medium unknown and the log dump skips.
-# Layout: 0x560 valid u32, 0x564 sector_size u32, 0x568 total sectors u64, 0x570 LBA0 (up to 512 bytes).
+# Layout: 0x560 valid u32, 0x564 sector_size u32, 0x568 total sectors u64, 0x2000 LBA0 (up to 2048 bytes).
 probe_boot_medium:
     pushad
     mov dword ptr [0x560], 0
@@ -536,10 +536,10 @@ probe_boot_medium:
 2:
     mov dword ptr [0x568], eax
     mov dword ptr [0x56c], edx
-    # Read LBA0 into the low-memory buffer at 0x570 (segment 0x0057, offset 0) via AH=0x42.
+    # Read LBA0 into the low-memory buffer at 0x2000 (segment 0x0200, offset 0) via AH=0x42.
     mov word ptr [rd_dap + 2], 1
     mov dword ptr [rd_dap + 8], 0
-    mov word ptr [rd_dap + 6], 0x0057
+    mov word ptr [rd_dap + 6], 0x0200
     mov word ptr [rd_dap + 4], 0
     mov byte ptr [rd_tries], 3
 3:

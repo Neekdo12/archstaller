@@ -56,11 +56,12 @@ pub unsafe fn build(
     hhdm(arena, 0, 4 << 30);
     for e in map.entries() {
         if e.kind != MEM_BAD {
-            hhdm(arena, e.base, e.base + e.len);
+            hhdm(arena, e.base, e.base.saturating_add(e.len));
         }
     }
     if fb.addr != 0 {
-        hhdm(arena, fb.addr, fb.addr + fb.pitch as u64 * fb.height as u64);
+        let fb_bytes = (fb.pitch as u64).saturating_mul(fb.height as u64);
+        hhdm(arena, fb.addr, fb.addr.saturating_add(fb_bytes));
     }
     for i in 0..up(kernel_mem, HUGE) / HUGE {
         map_2m(arena, pml4, KERNEL_BASE + i * HUGE, kernel_phys + i * HUGE);

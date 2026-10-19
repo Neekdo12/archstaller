@@ -70,6 +70,24 @@ fn rd32(addr: usize) -> u32 {
     unsafe { core::ptr::read_volatile(addr as *const u32) }
 }
 
+pub fn parse_bios_cmdline(cmd: &[u8]) -> &str {
+    let cmd_len = cmd.iter().position(|&b| b == 0).unwrap_or(cmd.len());
+    cmd.get(..cmd_len)
+        .and_then(|c| core::str::from_utf8(c).ok())
+        .unwrap_or("")
+}
+
+pub fn calc_staged_end(staged_kernel: (u64, u64), staged_initrd: (u64, u64)) -> u64 {
+    let kernel_end = staged_kernel.0 + ((staged_kernel.1 + 0xfffff) & !0xfffff);
+    let initrd_end = if staged_initrd.1 > 0 {
+        staged_initrd.0 + ((staged_initrd.1 + 0xfffff) & !0xfffff)
+    } else {
+        0
+    };
+    kernel_end.max(initrd_end)
+}
+
+
 extern "C" {
     static s2_header: u8;
 }
@@ -141,7 +159,7 @@ extern "C" fn bios_main() -> ! {
             let boot_medium = if rd32(0x560) != 0 {
                 let sector_size = rd32(0x564);
                 let sectors = (rd32(0x568) as u64) | ((rd32(0x56c) as u64) << 32);
-                let lba0 = core::slice::from_raw_parts(0x570 as *const u8, 512);
+                let lba0 = core::slice::from_raw_parts(0x2000 as *const u8, 512);
                 BootMedium {
                     source: MEDIUM_SOURCE_BIOS,
                     sector_size,
@@ -163,14 +181,10 @@ extern "C" fn bios_main() -> ! {
             );
         }
         if mode == bios::MODE_LINUX {
-            let cmd = core::slice::from_raw_parts(h.add(8 + 48), bios::CMDLINE_MAX);
-            let cmd_len = cmd.iter().position(|&b| b == 0).unwrap_or(0);
-            let cmd = cmd
-                .get(..cmd_len)
-                .and_then(|c| core::str::from_utf8(c).ok())
-                .unwrap_or("");
+            let cmd_slice = core::slice::from_raw_parts(h.add(8 + 48), bios::CMDLINE_MAX);
+            let cmd = parse_bios_cmdline(cmd_slice);
             let bz = core::slice::from_raw_parts(staged[0].0 as *const u8, staged[0].1 as usize);
-            let end = staged[1].0 + ((staged[1].1 + 0xfffff) & !0xfffff);
+            let end = calc_staged_end(staged[0], staged[1]);
             linux::boot(map, bz, staged[1], cmd, &fb, end);
         }
         panic!("this boot mode is not supported");
@@ -179,3 +193,24 @@ extern "C" fn bios_main() -> ! {
 
 #[cfg(not(target_os = "none"))]
 fn main() {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cmdline_without_nul_not_dropped() {
+        let cmd_buf = [b'a'; bios::CMDLINE_MAX];
+        let s = parse_bios_cmdline(&cmd_buf);
+        assert_eq!(s.len(), bios::CMDLINE_MAX);
+    }
+
+    #[test]
+    fn staged_end_without_initrd_not_zero() {
+        let kernel = (0x100_0000u64, 0x80_0000u64);
+        let no_initrd = (0u64, 0u64);
+        let end = calc_staged_end(kernel, no_initrd);
+        assert_eq!(end, 0x180_0000);
+    }
+}
+

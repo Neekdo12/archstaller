@@ -73,13 +73,18 @@ struct Payload<'a> {
 
 impl<'a> Payload<'a> {
     fn parse(bytes: &'a [u8]) -> Option<Self> {
-        if bytes.len() < PAYLOAD_HEADER || le32(bytes, 0) != PAYLOAD_MAGIC {
+        if bytes.len() < PAYLOAD_HEADER + 16 || le32(bytes, 0) != PAYLOAD_MAGIC {
             return None;
         }
         let count = le32(bytes, 4) as usize;
         let kernel_entry = le64(bytes, 8);
         let kernel_mem = le32(bytes, 16) as u64;
-        (bytes.len() >= PAYLOAD_HEADER + 16 + count * PAYLOAD_ENTRY).then_some(Payload {
+        let entries_len = count.checked_mul(PAYLOAD_ENTRY)?;
+        let min_len = (PAYLOAD_HEADER + 16).checked_add(entries_len)?;
+        if bytes.len() < min_len {
+            return None;
+        }
+        Some(Payload {
             bytes,
             count,
             kernel_entry,
@@ -96,9 +101,13 @@ impl<'a> Payload<'a> {
             le32(self.bytes, at + 24) as usize,
             le32(self.bytes, at + 28),
         );
+        let stored_slice = off
+            .checked_add(stored)
+            .and_then(|end| self.bytes.get(off..end))
+            .unwrap_or(&[]);
         (
             name,
-            self.bytes.get(off..off + stored).unwrap_or(&[]),
+            stored_slice,
             raw,
             flags & FLAG_DEFLATE != 0,
         )
@@ -154,9 +163,10 @@ fn unpack(stored: &[u8], raw: usize, deflated: bool, dest: u64) {
     // SAFETY: dest points to an identity-mapped destination buffer with room for `raw` bytes.
     let out = unsafe { core::slice::from_raw_parts_mut(dest as *mut u8, raw) };
     if !deflated {
-        if let Some(src) = stored.get(..raw) {
-            out.copy_from_slice(src);
-        }
+        let Some(src) = stored.get(..raw) else {
+            panic!("payload entry is corrupt");
+        };
+        out.copy_from_slice(src);
         return;
     }
     let mut d = DecompressorOxide::new();
@@ -340,3 +350,33 @@ pub unsafe fn boot(map: &mut Map, b: Boot) -> ! {
         options(noreturn)
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    extern crate alloc;
+    use alloc::vec;
+
+    #[test]
+    fn payload_parse_short_header_and_overflow() {
+        let mut bytes = [0u8; 16];
+        bytes[0..4].copy_from_slice(&PAYLOAD_MAGIC.to_le_bytes());
+        assert!(Payload::parse(&bytes).is_none());
+
+        let mut overflow_bytes = vec![0u8; PAYLOAD_HEADER + 16];
+        overflow_bytes[0..4].copy_from_slice(&PAYLOAD_MAGIC.to_le_bytes());
+        let bad_count = u32::MAX;
+        overflow_bytes[4..8].copy_from_slice(&bad_count.to_le_bytes());
+        assert!(Payload::parse(&overflow_bytes).is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "payload entry is corrupt")]
+    fn unpack_uncompressed_truncated_panics() {
+        let raw_len = 100usize;
+        let stored = [0xabu8; 50];
+        let mut dest = vec![0u8; raw_len];
+        unpack(&stored, raw_len, false, dest.as_mut_ptr() as u64);
+    }
+}
+

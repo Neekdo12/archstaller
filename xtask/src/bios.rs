@@ -36,30 +36,37 @@ fn flatten(elf: &[u8], base: u64) -> Result<Vec<u8>> {
     };
     let (phoff, phentsize, phnum) = (u64le(0x20)? as usize, u16le(0x36)?, u16le(0x38)?);
     let mut image = Vec::new();
-    for ph in (0..phnum)
-        .map(|i| phoff + i * phentsize)
-        .filter(|&ph| u32le(ph).is_ok_and(|v| v == 1))
-    {
+    for i in 0..phnum {
+        let ph = phoff
+            .checked_add(i.checked_mul(phentsize).ok_or("ELF ph overflow")?)
+            .ok_or("ELF ph overflow")?;
+        if !u32le(ph).is_ok_and(|v| v == 1) {
+            continue;
+        }
         let (off, vaddr, filesz) = (
-            u64le(ph + 8)? as usize,
-            u64le(ph + 16)?,
-            u64le(ph + 32)? as usize,
+            u64le(ph.checked_add(8).ok_or("ph truncated")?)? as usize,
+            u64le(ph.checked_add(16).ok_or("ph truncated")?)?,
+            u64le(ph.checked_add(32).ok_or("ph truncated")?)? as usize,
         );
         // A segment may start below `base` (it then maps the ELF headers): keep what is at or above it.
         let skip = base.saturating_sub(vaddr) as usize;
         if skip >= filesz {
             continue;
         }
-        let at = (vaddr + skip as u64 - base) as usize;
+        let at = (vaddr.saturating_add(skip as u64).saturating_sub(base)) as usize;
         let n = filesz - skip;
-        if image.len() < at + n {
-            image.resize(at + n, 0);
+        let needed_len = at.checked_add(n).ok_or("image size overflow")?;
+        if image.len() < needed_len {
+            image.resize(needed_len, 0);
         }
+        let src_start = off.checked_add(skip).ok_or("segment offset overflow")?;
+        let src_end = src_start.checked_add(n).ok_or("segment offset overflow")?;
         let src = elf
-            .get(off + skip..off + skip + n)
+            .get(src_start..src_end)
             .ok_or("ELF segment out of bounds")?;
+        let at_end = at.checked_add(n).ok_or("image buffer index overflow")?;
         let dst = image
-            .get_mut(at..at + n)
+            .get_mut(at..at_end)
             .ok_or("image buffer too small")?;
         dst.copy_from_slice(src);
     }

@@ -228,6 +228,9 @@ pub mod bios {
         if let Some(slot) = h.get_mut(4..8) {
             slot.copy_from_slice(&mode.to_le_bytes());
         }
+        if let Some(slot) = h.get_mut(8..8 + 3 * 16) {
+            slot.fill(0);
+        }
         for (i, &(off, len)) in extents.iter().enumerate() {
             if let Some(slot) = h.get_mut(8 + i * 16..16 + i * 16) {
                 slot.copy_from_slice(&off.to_le_bytes());
@@ -246,3 +249,22 @@ pub mod bios {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    extern crate alloc;
+    use alloc::vec;
+
+    #[test]
+    fn test_patch_stage2_clears_unused_extents() {
+        let mut stage2 = vec![0xffu8; bios::S2_HEADER + bios::S2_HEADER_LEN];
+        bios::patch_stage2(&mut stage2, bios::MODE_PAYLOAD, &[(0x1000, 0x2000)], "quiet").unwrap();
+        let h = &stage2[bios::S2_HEADER..];
+        let ext1_off = u64::from_le_bytes(h[24..32].try_into().unwrap());
+        let ext1_len = u64::from_le_bytes(h[32..40].try_into().unwrap());
+        assert_eq!(ext1_off, 0, "Unused extent 1 offset must be zeroed");
+        assert_eq!(ext1_len, 0, "Unused extent 1 length must be zeroed");
+    }
+}
+

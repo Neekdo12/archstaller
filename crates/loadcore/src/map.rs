@@ -84,9 +84,20 @@ impl Map {
             let Some(e) = self.e.get_mut(i) else { continue };
             let end = e.base.saturating_add(e.len);
             let (b, en) = if e.kind == MEM_USABLE {
-                ((e.base + 4095) & !4095, end & !4095)
+                let aligned_base = match e.base.checked_add(4095) {
+                    Some(ab) => ab & !4095,
+                    None => {
+                        e.len = 0;
+                        continue;
+                    }
+                };
+                (aligned_base, end & !4095)
             } else {
-                (e.base & !4095, end.saturating_add(4095) & !4095)
+                let aligned_end = match end.checked_add(4095) {
+                    Some(ae) => ae & !4095,
+                    None => u64::MAX,
+                };
+                (e.base & !4095, aligned_end)
             };
             if en <= b {
                 e.len = 0;
@@ -267,4 +278,13 @@ mod tests {
         assert_eq!(m.find_free(0x1000, 0x1000, 0x10_0000, 0x30_0000), None);
         assert_eq!(m.top(), 0x110_0000);
     }
+
+    #[test]
+    fn normalize_usable_near_u64_max_overflow() {
+        let mut m = Box::new(Map::new());
+        m.push(0xffff_ffff_ffff_f800, 0x400, MEM_USABLE);
+        m.normalize();
+        assert_eq!(m.len(), 0);
+    }
 }
+

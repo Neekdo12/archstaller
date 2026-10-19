@@ -39,23 +39,27 @@ struct KernelImage {
 }
 
 fn flatten_kernel(elf: &[u8]) -> Result<KernelImage> {
-    if elf.get(..4) != Some(b"\x7fELF") {
+    if elf.len() < 0x40 || elf.get(..4) != Some(b"\x7fELF") {
         return Err("kernel is not an ELF file".into());
     }
     let entry = le64(elf, 0x18);
     let (phoff, phentsize, phnum) = (le64(elf, 0x20) as usize, le16(elf, 0x36), le16(elf, 0x38));
-    let loads: Vec<(u64, usize, usize, u64)> = (0..phnum)
-        .map(|i| phoff + i * phentsize)
-        .filter(|&ph| le32(elf, ph) == 1)
-        .map(|ph| {
-            (
-                le64(elf, ph + 16),
-                le64(elf, ph + 8) as usize,
-                le64(elf, ph + 32) as usize,
-                le64(elf, ph + 40),
-            )
-        })
-        .collect();
+    let mut loads: Vec<(u64, usize, usize, u64)> = Vec::new();
+    for i in 0..phnum {
+        let ph = phoff
+            .checked_add(i.checked_mul(phentsize).ok_or("ELF ph overflow")?)
+            .ok_or("ELF ph overflow")?;
+        if le32(elf, ph) == 1 {
+            let vaddr = le64(elf, ph.checked_add(16).ok_or("ELF ph truncated")?);
+            let off = le64(elf, ph.checked_add(8).ok_or("ELF ph truncated")?) as usize;
+            let filesz = le64(elf, ph.checked_add(32).ok_or("ELF ph truncated")?) as usize;
+            let memsz = le64(elf, ph.checked_add(40).ok_or("ELF ph truncated")?);
+            if filesz as u64 > memsz {
+                return Err("kernel segment filesz > memsz".into());
+            }
+            loads.push((vaddr, off, filesz, memsz));
+        }
+    }
     let base = loads
         .iter()
         .map(|l| l.0)
@@ -70,10 +74,10 @@ fn flatten_kernel(elf: &[u8]) -> Result<KernelImage> {
     }
     let mem = loads
         .iter()
-        .map(|l| l.0 + l.3)
+        .map(|l| l.0.saturating_add(l.3))
         .max()
         .ok_or("kernel has no loadable segments")?
-        - base;
+        .saturating_sub(base);
     if mem > bootinfo::KERNEL_MAX {
         return Err(format!(
             "kernel needs {mem} bytes of memory, the loader maps {}",
@@ -83,17 +87,19 @@ fn flatten_kernel(elf: &[u8]) -> Result<KernelImage> {
     }
     let len = loads
         .iter()
-        .map(|l| (l.0 - base) as usize + l.2)
+        .map(|l| (l.0.saturating_sub(base)) as usize + l.2)
         .max()
         .ok_or("kernel has no loadable segments")?;
     let mut image = vec![0u8; len];
     for &(vaddr, off, filesz, _) in &loads {
-        let at = (vaddr - base) as usize;
+        let at = (vaddr.saturating_sub(base)) as usize;
+        let off_end = off.checked_add(filesz).ok_or("kernel segment offset overflow")?;
         let src = elf
-            .get(off..off + filesz)
+            .get(off..off_end)
             .ok_or("kernel segment out of bounds")?;
+        let at_end = at.checked_add(filesz).ok_or("kernel image buffer index overflow")?;
         let dst = image
-            .get_mut(at..at + filesz)
+            .get_mut(at..at_end)
             .ok_or("kernel image buffer too small")?;
         dst.copy_from_slice(src);
     }
