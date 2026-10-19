@@ -207,7 +207,12 @@ impl Stack {
         cfg.random_seed = seed;
         let iface = Interface::new(cfg, &mut dev, Instant::from_millis(now_ms() as i64));
         let mut sockets = SocketSet::new(Vec::new());
-        let dhcp = sockets.add(dhcpv4::Socket::new());
+        let mut dhcp_socket = dhcpv4::Socket::new();
+        let mut retry_cfg = dhcp_socket.get_retry_config();
+        retry_cfg.discover_timeout = smoltcp::time::Duration::from_millis(1000);
+        retry_cfg.initial_request_timeout = smoltcp::time::Duration::from_millis(1000);
+        dhcp_socket.set_retry_config(retry_cfg);
+        let dhcp = sockets.add(dhcp_socket);
         let dns = sockets.add(dns::Socket::new(&[], [None, None]));
         Stack {
             dev,
@@ -235,6 +240,10 @@ impl Stack {
 
     pub fn link_up(&mut self) -> bool {
         self.dev.dev.link_up()
+    }
+
+    pub fn device_name(&self) -> &str {
+        self.dev.dev.name()
     }
 
     /// The stack's millisecond clock, for diagnostics (a plain function, so it can be kept while a
@@ -1009,5 +1018,27 @@ mod tests {
         let mut q = wire.borrow().dns_queries();
         q.dedup();
         assert_eq!(q, std::vec![[10, 0, 0, 53], [1, 1, 1, 1]]);
+    }
+
+    #[test]
+    fn dhcp_socket_configured_with_fast_retries() {
+        let (s, _wire) = stack();
+        let cfg = s.sockets.get::<dhcpv4::Socket>(s.dhcp).get_retry_config();
+        assert_eq!(
+            cfg.discover_timeout,
+            smoltcp::time::Duration::from_millis(1000),
+            "DHCPDISCOVER must retry every 1 second, not 10 seconds"
+        );
+        assert_eq!(
+            cfg.initial_request_timeout,
+            smoltcp::time::Duration::from_millis(1000),
+            "DHCPREQUEST must retry fast"
+        );
+    }
+
+    #[test]
+    fn device_name_reports_underlying_nic_name() {
+        let (s, _wire) = stack();
+        assert_eq!(s.device_name(), "mock");
     }
 }

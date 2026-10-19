@@ -1,0 +1,68 @@
+# archstaller: kind=example
+# i3 on Xorg with btrfs, NetworkManager, PipeWire and Firefox; ly starts the session.
+schema = 1
+
+[system]
+hostname = "i3"
+timezone = "Europe/Prague"
+locale = "en_US.UTF-8"
+keymap = "us"
+
+[install]
+mirrors = ["https://geo.mirror.pkgbuild.com/$repo/os/$arch"]
+
+[install.disk]
+auto_largest = true
+esp_mib = 1024
+filesystem = "btrfs"
+
+[packages]
+explicit = [
+  "base",
+  "btrfs-progs",
+  "linux",
+  "mkinitcpio",
+  "grub",
+  "efibootmgr",
+  "sudo",
+  "nano",
+  "ly",
+  "linux-firmware",
+  "xorg-server",
+  "xorg-xinit",
+  "xf86-input-libinput",
+  "mesa",
+  "i3-wm",
+  "i3status",
+  "i3lock",
+  "dmenu",
+  "alacritty",
+  "networkmanager",
+  "pipewire",
+  "pipewire-pulse",
+  "wireplumber",
+  "ttf-dejavu",
+  "noto-fonts",
+  "firefox",
+]
+
+[packages.providers]
+initramfs = "mkinitcpio"
+jack = "pipewire-jack"
+
+[[users]]
+name = "passwd_is_passwd"
+password_hash = "$6$archstlr$gnUg60P8TrWaKT.8/oW8Iq1kc8LlPnk4A6UWw5ij0AAQNe2IN7TuPFnw7PmXMXuobrVIYBSbNWUgRbpafXqcc."
+groups = ["wheel"]
+shell = "/bin/bash"
+
+[first_boot]
+services = [
+  "systemd-timesyncd.service",
+  "ly@tty2.service",
+  "NetworkManager.service",
+]
+
+[build]
+tethering = true
+

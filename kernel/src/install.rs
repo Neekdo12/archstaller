@@ -242,36 +242,48 @@ pub(crate) fn bring_up_network(devs: &mut Devices) -> R<net::Stack> {
     if devs.net.is_empty() {
         return Err("no supported network interface".into());
     }
-    let mut found = None;
+    // Wait up to 10s for at least one interface to report link
     let end = now_ms() + 10_000;
-    'wait: while now_ms() < end {
-        for (i, n) in devs.net.iter_mut().enumerate() {
-            if n.link_up() {
-                found = Some(i);
-                break 'wait;
-            }
-        }
+    while now_ms() < end && !devs.net.iter_mut().any(|n| n.link_up()) {
         hal::idle();
     }
-    let nic = devs.net.remove(found.unwrap_or(0));
-    match found {
-        Some(_) => println!("network: {} link up", nic.name()),
-        // DHCP still gets its chance: auto-negotiation can finish late.
-        None => println!(
-            "network: no link on any interface after 10 s; trying {} anyway",
-            nic.name()
-        ),
+
+    let mut last_err = String::from("no network interface acquired a DHCP lease");
+    while !devs.net.is_empty() {
+        // Try interfaces with link first
+        let idx = devs.net.iter_mut().position(|n| n.link_up()).unwrap_or(0);
+        let mut nic = devs.net.remove(idx);
+        let has_link = nic.link_up();
+        if has_link {
+            println!("network: {} link up; requesting DHCP lease...", nic.name());
+            let settle = now_ms() + 1000;
+            while now_ms() < settle {
+                hal::idle();
+            }
+        } else {
+            println!("network: {} has no link; trying anyway...", nic.name());
+        }
+
+        let mut stack = net::Stack::new(nic, now_ms, unsafe { core::arch::x86_64::_rdtsc() });
+        let timeout_ms = if devs.net.is_empty() { 30_000 } else { 15_000 };
+        match stack.dhcp(timeout_ms) {
+            Ok(lease) => {
+                hal::info!(
+                    "network: {:?}/{} gateway {:?} dns {:?}",
+                    lease.address,
+                    lease.prefix,
+                    lease.router,
+                    lease.dns
+                );
+                return Ok(stack);
+            }
+            Err(e) => {
+                println!("network: DHCP failed on {}: {e:?}", stack.device_name());
+                last_err = format!("DHCP on {}: {e:?}", stack.device_name());
+            }
+        }
     }
-    let mut stack = net::Stack::new(nic, now_ms, unsafe { core::arch::x86_64::_rdtsc() });
-    let lease = stack.dhcp(30_000).map_err(dbg_err("DHCP"))?;
-    hal::info!(
-        "network: {:?}/{} gateway {:?} dns {:?}",
-        lease.address,
-        lease.prefix,
-        lease.router,
-        lease.dns
-    );
-    Ok(stack)
+    Err(last_err)
 }
 
 pub(crate) fn fetch_to_vec(
@@ -1679,6 +1691,16 @@ mod tests {
         assert!(conf.contains("[greeter]"));
         assert!(conf.contains("background = #1a1b26"));
         assert!(conf.contains("logo = /usr/share/pixmaps/archstaller.svg"));
+    }
+
+    #[test]
+    fn test_bring_up_network_empty_devices_fails() {
+        let mut devs = drivers::Devices::default();
+        let r = bring_up_network(&mut devs);
+        match r {
+            Err(e) => assert_eq!(e, "no supported network interface"),
+            Ok(_) => panic!("expected error"),
+        }
     }
 }
 

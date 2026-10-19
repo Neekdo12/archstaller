@@ -195,11 +195,12 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
         Some(m) => match postcard::from_bytes::<config::Config>(m) {
             Ok(c) => {
                 println!(
-                    "config: hostname={} tz={} locale={} keymap={} packages={}",
+                    "config: hostname={} tz={} locale={} keymap={} fs={} packages={}",
                     c.hostname,
                     c.timezone,
                     c.locale,
                     c.keymap,
+                    c.disk.filesystem.as_str(),
                     c.packages.len()
                 );
                 Some(c)
@@ -286,12 +287,10 @@ extern "C" fn _start(info: &'static BootInfo) -> ! {
     }
 
     // USB tethering (iPhone Personal Hotspot, Android USB tethering). Not PCI, so this is an
-    // explicit probe next to probe_all. A wired NIC that already has link makes it pointless
-    // (and install::run would pick the wired one anyway), so it is skipped then.
+    // explicit probe next to probe_all. Even if a wired NIC has physical carrier link (e.g. 802.1X
+    // networks like eduroam where DHCP is blocked), we probe USB tethering so install::run can fall back to it.
     #[cfg(feature = "usb-tethering")]
-    if !devs.net.iter_mut().any(|d| d.link_up()) {
-        usb_tether(&mut devs);
-    }
+    usb_tether(&mut devs);
 
     #[cfg(feature = "usb-selftest")]
     usb_selftest();
