@@ -459,7 +459,7 @@ fn drivers_schema(_: &mut SchemaGenerator) -> Schema {
 impl AsConfig {
     /// Reads an Archstaller TOML configuration string; errors carry the full path (`system.hostname: ...`).
     pub fn from_toml(src: &str) -> Result<AsConfig, String> {
-        let de = toml::Deserializer::new(src);
+        let de = toml::Deserializer::parse(src).map_err(|e| e.to_string())?;
         let cfg: AsConfig = serde_path_to_error::deserialize(de)
             .map_err(|e| format!("{}: {}", path(e.path()), e.inner()))?;
         Ok(cfg)
