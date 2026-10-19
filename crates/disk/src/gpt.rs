@@ -127,19 +127,47 @@ impl Layout {
         guids: [[u8; 16]; 4],
     ) -> Result<Layout> {
         let ss = sector_size as u64;
+        if sector_size < 512 || !sector_size.is_power_of_two() || ss > ALIGN {
+            return Err(Error::Size("invalid sector size"));
+        }
         let align = ALIGN / ss;
+        let raw_esp_sectors = esp_bytes.div_ceil(ss);
+        if raw_esp_sectors == 0 {
+            return Err(Error::Size("esp too small"));
+        }
+        let esp_sectors = raw_esp_sectors
+            .checked_add(align)
+            .and_then(|x| x.checked_sub(1))
+            .map(|x| x / align)
+            .and_then(|x| x.checked_mul(align))
+            .ok_or(Error::Size("esp too large"))?;
         let table_sectors = (ENTRIES * ENTRY_SIZE) as u64 / ss;
         let first_usable = 2 + table_sectors;
         let last_usable = total_sectors
             .checked_sub(1 + table_sectors + 1)
             .ok_or(Error::Size("disk too small"))?;
+        if last_usable + 1 < align {
+            return Err(Error::Size("disk too small for the layout"));
+        }
         let bios_first = align;
-        let bios_last = bios_first + align - 1;
-        let esp_first = bios_last + 1;
-        let esp_last = esp_first + esp_bytes / ss - 1;
-        let root_first = esp_last + 1;
-        let root_last = (last_usable + 1) / align * align - 1;
-        if bios_first < first_usable || root_last <= root_first + align {
+        let bios_last = bios_first
+            .checked_add(align)
+            .and_then(|x| x.checked_sub(1))
+            .ok_or(Error::Size("disk too small for the layout"))?;
+        let esp_first = bios_last
+            .checked_add(1)
+            .ok_or(Error::Size("disk too small for the layout"))?;
+        let esp_last = esp_first
+            .checked_add(esp_sectors)
+            .and_then(|x| x.checked_sub(1))
+            .ok_or(Error::Size("disk too small for the layout"))?;
+        let root_first = esp_last
+            .checked_add(1)
+            .ok_or(Error::Size("disk too small for the layout"))?;
+        let root_last = ((last_usable + 1) / align * align)
+            .checked_sub(1)
+            .ok_or(Error::Size("disk too small for the layout"))?;
+        if bios_first < first_usable || root_last <= root_first.saturating_add(align) {
             return Err(Error::Size("disk too small for the layout"));
         }
         let [disk_guid, g1, g2, g3] = guids;

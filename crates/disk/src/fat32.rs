@@ -175,9 +175,18 @@ impl<'r, 'd> Fat32Writer<'r, 'd> {
         let spc = spc.min((4096 / ss).max(1)).max(1);
         let mut fat_sectors = 1;
         let clusters = loop {
-            let data = total_sectors - RESERVED_SECTORS - 2 * fat_sectors;
+            let overhead = RESERVED_SECTORS
+                .checked_add(2 * fat_sectors)
+                .ok_or(Error::Size("volume too small for FAT32"))?;
+            let data = total_sectors
+                .checked_sub(overhead)
+                .ok_or(Error::Size("volume too small for FAT32"))?;
             let clusters = data / spc;
-            let need = ((clusters + 2) * 4).div_ceil(ss);
+            let need = clusters
+                .checked_add(2)
+                .and_then(|c| c.checked_mul(4))
+                .map(|b| b.div_ceil(ss))
+                .ok_or(Error::Size("volume too large for FAT32"))?;
             if need <= fat_sectors {
                 break clusters;
             }

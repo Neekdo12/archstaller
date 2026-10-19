@@ -855,9 +855,14 @@ impl<S: Storage> BtrfsWriter<S> {
                 fs_leaf.insert(ino_key, ino_data.to_vec());
 
                 // INODE_REF
+                let mut parents_by_dir: BTreeMap<u64, Vec<u8>> = BTreeMap::new();
                 for &(parent_ino, ref name, dir_idx) in &inode.parents {
-                    let ref_key = DiskKey::new(inode.ino, BTRFS_INODE_REF_KEY, parent_ino);
+                    let entry = parents_by_dir.entry(parent_ino).or_default();
                     let ref_data = items::serialize_inode_ref(dir_idx, name);
+                    entry.extend_from_slice(&ref_data);
+                }
+                for (parent_ino, ref_data) in parents_by_dir {
+                    let ref_key = DiskKey::new(inode.ino, BTRFS_INODE_REF_KEY, parent_ino);
                     fs_leaf.insert(ref_key, ref_data);
                 }
 
@@ -877,9 +882,11 @@ impl<S: Storage> BtrfsWriter<S> {
 
                 // If regular file or symlink: EXTENT_DATA
                 if let Some(ref inline_bytes) = inode.inline_data {
-                    let ext_key = DiskKey::new(inode.ino, BTRFS_EXTENT_DATA_KEY, 0);
-                    let ext_data = items::serialize_file_extent_inline(gen, inline_bytes);
-                    fs_leaf.insert(ext_key, ext_data);
+                    if !inline_bytes.is_empty() {
+                        let ext_key = DiskKey::new(inode.ino, BTRFS_EXTENT_DATA_KEY, 0);
+                        let ext_data = items::serialize_file_extent_inline(gen, inline_bytes);
+                        fs_leaf.insert(ext_key, ext_data);
+                    }
                 } else if inode.disk_bytenr != 0 {
                     let ext_key = DiskKey::new(inode.ino, BTRFS_EXTENT_DATA_KEY, 0);
                     let ext_data = items::serialize_file_extent_reg(
@@ -1072,7 +1079,8 @@ impl<S: Storage> BtrfsWriter<S> {
         sb.set_label(&self.options.label);
         sb.add_sys_chunk(system_chunk_start, system_chunk_len, BTRFS_BLOCK_GROUP_SYSTEM);
 
-        let bytes_allocated = (next_meta_bytenr - metadata_chunk_start)
+        let bytes_allocated = (BTRFS_NODE_SIZE as u64)
+            + (next_meta_bytenr - metadata_chunk_start)
             + (self.next_data_bytenr - data_chunk_start);
         sb.bytes_used = bytes_allocated;
 
@@ -1584,4 +1592,76 @@ mod tests {
         let parent = &writer.inodes[&parent_id];
         assert_eq!(parent.nlink, 1);
     }
+
+    #[test]
+    fn test_bytes_used_includes_system_chunk() {
+        let storage = MemStorage::new(32 * 1024 * 1024);
+        let mut writer = BtrfsWriter::new(storage, 32 * 1024 * 1024, Options::default()).unwrap();
+        writer.finish().unwrap();
+
+        let mut sb_bytes = [0u8; 4096];
+        writer.storage.read_at(BTRFS_SUPER_INFO_OFFSET, &mut sb_bytes).unwrap();
+        let bytes_used = u64::from_le_bytes(sb_bytes[120..128].try_into().unwrap());
+        // System chunk uses BTRFS_NODE_SIZE (16384) + metadata chunk uses 8 trees * 16384 (131072) = 147456.
+        assert_eq!(bytes_used, 16384 * 9);
+    }
+
+    #[test]
+    fn test_empty_file_has_no_extent_data_item() {
+        let storage = MemStorage::new(32 * 1024 * 1024);
+        let mut writer = BtrfsWriter::new(storage, 32 * 1024 * 1024, Options::default()).unwrap();
+        let meta = Meta::default();
+        let ino = writer.begin_file("empty.txt", &meta).unwrap();
+        writer.end_file().unwrap();
+        writer.finish().unwrap();
+
+        let subvol_leaf_bytenr = 3 * 1024 * 1024 + 6 * 16384;
+        let mut leaf_bytes = [0u8; 16384];
+        writer.storage.read_at(subvol_leaf_bytenr, &mut leaf_bytes).unwrap();
+        let nritems = u32::from_le_bytes(leaf_bytes[96..100].try_into().unwrap()) as usize;
+        let mut has_extent_data = false;
+        for i in 0..nritems {
+            let off = 101 + i * 25;
+            let obj = u64::from_le_bytes(leaf_bytes[off..off + 8].try_into().unwrap());
+            let ktype = leaf_bytes[off + 8];
+            if obj == ino && ktype == BTRFS_EXTENT_DATA_KEY {
+                has_extent_data = true;
+                break;
+            }
+        }
+        assert!(!has_extent_data, "0-byte file must not have an EXTENT_DATA item");
+    }
+
+    #[test]
+    fn test_multiple_hardlinks_same_directory() {
+        let storage = MemStorage::new(32 * 1024 * 1024);
+        let mut writer = BtrfsWriter::new(storage, 32 * 1024 * 1024, Options::default()).unwrap();
+        let meta = Meta::default();
+        let ino = writer.begin_file("file1", &meta).unwrap();
+        writer.write_file(b"data").unwrap();
+        writer.end_file().unwrap();
+        writer.hardlink("file2", "file1").unwrap();
+        writer.finish().unwrap();
+
+        let subvol_leaf_bytenr = 3 * 1024 * 1024 + 6 * 16384;
+        let mut leaf_bytes = [0u8; 16384];
+        writer.storage.read_at(subvol_leaf_bytenr, &mut leaf_bytes).unwrap();
+        let nritems = u32::from_le_bytes(leaf_bytes[96..100].try_into().unwrap()) as usize;
+        let mut ref_data = Vec::new();
+        for i in 0..nritems {
+            let off = 101 + i * 25;
+            let obj = u64::from_le_bytes(leaf_bytes[off..off + 8].try_into().unwrap());
+            let ktype = leaf_bytes[off + 8];
+            if obj == ino && ktype == BTRFS_INODE_REF_KEY {
+                let data_off = u32::from_le_bytes(leaf_bytes[off + 17..off + 21].try_into().unwrap()) as usize;
+                let data_len = u32::from_le_bytes(leaf_bytes[off + 21..off + 25].try_into().unwrap()) as usize;
+                let abs_off = 101 + data_off;
+                ref_data.extend_from_slice(&leaf_bytes[abs_off..abs_off + data_len]);
+                break;
+            }
+        }
+        assert!(ref_data.windows(5).any(|w| w == b"file1"), "INODE_REF must contain file1");
+        assert!(ref_data.windows(5).any(|w| w == b"file2"), "INODE_REF must contain file2");
+    }
 }
+

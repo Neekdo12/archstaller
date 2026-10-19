@@ -927,8 +927,10 @@ impl<S: Storage> XfsWriter<S> {
         }
 
         let (parent, name) = self.parent_of(path)?;
-        self.replace_slot(parent, &name)?;
-
+        let parent_node = self.inodes.get(&parent).ok_or(Error::NotFound)?;
+        if parent_node.children.contains_key(&name) {
+            return Err(Error::Exists);
+        }
         let parent_node = self.inodes.get_mut(&parent).ok_or(Error::NotFound)?;
         parent_node.children.insert(name, (target_ino, target_kind));
 
@@ -1811,5 +1813,19 @@ mod tests {
             xfs.mkdir("file/sub", &meta),
             Err(Error::Invalid("component is not a directory"))
         );
+    }
+
+    #[test]
+    fn test_hardlink_to_existing_returns_exists() {
+        let size = 16 * 1024 * 1024;
+        let mut xfs = XfsWriter::new(MemStorage::new(size), size as u64, test_opts()).unwrap();
+        let meta = Meta::default();
+        xfs.begin_file("file", &meta).unwrap();
+        xfs.end_file().unwrap();
+
+        assert_eq!(xfs.hardlink("file", "file"), Err(Error::Exists));
+
+        xfs.hardlink("file2", "file").unwrap();
+        assert_eq!(xfs.hardlink("file2", "file"), Err(Error::Exists));
     }
 }

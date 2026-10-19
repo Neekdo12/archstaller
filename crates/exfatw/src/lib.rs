@@ -479,7 +479,7 @@ impl<'a, S: Storage> Appender<'a, S> {
         let mut buf: Vec<u8> = Vec::new();
         let mut c = self.vbr.root_cluster;
         loop {
-            if c < 2 || c >= self.vbr.cluster_count + 2 {
+            if c < 2 || c >= self.vbr.cluster_count.saturating_add(2) {
                 return Err(Error::Invalid("root chain out of range"));
             }
             if chain.len() as u32 > self.vbr.cluster_count || buf.len() > MAX_ROOT_BYTES {
@@ -554,7 +554,7 @@ impl<'a, S: Storage> Appender<'a, S> {
     }
 
     fn check_cluster(&self, cluster: u32) -> Result<()> {
-        if cluster < 2 || cluster >= self.vbr.cluster_count + 2 {
+        if cluster < 2 || cluster >= self.vbr.cluster_count.saturating_add(2) {
             return Err(Error::Invalid("cluster out of range"));
         }
         Ok(())
@@ -670,7 +670,7 @@ impl<'a, S: Storage> Appender<'a, S> {
                 used += (b & ((1u8 << rem) - 1)).count_ones() as usize;
             }
         }
-        (used * 100 / cc.max(1)) as u8
+        (((used as u64) * 100) / (cc.max(1) as u64)) as u8
     }
 
     /// Refreshes PercentInUse (not covered by the boot checksum). 0xFF ("unknown") is left alone.
@@ -687,3 +687,78 @@ impl<'a, S: Storage> Appender<'a, S> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct DummyStore;
+    impl Storage for DummyStore {
+        fn read_at(&mut self, _off: u64, _buf: &mut [u8]) -> Result<()> {
+            Ok(())
+        }
+        fn write_at(&mut self, _off: u64, _buf: &[u8]) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn percent_in_use_large_clusters_no_overflow() {
+        let vbr = Vbr {
+            sector_size: 512,
+            sectors_per_cluster: 8,
+            fat_offset: 0,
+            fat_length: 0,
+            cluster_heap_offset: 0,
+            cluster_count: 50_000_000,
+            root_cluster: 2,
+            has_second_fat: false,
+        };
+        let bitmap_bytes = alloc::vec![0xffu8; 50_000_000 / 8];
+        let mut store = DummyStore;
+        let app = Appender {
+            s: &mut store,
+            vbr,
+            bitmap: Bitmap {
+                bytes: bitmap_bytes,
+                first_cluster: 2,
+            },
+            bitmap_len: 50_000_000 / 8,
+            upcase: Upcase {
+                units: alloc::vec![],
+            },
+            bm_dirty: None,
+        };
+        assert_eq!(app.percent_in_use(), 100);
+    }
+
+    #[test]
+    fn check_cluster_overflow_does_not_panic() {
+        let vbr = Vbr {
+            sector_size: 512,
+            sectors_per_cluster: 1,
+            fat_offset: 0,
+            fat_length: 0,
+            cluster_heap_offset: 0,
+            cluster_count: u32::MAX - 1,
+            root_cluster: 2,
+            has_second_fat: false,
+        };
+        let mut store = DummyStore;
+        let app = Appender {
+            s: &mut store,
+            vbr,
+            bitmap: Bitmap {
+                bytes: alloc::vec![],
+                first_cluster: 2,
+            },
+            bitmap_len: 0,
+            upcase: Upcase {
+                units: alloc::vec![],
+            },
+            bm_dirty: None,
+        };
+        app.check_cluster(u32::MAX).unwrap_err();
+    }
+}
+

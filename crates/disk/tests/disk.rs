@@ -215,3 +215,83 @@ fn fat32_esp_passes_fsck_and_contents_match() {
     assert_eq!(std::fs::read_dir(dump.join("many")).unwrap().count(), 200);
     drop(std::fs::remove_dir_all(&dir));
 }
+
+#[test]
+fn test_layout_plan_invalid_inputs() {
+    let guids = [
+        disk::gpt::guid("11111111-1111-1111-1111-111111111111"),
+        disk::gpt::guid("22222222-2222-2222-2222-222222222222"),
+        disk::gpt::guid("33333333-3333-3333-3333-333333333333"),
+        disk::gpt::guid("44444444-4444-4444-4444-444444444444"),
+    ];
+
+    // sector_size == 0 must return Err, not panic
+    Layout::plan(0, 10_000_000, 512 * 1024 * 1024, guids).unwrap_err();
+
+    // sector_size > ALIGN (1 MiB) must return Err, not panic
+    Layout::plan(2 * 1024 * 1024, 10_000_000, 512 * 1024 * 1024, guids).unwrap_err();
+
+    // non-power of two sector size must return Err
+    Layout::plan(500, 10_000_000, 512 * 1024 * 1024, guids).unwrap_err();
+
+    // sector_size < 512 must return Err
+    Layout::plan(256, 10_000_000, 512 * 1024 * 1024, guids).unwrap_err();
+
+    // esp_bytes == 0 must return Err
+    Layout::plan(512, 10_000_000, 0, guids).unwrap_err();
+
+    // Tiny disk where last_usable + 1 < align must return Err, not overflow or panic
+    Layout::plan(512, 100, 512 * 1024 * 1024, guids).unwrap_err();
+    Layout::plan(512, 2048, 512 * 1024 * 1024, guids).unwrap_err();
+}
+
+#[test]
+fn test_gpt_layout_root_alignment() {
+    let guids = [
+        disk::gpt::guid("11111111-1111-1111-1111-111111111111"),
+        disk::gpt::guid("22222222-2222-2222-2222-222222222222"),
+        disk::gpt::guid("33333333-3333-3333-3333-333333333333"),
+        disk::gpt::guid("44444444-4444-4444-4444-444444444444"),
+    ];
+    let align_sectors = (1024 * 1024) / 512;
+    // 100 MiB + 512 bytes ESP requested
+    let esp_bytes = 100 * 1024 * 1024 + 512;
+    let layout = Layout::plan(512, 10_000_000, esp_bytes, guids).expect("plan layout");
+    let root = &layout.partitions[Layout::ROOT];
+    assert_eq!(
+        root.first_lba % align_sectors,
+        0,
+        "root first LBA ({}) must be 1 MiB aligned",
+        root.first_lba
+    );
+}
+
+#[test]
+fn test_gpt_large_esp_no_panic() {
+    let guids = [
+        disk::gpt::guid("11111111-1111-1111-1111-111111111111"),
+        disk::gpt::guid("22222222-2222-2222-2222-222222222222"),
+        disk::gpt::guid("33333333-3333-3333-3333-333333333333"),
+        disk::gpt::guid("44444444-4444-4444-4444-444444444444"),
+    ];
+    Layout::plan(512, 1_000_000, u64::MAX - 512, guids).unwrap_err();
+}
+
+#[test]
+fn test_fat32_format_small_volume_no_panic() {
+    let dir = scratch("fat32-tiny");
+    let (_p, mut dev) = make_disk(&dir, "tiny.img", 30 * 512, 512);
+    let opts = Options {
+        label: "ESP".into(),
+        volume_id: 1,
+        hidden_sectors: 0,
+        now: 0,
+    };
+    let mut reg = Region::whole(&mut dev);
+    match Fat32Writer::format(&mut reg, opts) {
+        Err(_) => (),
+        Ok(_) => panic!("expected error on tiny volume"),
+    }
+    drop(std::fs::remove_dir_all(&dir));
+}
+

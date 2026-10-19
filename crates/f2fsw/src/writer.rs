@@ -1314,7 +1314,7 @@ impl<S: Storage> F2fsWriter<S> {
                     let cnt = self.cur_node_off[i];
                     vblocks = cnt | ((i as u16 + 3) << 10);
                     for b in 0..cnt as usize {
-                        f2fs_set_bit(b, &mut valid_map);
+                        f2fs_set_bit_le(b, &mut valid_map);
                     }
                 }
             }
@@ -1324,7 +1324,7 @@ impl<S: Storage> F2fsWriter<S> {
                     let cnt = self.cur_data_off[i];
                     vblocks = cnt | ((i as u16) << 10);
                     for b in 0..cnt as usize {
-                        f2fs_set_bit(b, &mut valid_map);
+                        f2fs_set_bit_le(b, &mut valid_map);
                     }
                 }
             }
@@ -2182,6 +2182,12 @@ mod tests {
         // Byte 0 has '.' at slot 0 (bit 0) and '..' at slot 1 (bit 1) and 'dir1' at slot 2 (bit 2)
         // In LE bit order, bits 0, 1, 2 set = 1 | 2 | 4 = 7
         assert_eq!(dentry_blk[0] & 0x07, 0x07);
+
+        // 4. Verify SIT table valid_map uses LE bit order (bit 0 = 0x01)
+        let sit_pblk = writer.layout.sit_blkaddr;
+        let mut sit_blk = [0u8; F2FS_BLKSIZE];
+        writer.storage.read_at(sit_pblk as u64 * F2FS_BLKSIZE as u64, &mut sit_blk).unwrap();
+        assert_eq!(sit_blk[2] & 0x01, 0x01, "SIT valid_map bit 0 must be in LE bit position (0x01)");
     }
 }
 

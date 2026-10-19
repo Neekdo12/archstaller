@@ -783,7 +783,9 @@ impl<S: Storage> Ext4Writer<S> {
             return Err(Error::IsDir);
         }
         let (parent, name) = self.parent_of(path)?;
-        self.replace_slot(parent, name)?;
+        if self.lookup_in(parent, name).is_some() {
+            return Err(Error::Exists);
+        }
         self.link_new(parent, name, kind, ino);
         self.dir_mut(ino).nlink += 1;
         Ok(ino)
@@ -1500,6 +1502,45 @@ mod fswriter_tests {
         assert_eq!(w.lookup("etc/os-release"), Some(sym_id));
 
         w.finish().unwrap();
+    }
+
+    #[test]
+    fn test_hardlink_to_existing_or_self_returns_exists() {
+        let size = 64 * 1024 * 1024;
+        let storage = MemStorage(alloc::vec![0u8; size as usize]);
+        let mut ext4 = Ext4Writer::new(
+            storage,
+            size,
+            Options {
+                label: "test".into(),
+                uuid: [1u8; 16],
+                hash_seed: [0; 4],
+                now: 1234567,
+                reserved_percent: 1,
+            },
+        )
+        .unwrap();
+
+        let meta = Meta {
+            mode: 0o644,
+            uid: 0,
+            gid: 0,
+            mtime: 1234567,
+            xattrs: alloc::vec![],
+        };
+        ext4.begin_file("test.txt", &meta).unwrap();
+        ext4.write_file(b"data").unwrap();
+        let file_id = ext4.end_file().unwrap();
+
+        // Hardlink to self should fail with Exists and preserve file
+        assert_eq!(ext4.hardlink("test.txt", "test.txt"), Err(Error::Exists));
+        assert_eq!(ext4.lookup("test.txt"), Some(file_id));
+
+        // Hardlink to new name should succeed
+        assert_eq!(ext4.hardlink("test2.txt", "test.txt"), Ok(file_id));
+
+        // Hardlink to existing second link should fail with Exists
+        assert_eq!(ext4.hardlink("test2.txt", "test.txt"), Err(Error::Exists));
     }
 }
 
