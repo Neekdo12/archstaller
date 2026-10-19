@@ -160,3 +160,21 @@ fn ax88179_link_settings_follow_speed() {
     assert_eq!(m & MEDIUM_GIGA, 0);
     assert_eq!(q[3], 0x18);
 }
+
+#[test]
+fn ncm_rejects_datagram_at_offset_zero() {
+    use usbnet::ncm::*;
+    let mut n = vec![0u8; 64];
+    n[0..4].copy_from_slice(b"NCMH");
+    n[4..6].copy_from_slice(&12u16.to_le_bytes());
+    n[10..12].copy_from_slice(&16u16.to_le_bytes());
+
+    n[16..20].copy_from_slice(b"NCM0");
+    n[20..22].copy_from_slice(&16u16.to_le_bytes());
+    n[24..28].copy_from_slice(&[0, 0, 12, 0]);
+    n[28..32].copy_from_slice(&[0, 0, 0, 0]);
+
+    let frames = parse_ntb(&n);
+    assert!(frames.is_empty(), "parse_ntb extracted NTH header at offset 0 as datagram");
+}
+

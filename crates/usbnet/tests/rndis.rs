@@ -62,10 +62,7 @@ fn parses_completions() {
     let r = parse_reply(&q).unwrap();
     assert_eq!(r.info, [0x02, 0, 0x11, 0x22, 0x33, 0x44]);
 
-    assert!(
-        parse_reply(&q[..20]).is_err(),
-        "length field exceeds the buffer"
-    );
+    parse_reply(&q[..20]).unwrap_err();
 }
 
 #[test]
@@ -89,3 +86,37 @@ fn packet_wrapping_round_trip() {
     assert!(unwrap_frames(&w[..30]).is_empty());
     assert!(unwrap_frames(&[0xffu8; 40]).is_empty());
 }
+
+#[test]
+fn unwrap_frames_overflow_offset_does_not_panic() {
+    let mut bad = vec![0u8; 44];
+    bad[0..4].copy_from_slice(&MSG_PACKET.to_le_bytes());
+    bad[4..8].copy_from_slice(&44u32.to_le_bytes());
+    bad[8..12].copy_from_slice(&(u32::MAX - 2).to_le_bytes());
+    bad[12..16].copy_from_slice(&10u32.to_le_bytes());
+    assert!(unwrap_frames(&bad).is_empty());
+}
+
+#[test]
+fn parse_reply_overflow_offset_does_not_panic() {
+    let mut q = vec![0u8; 32];
+    q[0..4].copy_from_slice(&(MSG_QUERY | CMPLT).to_le_bytes());
+    q[4..8].copy_from_slice(&32u32.to_le_bytes());
+    q[8..12].copy_from_slice(&1u32.to_le_bytes());
+    q[12..16].copy_from_slice(&STATUS_SUCCESS.to_le_bytes());
+    q[16..20].copy_from_slice(&10u32.to_le_bytes());
+    q[20..24].copy_from_slice(&(u32::MAX - 4).to_le_bytes());
+    parse_reply(&q).unwrap_err();
+}
+
+#[test]
+fn unwrap_frames_rejects_header_overlap() {
+    let mut msg = vec![0u8; 44];
+    msg[0..4].copy_from_slice(&MSG_PACKET.to_le_bytes());
+    msg[4..8].copy_from_slice(&44u32.to_le_bytes());
+    msg[8..12].copy_from_slice(&0u32.to_le_bytes());
+    msg[12..16].copy_from_slice(&20u32.to_le_bytes());
+    let frames = unwrap_frames(&msg);
+    assert!(frames.is_empty(), "unwrap_frames accepted data overlapping packet header");
+}
+

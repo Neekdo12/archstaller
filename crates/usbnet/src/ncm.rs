@@ -108,7 +108,13 @@ pub fn parse_ntb(b: &[u8]) -> Vec<Vec<u8>> {
         let len = le16(b, ndp + 4).unwrap_or(0) as usize;
         let next = le16(b, ndp + 6).unwrap_or(0) as usize;
         let mut e = ndp + 8;
-        while e + 4 <= ndp + len {
+        while let Some(e_next) = e.checked_add(4) {
+            let Some(ndp_end) = ndp.checked_add(len) else {
+                break;
+            };
+            if e_next > ndp_end {
+                break;
+            }
             let (idx, dlen) = (
                 le16(b, e).unwrap_or(0) as usize,
                 le16(b, e + 2).unwrap_or(0) as usize,
@@ -116,10 +122,16 @@ pub fn parse_ntb(b: &[u8]) -> Vec<Vec<u8>> {
             if idx == 0 && dlen == 0 {
                 break;
             }
-            if let Some(d) = b.get(idx..idx + dlen) {
-                out.push(d.to_vec());
+            if idx < NTH16_LEN || dlen == 0 {
+                e = e_next;
+                continue;
             }
-            e += 4;
+            if let Some(end) = idx.checked_add(dlen) {
+                if let Some(d) = b.get(idx..end) {
+                    out.push(d.to_vec());
+                }
+            }
+            e = e_next;
         }
         ndp = next;
     }

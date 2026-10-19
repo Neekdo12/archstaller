@@ -202,3 +202,68 @@ fn civil_from_unix_spot_check() {
     let (y, mo, d, ..) = imobiledevice::cert::civil_from_unix(951_782_400);
     assert_eq!((y, mo, d), (2000, 2, 29));
 }
+
+#[test]
+fn binary_plist_malicious_trailer_does_not_overflow() {
+    let mut b = vec![0u8; 40];
+    b[0..8].copy_from_slice(b"bplist00");
+    b[8 + 6] = 8;
+    b[8 + 7] = 1;
+    b[8 + 8..8 + 16].copy_from_slice(&u64::MAX.to_be_bytes());
+    imobiledevice::plist::parse(&b).unwrap_err();
+}
+
+#[test]
+fn xml_empty_self_closing_tags() {
+    let xml = b"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+                <plist version=\"1.0\">\n\
+                <dict>\n\
+                    <key>EmptyDict</key>\n\
+                    <dict/>\n\
+                    <key>EmptyArray</key>\n\
+                    <array/>\n\
+                    <key>EmptyString</key>\n\
+                    <string/>\n\
+                </dict>\n\
+                </plist>";
+    let val = imobiledevice::plist::parse(xml).expect("parse empty self-closing tags");
+    assert_eq!(val.get("EmptyDict"), Some(&Value::Dict(Vec::new())));
+    assert_eq!(val.get("EmptyArray"), Some(&Value::Array(Vec::new())));
+    assert_eq!(val.get("EmptyString"), Some(&Value::String(String::new())));
+}
+
+#[test]
+fn xml_negative_integer() {
+    let xml = b"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+                <plist version=\"1.0\">\n\
+                <dict>\n\
+                    <key>Number</key>\n\
+                    <integer>-1</integer>\n\
+                </dict>\n\
+                </plist>";
+    let val = imobiledevice::plist::parse(xml).expect("parse negative integer");
+    assert_eq!(val.dict_get_int("Number"), Some(u64::MAX));
+}
+
+#[test]
+fn binary_plist_shift_overflow_panic() {
+    let mut b = vec![
+        b'b', b'p', b'l', b'i', b's', b't', b'0', b'0',
+        0x1f, 0x10, 64,
+    ];
+    while b.len() < 32 {
+        b.push(0);
+    }
+    let off_start = b.len();
+    b.push(8);
+    let mut trailer = [0u8; 32];
+    trailer[6] = 1;
+    trailer[7] = 1;
+    trailer[8..16].copy_from_slice(&1u64.to_be_bytes());
+    trailer[16..24].copy_from_slice(&0u64.to_be_bytes());
+    trailer[24..32].copy_from_slice(&(off_start as u64).to_be_bytes());
+    b.extend_from_slice(&trailer);
+
+    imobiledevice::plist::parse(&b).unwrap_err();
+}
+

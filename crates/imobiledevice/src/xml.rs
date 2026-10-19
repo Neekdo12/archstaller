@@ -82,7 +82,10 @@ impl<'a> Parser<'a> {
 
     fn value(&mut self) -> Result<Value> {
         self.skip_junk();
-        if self.rest().starts_with("<dict>") {
+        if self.rest().starts_with("<dict/>") || self.rest().starts_with("<dict />") {
+            self.pos = self.rest().find("/>").ok_or(Error::Malformed)? + self.pos + 2;
+            Ok(Value::Dict(Vec::new()))
+        } else if self.rest().starts_with("<dict>") {
             self.pos += 6;
             let mut kv = Vec::new();
             loop {
@@ -96,6 +99,9 @@ impl<'a> Parser<'a> {
                 let v = self.value()?;
                 kv.push((k, v));
             }
+        } else if self.rest().starts_with("<array/>") || self.rest().starts_with("<array />") {
+            self.pos = self.rest().find("/>").ok_or(Error::Malformed)? + self.pos + 2;
+            Ok(Value::Array(Vec::new()))
         } else if self.rest().starts_with("<array>") {
             self.pos += 7;
             let mut items = Vec::new();
@@ -107,6 +113,9 @@ impl<'a> Parser<'a> {
                 }
                 items.push(self.value()?);
             }
+        } else if self.rest().starts_with("<string/>") || self.rest().starts_with("<string />") {
+            self.pos = self.rest().find("/>").ok_or(Error::Malformed)? + self.pos + 2;
+            Ok(Value::String(alloc::string::String::new()))
         } else if self.rest().starts_with("<string") {
             self.expect("<string")?;
             self.expect(">")?;
@@ -114,10 +123,14 @@ impl<'a> Parser<'a> {
         } else if self.rest().starts_with("<integer>") {
             self.pos += 9;
             let t = self.text_until("</integer>")?;
-            t.trim()
-                .parse::<u64>()
-                .map(Value::Int)
-                .map_err(|_e| Error::Malformed)
+            let s = t.trim();
+            if let Ok(v) = s.parse::<u64>() {
+                Ok(Value::Int(v))
+            } else if let Ok(v) = s.parse::<i64>() {
+                Ok(Value::Int(v.cast_unsigned()))
+            } else {
+                Err(Error::Malformed)
+            }
         } else if self.rest().starts_with("<real>") {
             self.pos += 6;
             let t = self.text_until("</real>")?;

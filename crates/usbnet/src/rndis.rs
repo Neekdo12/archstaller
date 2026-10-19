@@ -112,11 +112,11 @@ pub fn parse_reply(buf: &[u8]) -> Result<Reply> {
         r.max_transfer = le(buf, 36)?;
     } else if msg_type == MSG_QUERY | CMPLT && status == STATUS_SUCCESS {
         let info_len = le(buf, 16)? as usize;
-        let info_off = 8 + le(buf, 20)? as usize;
-        r.info = buf
-            .get(info_off..info_off + info_len)
-            .ok_or(Error::Io)?
-            .to_vec();
+        let info_off = (8usize)
+            .checked_add(le(buf, 20)? as usize)
+            .ok_or(Error::Io)?;
+        let info_end = info_off.checked_add(info_len).ok_or(Error::Io)?;
+        r.info = buf.get(info_off..info_end).ok_or(Error::Io)?.to_vec();
     }
     Ok(r)
 }
@@ -147,11 +147,17 @@ pub fn unwrap_frames(buf: &[u8]) -> Vec<Vec<u8>> {
         else {
             break;
         };
-        let (len, start, dlen) = (len as usize, 8 + off as usize, dlen as usize);
-        if ty != MSG_PACKET || len < 16 || len > msg.len() || start + dlen > len {
+        let len = len as usize;
+        let Some(start) = (8usize).checked_add(off as usize) else {
+            break;
+        };
+        let Some(end) = start.checked_add(dlen as usize) else {
+            break;
+        };
+        if ty != MSG_PACKET || len < PACKET_HDR || len > msg.len() || start < PACKET_HDR || end > len {
             break;
         }
-        if let Some(frame_bytes) = msg.get(start..start + dlen) {
+        if let Some(frame_bytes) = msg.get(start..end) {
             out.push(frame_bytes.to_vec());
         }
         pos += len;

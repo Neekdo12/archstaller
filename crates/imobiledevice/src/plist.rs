@@ -110,14 +110,18 @@ impl<'a> Reader<'a> {
         p += 1;
         let (ty, mut info) = (marker >> 4, (marker & 0x0f) as usize);
         let mut len_or_count = info;
-        if info == 0x0f {
+        if info == 0x0f && ty != 0x1 {
             // Length follows as an inline int object.
             let m2 = *self.buf.get(p).ok_or(Error::Malformed)?;
             p += 1;
             if m2 >> 4 != 0x1 {
                 return Err(Error::Malformed);
             }
-            let n = 1usize << (m2 & 0x0f);
+            let shift = m2 & 0x0f;
+            if u32::from(shift) >= usize::BITS {
+                return Err(Error::Malformed);
+            }
+            let n = 1usize << shift;
             let bytes = self.buf.get(p..p + n).ok_or(Error::Malformed)?;
             len_or_count = 0;
             for b in bytes {
@@ -133,10 +137,10 @@ impl<'a> Reader<'a> {
                 _ => Err(Error::Unsupported), // null / fill
             },
             0x1 => {
-                let n = 1usize << info;
-                if n > 8 {
+                if info > 3 {
                     return Err(Error::Unsupported); // 128-bit ints not needed
                 }
+                let n = 1usize << info;
                 let bytes = self.buf.get(p..p + n).ok_or(Error::Malformed)?;
                 let mut v = 0u64;
                 for b in bytes {
@@ -247,11 +251,17 @@ fn parse_binary(buf: &[u8]) -> Result<Value> {
         }
         _ => return Err(Error::Malformed),
     };
+    let Some(table_len) = num.checked_mul(off_size) else {
+        return Err(Error::Malformed);
+    };
+    let Some(table_end) = off_start.checked_add(table_len) else {
+        return Err(Error::Malformed);
+    };
     if off_size == 0
         || off_size > 8
         || ref_size == 0
         || ref_size > 8
-        || off_start + num * off_size > buf.len()
+        || table_end > buf.len()
     {
         return Err(Error::Malformed);
     }

@@ -40,14 +40,15 @@ pub fn decompress(data: &[u8]) -> Result<Vec<u8>> {
 }
 
 fn le16(b: &[u8], o: usize) -> Option<usize> {
-    Some(u16::from_le_bytes(b.get(o..o + 2)?.try_into().ok()?) as usize)
+    Some(u16::from_le_bytes(b.get(o..o.checked_add(2)?)?.try_into().ok()?) as usize)
 }
 fn le64(b: &[u8], o: usize) -> Option<usize> {
-    Some(u64::from_le_bytes(b.get(o..o + 8)?.try_into().ok()?) as usize)
+    Some(u64::from_le_bytes(b.get(o..o.checked_add(8)?)?.try_into().ok()?) as usize)
 }
 fn le32(b: &[u8], o: usize) -> Option<usize> {
-    Some(u32::from_le_bytes(b.get(o..o + 4)?.try_into().ok()?) as usize)
+    Some(u32::from_le_bytes(b.get(o..o.checked_add(4)?)?.try_into().ok()?) as usize)
 }
+
 
 /// Reads the `depends=` list from a raw ELF64 module's `.modinfo` section.
 pub fn depends(elf: &[u8]) -> Result<Vec<String>> {
@@ -59,12 +60,20 @@ pub fn depends(elf: &[u8]) -> Result<Vec<String>> {
     let shentsize = le16(elf, 0x3a).ok_or_else(bad)?;
     let shnum = le16(elf, 0x3c).ok_or_else(bad)?;
     let shstrndx = le16(elf, 0x3e).ok_or_else(bad)?;
+    if shstrndx >= shnum {
+        return Err(bad());
+    }
     let section = |i: usize| -> Option<(usize, usize, usize)> {
-        let o = shoff + i * shentsize;
-        Some((le32(elf, o)?, le64(elf, o + 0x18)?, le64(elf, o + 0x20)?)) // name, offset, size
+        let o = shoff.checked_add(i.checked_mul(shentsize)?)?;
+        Some((
+            le32(elf, o)?,
+            le64(elf, o.checked_add(0x18)?)?,
+            le64(elf, o.checked_add(0x20)?)?,
+        )) // name, offset, size
     };
     let (_, str_off, str_size) = section(shstrndx).ok_or_else(bad)?;
-    let strtab = elf.get(str_off..str_off + str_size).ok_or_else(bad)?;
+    let str_end = str_off.checked_add(str_size).ok_or_else(bad)?;
+    let strtab = elf.get(str_off..str_end).ok_or_else(bad)?;
     for i in 0..shnum {
         let (name_off, off, size) = section(i).ok_or_else(bad)?;
         let name = strtab.get(name_off..).ok_or_else(bad)?;
@@ -72,7 +81,8 @@ pub fn depends(elf: &[u8]) -> Result<Vec<String>> {
         if name.get(..end) != Some(b".modinfo") {
             continue;
         }
-        let info = elf.get(off..off + size).ok_or_else(bad)?;
+        let off_end = off.checked_add(size).ok_or_else(bad)?;
+        let info = elf.get(off..off_end).ok_or_else(bad)?;
         for entry in info.split(|&c| c == 0) {
             if let Some(v) = entry.strip_prefix(b"depends=") {
                 let v = core::str::from_utf8(v).map_err(|_e| bad())?;
@@ -93,6 +103,7 @@ pub trait ModuleSource {
     fn find(&mut self, name: &str) -> Option<Vec<u8>>;
 }
 
+#[derive(Debug)]
 pub struct Resolved {
     /// Loading order: dependencies before dependents.
     pub order: Vec<String>,
@@ -135,10 +146,34 @@ pub fn resolve(
                 Ok(())
             };
         };
+        let saved_order = out.order.len();
+        let saved_done = done.clone();
         visiting.insert(name.clone());
-        let raw = decompress(&file)?;
-        for dep in depends(&raw)? {
-            visit(&dep, src, builtin, done, visiting, out, true)?;
+        let raw = match decompress(&file) {
+            Ok(r) => r,
+            Err(e) => {
+                visiting.remove(&name);
+                return if required { Err(e) } else { Ok(()) };
+            }
+        };
+        let deps = match depends(&raw) {
+            Ok(d) => d,
+            Err(e) => {
+                visiting.remove(&name);
+                return if required { Err(e) } else { Ok(()) };
+            }
+        };
+        for dep in deps {
+            if let Err(e) = visit(&dep, src, builtin, done, visiting, out, true) {
+                visiting.remove(&name);
+                if required {
+                    return Err(e);
+                }
+                out.order.truncate(saved_order);
+                out.images.truncate(saved_order);
+                *done = saved_done;
+                return Ok(());
+            }
         }
         visiting.remove(&name);
         done.insert(name.clone());
