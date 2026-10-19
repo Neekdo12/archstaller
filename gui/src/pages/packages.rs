@@ -653,9 +653,11 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
         r.append(&ui::button("Remove", move || {
             {
                 let mut st = a.st.borrow_mut();
-                let gone = st.model.cfg.aur.remove(i);
-                st.model.dirty = true;
-                st.aur.message = Some(Ok(format!("Removed {}. Its AUR dependencies stay pinned; remove them too if nothing else needs them.", gone.name)));
+                if i < st.model.cfg.aur.len() {
+                    let gone = st.model.cfg.aur.remove(i);
+                    st.model.dirty = true;
+                    st.aur.message = Some(Ok(format!("Removed {}. Its AUR dependencies stay pinned; remove them too if nothing else needs them.", gone.name)));
+                }
             }
             a.refresh_chrome();
             a.refresh_page(Page::Packages);

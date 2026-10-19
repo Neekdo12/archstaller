@@ -358,26 +358,50 @@ impl OfficialState {
     pub fn poll(&mut self, cfg: &mut config::Config) -> Polled {
         let mut p = Polled::default();
         if let Some(rx) = &self.index_rx {
-            if let Ok(r) = rx.try_recv() {
-                self.index_rx = None;
-                self.index = Some(r.map(Arc::new));
-                // New databases: the old total was against other data.
-                self.total_key = None;
-                p.changed = true;
+            match rx.try_recv() {
+                Ok(r) => {
+                    self.index_rx = None;
+                    self.index = Some(r.map(Arc::new));
+                    self.total_key = None;
+                    p.changed = true;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.index_rx = None;
+                    self.index = Some(Err("Database loader disconnected unexpectedly".into()));
+                    self.total_key = None;
+                    p.changed = true;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
         }
         if let Some(rx) = &self.total_rx {
-            if let Ok(r) = rx.try_recv() {
-                self.total_rx = None;
-                self.total = Some(r);
-                p.changed = true;
+            match rx.try_recv() {
+                Ok(r) => {
+                    self.total_rx = None;
+                    self.total = Some(r);
+                    p.changed = true;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.total_rx = None;
+                    self.total = Some(Err("Total calculation thread disconnected unexpectedly".into()));
+                    p.changed = true;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
         }
         if let Some(rx) = &self.import_rx {
-            if let Ok(r) = rx.try_recv() {
-                self.import_rx = None;
-                self.import_raw = Some(r);
-                p.changed = true;
+            match rx.try_recv() {
+                Ok(r) => {
+                    self.import_rx = None;
+                    self.import_raw = Some(r);
+                    p.changed = true;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.import_rx = None;
+                    self.import_raw = Some(Err("Import worker thread disconnected unexpectedly".into()));
+                    p.changed = true;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
         }
         // The pacman lists are in: merge them once the databases are loaded (or report why they are not).

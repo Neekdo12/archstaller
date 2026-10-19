@@ -935,10 +935,20 @@ impl App {
         let mut rebuild_packages = false;
         {
             let mut st = self.st.borrow_mut();
-            if let Some(r) = st.resolve_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
-                st.resolve_rx = None;
-                st.resolve = Some(r);
-                changed = true;
+            if let Some(rx) = &st.resolve_rx {
+                match rx.try_recv() {
+                    Ok(r) => {
+                        st.resolve_rx = None;
+                        st.resolve = Some(r);
+                        changed = true;
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        st.resolve_rx = None;
+                        st.resolve = Some(Err("Dependency resolver disconnected unexpectedly".into()));
+                        changed = true;
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                }
             }
             let st = &mut *st;
             let polled = st.official.poll(&mut st.model.cfg);

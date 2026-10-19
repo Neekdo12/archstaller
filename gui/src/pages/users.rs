@@ -66,7 +66,9 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         let a = app.clone();
         r.append(&ui::button("Remove", move || {
             a.edit(move |m| {
-                m.cfg.users.remove(i);
+                if i < m.cfg.users.len() {
+                    m.cfg.users.remove(i);
+                }
             });
             a.rebuild(Page::Users);
         }));
@@ -448,7 +450,9 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         let a = app.clone();
         item_box.append(&ui::button("Remove", move || {
             a.edit(move |m| {
-                m.cfg.user_archives.remove(i);
+                if i < m.cfg.user_archives.len() {
+                    m.cfg.user_archives.remove(i);
+                }
             });
             a.rebuild_all();
         }));

@@ -962,8 +962,16 @@ pub fn pump(app: &Rc<App>) -> bool {
         let mut exit = None;
         if let Some(b) = &st.build.running {
             let mut msgs = Vec::new();
-            while let Ok(m) = b.rx.try_recv() {
-                msgs.push(m);
+            let mut disconnected = false;
+            loop {
+                match b.rx.try_recv() {
+                    Ok(m) => msgs.push(m),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        disconnected = true;
+                        break;
+                    }
+                }
             }
             for m in msgs {
                 changed = true;
@@ -984,6 +992,13 @@ pub fn pump(app: &Rc<App>) -> bool {
                     }) => st.build.done = Some((path, size, sha256)),
                     Msg::Event(Event::Failed { message }) => st.build.error = Some(message),
                     Msg::Exit(ok) => exit = Some(ok),
+                }
+            }
+            if exit.is_none() && disconnected {
+                changed = true;
+                exit = Some(false);
+                if st.build.error.is_none() {
+                    st.build.error = Some("Build worker thread disconnected unexpectedly".into());
                 }
             }
         }
@@ -1051,15 +1066,28 @@ pub fn pump(app: &Rc<App>) -> bool {
         }
         // Mount / unmount.
         if let Some(rx) = &st.media.drive_rx {
-            if let Ok(r) = rx.try_recv() {
-                st.media.drive_rx = None;
-                st.media.drive_busy = None;
-                st.media.drive_msg = Some(r);
-                st.media.volumes = media::volumes();
-                st.media.selected = None;
-                drop(st);
-                app.rebuild(Page::Iso);
-                return pump_copy(app, start_copy_after, true);
+            match rx.try_recv() {
+                Ok(r) => {
+                    st.media.drive_rx = None;
+                    st.media.drive_busy = None;
+                    st.media.drive_msg = Some(r);
+                    st.media.volumes = media::volumes();
+                    st.media.selected = None;
+                    drop(st);
+                    app.rebuild(Page::Iso);
+                    return pump_copy(app, start_copy_after, true);
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    st.media.drive_rx = None;
+                    st.media.drive_busy = None;
+                    st.media.drive_msg = Some(Err("Drive worker thread disconnected unexpectedly".into()));
+                    st.media.volumes = media::volumes();
+                    st.media.selected = None;
+                    drop(st);
+                    app.rebuild(Page::Iso);
+                    return pump_copy(app, start_copy_after, true);
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
         }
     }
@@ -1081,8 +1109,16 @@ fn pump_copy(
         let mut finished = false;
         if let Some(rx) = &st.media.rx {
             let mut msgs = Vec::new();
-            while let Ok(m) = rx.try_recv() {
-                msgs.push(m);
+            let mut disconnected = false;
+            loop {
+                match rx.try_recv() {
+                    Ok(m) => msgs.push(m),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        disconnected = true;
+                        break;
+                    }
+                }
             }
             for m in msgs {
                 changed = true;
@@ -1112,6 +1148,15 @@ fn pump_copy(
                         finished = true;
                     }
                 }
+            }
+            if !finished && disconnected {
+                changed = true;
+                finished = true;
+                if let Some(d) = st.media.cleanup.take() {
+                    drop(std::fs::remove_dir_all(d));
+                    st.build.iso = None;
+                }
+                st.media.result = Some(Err("Worker thread disconnected unexpectedly".into()));
             }
         }
         if finished {
@@ -1492,7 +1537,7 @@ fn flash_show(
         flash::MediaKind::Floppy => 2,
         flash::MediaKind::RaspberryPi => 3,
     });
-    let (a, w, b) = (app.clone(), win.clone(), body.clone());
+    let (a, w, b, iso_for_change) = (app.clone(), win.clone(), body.clone(), iso.clone());
     dropdown.connect_selected_notify(move |dd| {
         let new_kind = match dd.selected() {
             0 => flash::MediaKind::Usb,
@@ -1502,7 +1547,7 @@ fn flash_show(
         };
         if new_kind != kind {
             w.set_title(Some(new_kind.title()));
-            flash_scan(&a, &w, &b, None, new_kind);
+            flash_scan(&a, &w, &b, iso_for_change.clone(), new_kind);
         }
     });
     target_row.append(&target_label);

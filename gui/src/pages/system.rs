@@ -700,7 +700,9 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         let a = app.clone();
         r.append(&ui::button("Remove", move || {
             a.edit(move |m| {
-                m.cfg.scripts.remove(i);
+                if i < m.cfg.scripts.len() {
+                    m.cfg.scripts.remove(i);
+                }
             });
             a.rebuild(Page::System);
         }));
@@ -892,7 +894,9 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
             let a = app.clone();
             row.append(&ui::button("Remove", move || {
                 a.edit(move |m| {
-                    m.cfg.system_files.remove(idx);
+                    if idx < m.cfg.system_files.len() {
+                        m.cfg.system_files.remove(idx);
+                    }
                 });
                 a.rebuild_all();
             }));

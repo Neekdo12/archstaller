@@ -124,40 +124,63 @@ impl AurState {
     /// Takes finished work. Returns the new package list when a pin completed.
     pub fn poll(&mut self) -> Option<Pinned> {
         if let Some(rx) = &self.search_rx {
-            if let Ok(r) = rx.try_recv() {
-                self.search_rx = None;
-                self.results = Some(r);
+            match rx.try_recv() {
+                Ok(r) => {
+                    self.search_rx = None;
+                    self.results = Some(r);
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.search_rx = None;
+                    self.results = Some(Err("AUR search worker thread disconnected unexpectedly".into()));
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
         }
         if let Some(rx) = &self.review_rx {
-            if let Ok(r) = rx.try_recv() {
-                self.review_rx = None;
-                self.fetching = None;
-                match r {
-                    Ok(rev) => {
-                        self.file = if rev.files.contains_key("PKGBUILD") {
-                            "PKGBUILD".into()
-                        } else {
-                            rev.files.keys().next().cloned().unwrap_or_default()
-                        };
-                        self.review = Some(rev);
+            match rx.try_recv() {
+                Ok(r) => {
+                    self.review_rx = None;
+                    self.fetching = None;
+                    match r {
+                        Ok(rev) => {
+                            self.file = if rev.files.contains_key("PKGBUILD") {
+                                "PKGBUILD".into()
+                            } else {
+                                rev.files.keys().next().cloned().unwrap_or_default()
+                            };
+                            self.review = Some(rev);
+                        }
+                        Err(e) => self.message = Some(Err(e)),
                     }
-                    Err(e) => self.message = Some(Err(e)),
                 }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.review_rx = None;
+                    self.fetching = None;
+                    self.message = Some(Err("AUR review worker thread disconnected unexpectedly".into()));
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
         }
         if let Some(rx) = &self.pin_rx {
-            if let Ok(r) = rx.try_recv() {
-                self.pin_rx = None;
-                self.fetching = None;
-                match r {
-                    Ok(p) => {
-                        self.message = Some(Ok(p.summary.clone()));
-                        self.review = None;
-                        return Some(p);
+            match rx.try_recv() {
+                Ok(r) => {
+                    self.pin_rx = None;
+                    self.fetching = None;
+                    match r {
+                        Ok(p) => {
+                            self.message = Some(Ok(p.summary.clone()));
+                            self.review = None;
+                            return Some(p);
+                        }
+                        Err(e) => self.message = Some(Err(e)),
                     }
-                    Err(e) => self.message = Some(Err(e)),
                 }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.pin_rx = None;
+                    self.fetching = None;
+                    self.message = Some(Err("AUR pin worker thread disconnected unexpectedly".into()));
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
         }
         None
@@ -227,5 +250,34 @@ mod tests {
             "NetworkManager.service".into()
         ]));
         assert!(!has_network_service(&["sshd.service".into()]));
+    }
+
+    #[test]
+    fn aur_state_clears_on_channel_disconnect() {
+        let mut st = AurState::default();
+        let (tx, rx) = std::sync::mpsc::channel();
+        drop(tx);
+        st.search_rx = Some(rx);
+        st.poll();
+        assert!(st.search_rx.is_none(), "search_rx should be cleared on disconnect");
+        assert!(st.results.is_some(), "results should have error message");
+
+        let (tx2, rx2) = std::sync::mpsc::channel();
+        drop(tx2);
+        st.review_rx = Some(rx2);
+        st.fetching = Some("pkg".into());
+        st.poll();
+        assert!(st.review_rx.is_none(), "review_rx should be cleared on disconnect");
+        assert!(st.fetching.is_none(), "fetching should be cleared on disconnect");
+        assert!(st.message.is_some(), "message should report error on disconnect");
+
+        let (tx3, rx3) = std::sync::mpsc::channel();
+        drop(tx3);
+        st.pin_rx = Some(rx3);
+        st.fetching = Some("pkg".into());
+        st.poll();
+        assert!(st.pin_rx.is_none(), "pin_rx should be cleared on disconnect");
+        assert!(st.fetching.is_none(), "fetching should be cleared on disconnect");
+        assert!(st.message.is_some(), "message should report error on disconnect");
     }
 }

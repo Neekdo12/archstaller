@@ -419,6 +419,7 @@ pub fn parse_lsblk(v: &serde_json::Value, sys: SysfsLookup) -> Vec<RawDevice> {
 
 /// Why `d` must not be flashed with `src`; empty when it may. Unknown or conflicting information counts
 /// against the device.
+#[cfg(test)]
 pub fn problems(d: &RawDevice, src: &Source) -> Vec<String> {
     problems_for(d, src, MediaKind::Usb)
 }
@@ -506,7 +507,7 @@ pub fn problems_for(d: &RawDevice, src: &Source, kind: MediaKind) -> Vec<String>
             if !is_rpi_target {
                 p.push("not an SD card or USB flash drive".to_string());
             }
-            if !d.removable && !d.kname.starts_with("virtual") && !d.kname.starts_with("mmcblk") {
+            if !d.removable && d.tran != "usb" && !d.kname.starts_with("virtual") {
                 p.push("not marked removable or hot-pluggable".to_string());
             }
             if d.read_only {
@@ -776,7 +777,11 @@ impl RawBlockFlash {
                 self.dev.path
             ));
         }
-        let p = problems(&now, src);
+        let kind = match src.kind {
+            SourceKind::RawImg => MediaKind::RaspberryPi,
+            _ => self.dev.media_kind(),
+        };
+        let p = problems_for(&now, src, kind);
         if !p.is_empty() {
             return Err(format!(
                 "{} can no longer be flashed: {}. Nothing was written",
@@ -1834,8 +1839,11 @@ mod tests {
         drop(std::fs::remove_dir_all(&d));
     }
 
+    static VIRT_ENV_LOCK: Mutex<()> = Mutex::new(());
+
     #[test]
     fn virtual_media_eligibility() {
+        let _lock = VIRT_ENV_LOCK.lock().unwrap();
         std::env::set_var("ARCHSTALLER_VIRTUAL_MEDIA", "1");
         let vcd = probe_virtual_cd().unwrap();
         assert_eq!(vcd.media_kind(), MediaKind::Optical);
@@ -1877,5 +1885,58 @@ mod tests {
         assert_eq!(src.len, 1024 * 1024);
         assert_eq!(src.kind, SourceKind::RawImg);
         drop(std::fs::remove_dir_all(&d));
+    }
+
+    #[test]
+    fn raw_block_flash_verifies_with_correct_media_kind() {
+        let _lock = VIRT_ENV_LOCK.lock().unwrap();
+        std::env::set_var("ARCHSTALLER_VIRTUAL_MEDIA", "1");
+        let vrpi = probe_virtual_rpi().unwrap();
+        assert_eq!(vrpi.media_kind(), MediaKind::RaspberryPi);
+
+        let d = tmp("rpi_flash_test");
+        let rpi_img = d.join("archstaller-rpi.img");
+        std::fs::write(&rpi_img, vec![0u8; 1024 * 1024]).unwrap();
+        let src = Source::of(&rpi_img).unwrap();
+
+        let flash = RawBlockFlash {
+            dev: vrpi.clone(),
+            backend: Box::new(crate::flash::UDisks),
+        };
+        flash.current(&src).unwrap();
+
+        drop(std::fs::remove_dir_all(&d));
+        drop(std::fs::remove_file("/tmp/virtual-rpi.img"));
+        std::env::remove_var("ARCHSTALLER_VIRTUAL_MEDIA");
+    }
+
+    #[test]
+    fn non_removable_internal_emmc_is_not_eligible_for_rpi() {
+        let emmc = RawDevice {
+            path: "/dev/mmcblk0".into(),
+            kname: "mmcblk0".into(),
+            maj_min: (179, 0),
+            sysfs: "/sys/devices/platform/soc/mmcblk0".into(),
+            size: 64 * 1024 * 1024 * 1024,
+            model: "Internal eMMC".into(),
+            vendor: "SanDisk".into(),
+            serial: "EMMC001".into(),
+            tran: "".into(),
+            dev_type: "disk".into(),
+            removable: false,
+            read_only: false,
+            mounts: vec![],
+            partitions: vec![],
+            holders: vec![],
+        };
+        let rpi_src = Source {
+            path: PathBuf::from("/home/u/archstaller-rpi.img"),
+            len: 32 * 1024 * 1024,
+            dev: (259, 2),
+            kind: SourceKind::RawImg,
+        };
+        let p = problems_for(&emmc, &rpi_src, MediaKind::RaspberryPi);
+        assert!(!p.is_empty(), "non-removable internal eMMC must not be eligible");
+        assert!(p.iter().any(|s| s.contains("not marked removable")));
     }
 }

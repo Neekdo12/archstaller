@@ -226,11 +226,14 @@ impl Model {
             return Ok(());
         };
         let l = self.evaluate(&text, false)?;
+        let changed = self.cfg != l.config || self.host != l.host || self.foreign;
         self.cfg = l.config;
         self.host = l.host;
         self.raw = None;
         self.foreign = false;
-        self.dirty = true;
+        if changed {
+            self.dirty = true;
+        }
         Ok(())
     }
 
@@ -244,22 +247,13 @@ impl Model {
             .path
             .as_deref()
             .and_then(Path::parent)
-            .map(Path::to_path_buf)
-            .unwrap_or_else(std::env::temp_dir);
-        let tmp = dir.join(format!(".archstaller-check-{}.toml", std::process::id()));
-        std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
-        // The messages name the temporary file; the user knows it as the text in the editor.
+            .unwrap_or(Path::new("."));
         let r = if validate {
-            hostcfg::toml::load(&tmp)
+            hostcfg::toml::load_str(text, dir)
         } else {
-            hostcfg::toml::load_unvalidated(&tmp)
+            hostcfg::toml::load_str_unvalidated(text, dir)
         };
-        let r = r.map_err(|e| {
-            e.to_string()
-                .replace(tmp.to_string_lossy().as_ref(), "source.toml")
-        });
-        drop(std::fs::remove_file(&tmp));
-        r
+        r.map_err(|e| e.to_string())
     }
 
     fn check_text(&self, text: &str) -> Result<(), String> {
@@ -569,5 +563,14 @@ mod tests {
     #[test]
     fn bootloader_messages_map_to_disk_area() {
         assert_eq!(area_of("invalid bootloader: limine"), Area::Disk);
+    }
+
+    #[test]
+    fn leave_source_without_modifications_does_not_dirty_model() {
+        let mut model = Model::starter();
+        model.dirty = false;
+        model.enter_source();
+        model.leave_source().unwrap();
+        assert!(!model.dirty, "Model must not become dirty if source text was not modified");
     }
 }
