@@ -51,8 +51,11 @@ fn string(b: &[u8]) -> String {
 fn octal(b: &[u8]) -> Result<u64> {
     if let Some((&first, rest)) = b.split_first() {
         if first & 0x80 != 0 {
-            // GNU base-256.
-            let mut v = (first & 0x7f) as u64;
+            // GNU base-256. Bit 6 (0x40) is the sign bit in two's complement.
+            if first & 0x40 != 0 {
+                return Err(Error::Format("negative base-256 number"));
+            }
+            let mut v = (first & 0x3f) as u64;
             for &c in rest {
                 v = v
                     .checked_mul(256)
@@ -307,6 +310,10 @@ fn parse_pax(mut b: &[u8], out: &mut Vec<(String, Vec<u8>)>) -> Result<()> {
         if len < sp + 2 || len > b.len() {
             return Err(Error::Format("bad pax length"));
         }
+        let full_rec = b.get(..len).ok_or(Error::Format("bad pax record"))?;
+        if full_rec.last() != Some(&b'\n') {
+            return Err(Error::Format("bad pax record missing trailing newline"));
+        }
         let rec = b.get(sp + 1..len - 1).ok_or(Error::Format("bad pax record"))?; // strip trailing newline
         let eq = rec
             .iter()
@@ -322,3 +329,31 @@ fn parse_pax(mut b: &[u8], out: &mut Vec<(String, Vec<u8>)>) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gnu_base256_negative_number_rejected() {
+        let b = [0xFFu8; 8];
+        octal(&b).unwrap_err();
+    }
+
+    #[test]
+    fn gnu_base256_positive_number_parsed() {
+        let mut b = [0u8; 8];
+        b[0] = 0x80;
+        b[7] = 42;
+        assert_eq!(octal(&b).unwrap(), 42);
+    }
+
+    #[test]
+    fn pax_record_requires_trailing_newline() {
+        let mut out = Vec::new();
+        // 13 key=value without trailing newline (ends with 'X' instead of '\n')
+        let bad = b"13 key=valueX";
+        parse_pax(bad, &mut out).unwrap_err();
+    }
+}
+

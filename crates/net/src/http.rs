@@ -3,6 +3,7 @@ use crate::{Error, Result, Stream};
 use alloc::string::String;
 use alloc::vec::Vec;
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct Response {
     pub status: u16,
     pub content_length: Option<u64>,
@@ -17,6 +18,9 @@ pub fn get<S: Stream>(
     path: &str,
     sink: &mut dyn FnMut(&[u8]) -> Result<()>,
 ) -> Result<Response> {
+    if host.contains('\r') || host.contains('\n') || path.contains('\r') || path.contains('\n') {
+        return Err(Error::Http("invalid characters in host or path"));
+    }
     let mut req = String::new();
     req.push_str("GET ");
     req.push_str(path);
@@ -73,7 +77,7 @@ pub fn get<S: Stream>(
     let body_start = head_end + 4;
     let leftover: Vec<u8> = buf.get(body_start..).unwrap_or_default().to_vec();
     drop(buf);
-    if !(200..300).contains(&status) {
+    if status == 204 || status == 205 || !(200..300).contains(&status) {
         return Ok(resp);
     }
 
@@ -139,6 +143,9 @@ fn read_chunked<S: Stream>(
             if let Some(p) = find(&pending, b"\r\n") {
                 break p;
             }
+            if pending.len() > 1024 {
+                return Err(Error::Http("chunk size line too large"));
+            }
             fill(&mut pending, s)?;
         };
         let line_bytes = pending.get(..line_end).ok_or(Error::Http("bad chunk"))?;
@@ -164,6 +171,9 @@ fn read_chunked<S: Stream>(
         }
         while pending.len() < 2 {
             fill(&mut pending, s)?;
+        }
+        if pending.get(..2) != Some(b"\r\n") {
+            return Err(Error::Http("chunk missing trailing CRLF"));
         }
         pending.drain(..2); // CRLF after chunk data
     }
@@ -263,5 +273,45 @@ mod tests {
     fn a_truncated_body_is_an_error() {
         let (r, _) = fetch(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nshort", 4096);
         assert_eq!(r.err(), Some(Error::Closed));
+    }
+
+    #[test]
+    fn no_content_204_and_205_deliver_no_body() {
+        let (r, body) = fetch(b"HTTP/1.1 204 No Content\r\n\r\nunwanted body", 4096);
+        assert_eq!(r.unwrap().status, 204);
+        assert!(body.is_empty(), "204 must deliver no body");
+
+        let (r, body) = fetch(b"HTTP/1.1 205 Reset Content\r\n\r\nunwanted body", 4096);
+        assert_eq!(r.unwrap().status, 205);
+        assert!(body.is_empty(), "205 must deliver no body");
+    }
+
+    #[test]
+    fn chunk_line_too_large_errors() {
+        let mut resp = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec();
+        resp.extend(core::iter::repeat_n(b'f', 1025));
+        let (r, _) = fetch(&resp, 4096);
+        assert_eq!(r.err(), Some(Error::Http("chunk size line too large")));
+    }
+
+    #[test]
+    fn crlf_in_host_or_path_errors() {
+        let mut s = Canned {
+            data: b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n".to_vec(),
+            pos: 0,
+            step: 4096,
+            sent: Vec::new(),
+        };
+        let r1 = get(&mut s, "evil.com\r\nInjected: header", "/path", &mut |_| Ok(()));
+        r1.unwrap_err();
+        let r2 = get(&mut s, "good.com", "/path\r\nInjected: header", &mut |_| Ok(()));
+        r2.unwrap_err();
+    }
+
+    #[test]
+    fn chunk_missing_crlf_fails() {
+        let resp = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWikiXX0\r\n\r\n";
+        let (r, _body) = fetch(resp, 4096);
+        r.unwrap_err();
     }
 }

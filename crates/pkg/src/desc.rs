@@ -108,7 +108,7 @@ impl Package {
                 "CSIZE" => p.csize = first.parse().unwrap_or(0),
                 "ISIZE" => p.isize = first.parse().unwrap_or(0),
                 "SHA256SUM" => p.sha256 = first.into(),
-                "PGPSIG" => p.pgpsig = first.into(),
+                "PGPSIG" => p.pgpsig = lines.concat(),
                 "DEPENDS" => p.depends = deps(lines),
                 "PROVIDES" => p.provides = deps(lines),
                 "CONFLICTS" => p.conflicts = deps(lines),
@@ -166,5 +166,12 @@ mod tests {
         assert_eq!(field(d, "URL"), None);
         // A value that looks like a section name is not one.
         assert_eq!(field("%DESC%\n%NAME%\n", "NAME"), None);
+    }
+
+    #[test]
+    fn multiline_pgpsig_preserves_all_lines() {
+        let desc = "%NAME%\npkg\n%VERSION%\n1.0-1\n%FILENAME%\npkg.tar.zst\n%PGPSIG%\nline1\nline2\nline3\n";
+        let p = Package::parse("core", desc).unwrap();
+        assert_eq!(p.pgpsig, "line1line2line3");
     }
 }

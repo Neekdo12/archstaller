@@ -674,6 +674,9 @@ impl TcpConn<'_> {
 
 impl Stream for TcpConn<'_> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
         let end = self.stack.deadline(self.timeout_ms);
         loop {
             self.stack.poll();
@@ -1040,5 +1043,22 @@ mod tests {
     fn device_name_reports_underlying_nic_name() {
         let (s, _wire) = stack();
         assert_eq!(s.device_name(), "mock");
+    }
+
+    #[test]
+    fn tcp_conn_read_empty_buffer_returns_zero_immediately() {
+        let (mut s, _wire) = stack();
+        let sock = tcp::Socket::new(
+            tcp::SocketBuffer::new(std::vec![0u8; 1024]),
+            tcp::SocketBuffer::new(std::vec![0u8; 1024]),
+        );
+        let handle = s.sockets.add(sock);
+        let mut conn = TcpConn {
+            stack: &mut s,
+            handle,
+            timeout_ms: 1000,
+        };
+        let mut empty = [];
+        assert_eq!(conn.read(&mut empty), Ok(0));
     }
 }
