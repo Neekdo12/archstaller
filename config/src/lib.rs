@@ -30,7 +30,7 @@ impl Bootloader {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
     pub hostname: String,
     pub timezone: String,
@@ -82,7 +82,7 @@ pub struct Config {
 }
 
 /// One AUR package, pinned to the reviewed recipe.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AurPackage {
     /// The package to install (a `pkgname` of the recipe).
     pub name: String,
@@ -128,7 +128,7 @@ fn pkg_name(s: &str) -> bool {
 /// A first-boot script. Exactly one source: none of `file`/`url` (a built-in script of that `id`),
 /// `file` (a local file; `xtask` reads it into `content` at build time), or `url` + `sha256`
 /// (downloaded by the installer and checked against the digest).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Script {
     pub id: String,
     /// Extra arguments, passed to the script as separate words (no spaces, quotes or shell syntax).
@@ -285,7 +285,7 @@ impl Default for SystemFile {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserFile {
     /// `https://` URL of the file (at most 1 MiB).
     pub url: String,
@@ -362,7 +362,7 @@ impl Default for BtrfsConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Disk {
     /// Substring matched against the disk model; must select exactly one disk. If absent, the
     /// serial alone selects the disk.
@@ -394,20 +394,39 @@ pub fn valid_github_repo(s: &str) -> bool {
     let clean = s
         .strip_prefix("https://github.com/")
         .or_else(|| s.strip_prefix("http://github.com/"))
-        .unwrap_or(s)
-        .strip_suffix(".git")
-        .unwrap_or(s)
-        .trim_matches('/');
+        .unwrap_or(s);
+    let clean = clean.strip_suffix(".git").unwrap_or(clean).trim_matches('/');
 
     let mut parts = clean.split('/');
     let (Some(owner), Some(repo), None) = (parts.next(), parts.next(), parts.next()) else {
         return false;
     };
-    if owner.is_empty() || repo.is_empty() || owner.len() > 100 || repo.len() > 100 {
+    if owner.is_empty()
+        || repo.is_empty()
+        || owner == "."
+        || owner == ".."
+        || repo == "."
+        || repo == ".."
+        || owner.len() > 100
+        || repo.len() > 100
+    {
         return false;
     }
     let valid_char = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.';
     owner.chars().all(valid_char) && repo.chars().all(valid_char)
+}
+
+/// Normalizes a GitHub repository identifier to canonical `owner/repo`.
+pub fn normalize_github_repo(s: &str) -> Option<String> {
+    if !valid_github_repo(s) {
+        return None;
+    }
+    let clean = s
+        .strip_prefix("https://github.com/")
+        .or_else(|| s.strip_prefix("http://github.com/"))
+        .unwrap_or(s);
+    let clean = clean.strip_suffix(".git").unwrap_or(clean).trim_matches('/');
+    Some(String::from(clean))
 }
 
 /// User dotfiles configured from a GitHub repository, with optional GNU Stow linking.
@@ -441,7 +460,7 @@ impl Default for UserDotfiles {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct User {
     pub name: String,
     /// SHA-512 crypt hash (`$6$...`); plaintext is never accepted.
@@ -519,6 +538,11 @@ impl Config {
         if !self.dry_run && !self.disk.auto_largest && self.disk.confirm_serial.trim().is_empty() {
             return Err("disk.confirm_serial must be set (or enable disk.auto_largest)".into());
         }
+        if let Some(m) = &self.disk.model {
+            if m.trim().is_empty() {
+                return Err("disk.model must not be empty".into());
+            }
+        }
         if self.disk.esp_mib < 64 || self.disk.esp_mib > 8192 {
             return Err(format!("disk.esp_mib out of range: {}", self.disk.esp_mib));
         }
@@ -534,8 +558,8 @@ impl Config {
                     if !ident(&s.name, "@_-") {
                         return bad("btrfs subvolume name", &s.name);
                     }
-                    if !s.mount.starts_with('/') {
-                        return bad("btrfs mount point (must start with '/')", &s.mount);
+                    if !s.mount.starts_with('/') || s.mount.chars().any(|c| c.is_whitespace() || c.is_control()) {
+                        return bad("btrfs mount point (must start with '/' and contain no whitespace)", &s.mount);
                     }
                     if b.subvolumes.iter().take(i).any(|o| o.name == s.name) {
                         return bad("duplicate btrfs subvolume name", &s.name);
@@ -589,10 +613,10 @@ impl Config {
             }
         }
         for (i, u) in self.users.iter().enumerate() {
-            // useradd refuses names longer than 32 characters and all-digit ones, and the first boot stops
-            // at a user it cannot create.
+            // useradd refuses names longer than 32 characters, names starting with digits, and all-digit ones
             if !ident(&u.name, "_-")
                 || u.name.starts_with('-')
+                || u.name.starts_with(|c: char| c.is_ascii_digit())
                 || u.name == "root"
                 || u.name.len() > 32
                 || u.name.bytes().all(|b| b.is_ascii_digit())
@@ -627,6 +651,8 @@ impl Config {
                 if dotfiles.dir.is_empty()
                     || dotfiles.dir.starts_with('/')
                     || dotfiles.dir.contains("..")
+                    || dotfiles.dir.contains(':')
+                    || dotfiles.dir.chars().any(|c| c.is_whitespace() || c.is_control())
                     || dotfiles.dir.len() > 64
                 {
                     return Err(format!(
@@ -636,6 +662,7 @@ impl Config {
                 }
                 if let Some(ref branch) = dotfiles.branch {
                     if branch.is_empty()
+                        || branch.contains(':')
                         || branch.chars().any(|c| c.is_whitespace() || c.is_control())
                     {
                         return Err(format!(
@@ -645,7 +672,13 @@ impl Config {
                     }
                 }
                 for pkg in &dotfiles.packages {
-                    if pkg.is_empty() || pkg.contains('/') || pkg.contains("..") {
+                    if pkg.is_empty()
+                        || pkg.contains('/')
+                        || pkg.contains("..")
+                        || pkg.contains(':')
+                        || pkg.starts_with('-')
+                        || pkg.chars().any(|c| c.is_whitespace() || c.is_control())
+                    {
                         return Err(format!(
                             "user '{}': invalid stow package '{pkg}'",
                             u.name
@@ -696,6 +729,11 @@ impl Config {
         }
         for (i, a) in self.user_archives.iter().enumerate() {
             let at = |m: &str| Err(format!("user_archives[{}]: {m}", i + 1));
+            if let Some(c) = &a.content {
+                if c.len() > USER_ARCHIVE_MAX {
+                    return at(&format!("content size {} exceeds limit of {} bytes", c.len(), USER_ARCHIVE_MAX));
+                }
+            }
             match (&a.url, &a.file, &a.content, &a.disk_uuid) {
                 (None, None, None, None) => {
                     return at("must specify at least one of url, file, content, or disk_uuid");
@@ -1420,5 +1458,101 @@ mod tests {
         assert!(json.contains("\"bootloader\":\"limine\""));
         let de: Config = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(de.bootloader, Bootloader::Limine);
+    }
+
+    #[test]
+    fn valid_github_repo_accepts_https_without_git_suffix() {
+        assert!(valid_github_repo("https://github.com/alice/dotfiles"));
+        assert!(valid_github_repo("http://github.com/alice/dotfiles"));
+        assert!(valid_github_repo("https://github.com/alice/dotfiles.git"));
+        assert_eq!(
+            normalize_github_repo("https://github.com/alice/dotfiles.git").as_deref(),
+            Some("alice/dotfiles")
+        );
+        assert_eq!(
+            normalize_github_repo("https://github.com/alice/dotfiles").as_deref(),
+            Some("alice/dotfiles")
+        );
+    }
+
+    #[test]
+    fn rejects_dotfiles_colon_delimiter_injection() {
+        let mut c = base();
+        let mut u = User {
+            name: "alice".into(),
+            password_hash: "$6$abc$12345678901234567890".into(),
+            groups: vec![],
+            shell: "/bin/bash".into(),
+            dotfiles: Some(UserDotfiles {
+                repo: "alice/dotfiles".into(),
+                dir: "dir:inject".into(),
+                branch: Some("main".into()),
+                stow: true,
+                packages: vec![],
+            }),
+        };
+        c.users = vec![u.clone()];
+        assert!(c.validate().is_err(), "dir containing ':' must be rejected");
+
+        u.dotfiles.as_mut().unwrap().dir = "dotfiles".into();
+        u.dotfiles.as_mut().unwrap().branch = Some("branch:name".into());
+        c.users = vec![u.clone()];
+        assert!(c.validate().is_err(), "branch containing ':' must be rejected");
+
+        u.dotfiles.as_mut().unwrap().branch = Some("main".into());
+        u.dotfiles.as_mut().unwrap().packages = vec!["pkg:bad".into()];
+        c.users = vec![u.clone()];
+        assert!(c.validate().is_err(), "package containing ':' must be rejected");
+
+        u.dotfiles.as_mut().unwrap().packages = vec!["-D".into()];
+        c.users = vec![u];
+        assert!(c.validate().is_err(), "package starting with '-' must be rejected");
+    }
+
+    #[test]
+    fn rejects_btrfs_subvolume_mount_with_whitespace_or_newlines() {
+        let mut c = base();
+        c.disk.filesystem = FsType::Btrfs;
+        c.disk.btrfs = Some(BtrfsConfig {
+            subvolumes: vec![
+                BtrfsSubvol { name: "@".into(), mount: "/".into() },
+                BtrfsSubvol { name: "@home".into(), mount: "/home\nUUID=bad /mnt ext4 defaults 0 0".into() },
+            ],
+            compress: "zstd".into(),
+        });
+        assert!(c.validate().is_err(), "mount points with newlines must be rejected");
+
+        c.disk.btrfs.as_mut().unwrap().subvolumes[1].mount = "/home dir".into();
+        assert!(c.validate().is_err(), "mount points with spaces must be rejected");
+    }
+
+    #[test]
+    fn usernames_cannot_start_with_digit() {
+        let mut c = base();
+        c.users = vec![User {
+            name: "1alice".into(),
+            password_hash: "$6$abc$12345678901234567890".into(),
+            groups: vec![],
+            shell: "/bin/bash".into(),
+            dotfiles: None,
+        }];
+        assert!(c.validate().is_err(), "username starting with digit must be rejected");
+    }
+
+    #[test]
+    fn user_archive_content_exceeding_max_is_rejected() {
+        let mut c = base();
+        c.user_archives = vec![UserArchive {
+            content: Some(vec![0u8; USER_ARCHIVE_MAX + 1]),
+            ..Default::default()
+        }];
+        assert!(c.validate().is_err(), "archive content exceeding USER_ARCHIVE_MAX must be rejected");
+    }
+
+    #[test]
+    fn disk_model_cannot_be_empty() {
+        let mut c = base();
+        c.disk.model = Some("   ".into());
+        assert!(c.validate().is_err(), "disk model with only whitespace must be rejected");
     }
 }

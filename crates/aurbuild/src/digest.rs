@@ -88,7 +88,7 @@ pub fn read_tar(data: &[u8]) -> Result<Files> {
         pos = start + (size as usize).div_ceil(512) * 512;
         match flag {
             b'0' | 0 => {
-                let rel = name.split_once('/').map(|(_, r)| r).unwrap_or("");
+                let rel = name.split_once('/').map(|(_, r)| r).unwrap_or(&name);
                 if rel.is_empty() || rel.ends_with('/') {
                     continue;
                 }
@@ -281,5 +281,21 @@ mod tests {
                 String::from_utf8_lossy(&o.stderr)
             );
         }
+    }
+
+    #[test]
+    fn test_read_tar_does_not_drop_root_level_entries() {
+        let mut tar = Vec::new();
+        let mut header = [0u8; 512];
+        header[..8].copy_from_slice(b"PKGBUILD");
+        header[108..116].copy_from_slice(b"0000644\0");
+        header[124..136].copy_from_slice(b"00000000013\0");
+        header[156] = b'0';
+        tar.extend_from_slice(&header);
+        tar.extend_from_slice(b"pkgname=foo\0\0\0\0\0");
+        tar.extend_from_slice(&[0u8; 512 - 16]);
+        tar.extend_from_slice(&[0u8; 1024]);
+        let files = read_tar(&tar).unwrap();
+        assert!(files.contains_key("PKGBUILD"), "root-level PKGBUILD must not be skipped");
     }
 }

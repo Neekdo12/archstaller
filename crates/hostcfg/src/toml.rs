@@ -82,6 +82,15 @@ pub fn load_str_unvalidated(src: &str, dir: &Path) -> Result<Loaded> {
     })
 }
 
+/// Evaluates and validates a TOML string.
+pub fn load_str(src: &str, dir: &Path) -> Result<Loaded> {
+    let loaded = load_str_unvalidated(src, dir)?;
+    loaded.config.validate()?;
+    loaded.host.validate()?;
+    crate::scripts::validate(&loaded.config)?;
+    Ok(loaded)
+}
+
 /// Evaluates and validates a TOML config, returning only the installer's part.
 pub fn load_config(path: &Path) -> Result<config::Config> {
     Ok(load(path)?.config)

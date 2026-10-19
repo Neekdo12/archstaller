@@ -100,9 +100,13 @@ pub fn review(name: &str, commit: &str, files: Files) -> Result<Review> {
 pub fn risky_lines(files: &Files) -> Vec<(String, usize, String)> {
     const PATTERNS: &[&str] = &[
         "curl ",
+        "curl\t",
         "wget ",
+        "wget\t",
         "sudo ",
+        "sudo\t",
         "eval ",
+        "eval\t",
         "base64",
         "| sh",
         "| bash",
@@ -246,10 +250,12 @@ fn aur_provides(r: &Review, dep: &str) -> bool {
                 },
             )
     };
-    r.srcinfo.packages.iter().any(|p| {
-        (p.name == d.name && accepts(&d, &Have::Version(version.clone())))
-            || p.get("provides").iter().any(provides)
-    }) || r.srcinfo.base.get("provides").iter().any(provides)
+    let Some(pkg) = r.srcinfo.packages.iter().find(|p| p.name == r.name) else {
+        return false;
+    };
+    (pkg.name == d.name && accepts(&d, &Have::Version(version)))
+        || pkg.get("provides").iter().any(provides)
+        || r.srcinfo.base.get("provides").iter().any(provides)
 }
 
 /// All dependencies of a review, with whether only the build needs them.
@@ -393,7 +399,7 @@ pub fn plan(
             commit: r.commit.clone(),
             sha256: r.tree_sha256.clone(),
             vcs: r.vcs,
-            as_dep: needed_by_other,
+            as_dep: needed_by_other && !explicit.iter().any(|e| e == &r.name),
             deps,
             build_deps: build,
             services: vec![],
@@ -653,5 +659,41 @@ mod tests {
         assert_eq!(unresolved(&[needs_new, lib.clone()], &o).len(), 1);
         let needs_ok = rev("top", "\tdepends = libx>=1\n");
         assert!(unresolved(&[needs_ok, lib], &o).is_empty());
+    }
+
+    #[test]
+    fn split_package_review_does_not_falsely_provide_unpinned_subpackages() {
+        let s = "pkgbase = my-split\n\tpkgver = 1\n\tpkgrel = 1\n\tarch = x86_64\npkgname = sub-a\npkgname = sub-b\n";
+        let r_a = review("sub-a", &"a".repeat(40), files(s, "pkgname=(sub-a sub-b)\n")).unwrap();
+        assert!(
+            !aur_provides(&r_a, "sub-b"),
+            "review for sub-a must not claim to provide unpinned sub-b"
+        );
+    }
+
+    #[test]
+    fn explicit_packages_are_not_demoted_to_as_dep() {
+        let lib = rev("lib-common", "");
+        let app = rev("app", "\tdepends = lib-common\n");
+        let p = plan(&[lib, app], &["lib-common".into(), "app".into()], &official()).unwrap();
+        let common = p.iter().find(|x| x.name == "lib-common").unwrap();
+        assert!(
+            !common.as_dep,
+            "package listed in explicit must have as_dep = false"
+        );
+    }
+
+    #[test]
+    fn risky_lines_detects_commands_separated_by_tabs() {
+        let mut f = Files::new();
+        f.insert(
+            "PKGBUILD".into(),
+            b"build() {\n\tcurl\thttps://example.com/malware.sh\n}\n".to_vec(),
+        );
+        let detected = risky_lines(&f);
+        assert!(
+            !detected.is_empty(),
+            "curl command separated by tab must be detected"
+        );
     }
 }
