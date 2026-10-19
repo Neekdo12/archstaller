@@ -5,8 +5,6 @@ pub mod disk;
 pub mod help;
 pub mod iso;
 pub mod packages;
-pub mod scripts;
-pub mod services;
 pub mod system;
 pub mod toml;
 pub mod users;

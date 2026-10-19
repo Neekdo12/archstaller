@@ -415,53 +415,6 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     }
     c.append(&add);
 
-    let c = ui::card(content, Some("root account"));
-    let hash = Rc::new(RefCell::new(
-        cfg.root_password_hash.clone().unwrap_or_default(),
-    ));
-    let hash_row = ui::vbox(6);
-    let he = ui::entry(&hash.borrow(), {
-        let (a, hash) = (app.clone(), hash.clone());
-        move |t| {
-            *hash.borrow_mut() = t.to_string();
-            let t = t.to_string();
-            a.edit(move |m| m.cfg.root_password_hash = Some(t));
-        }
-    });
-    ui::row(&hash_row, "Password hash", &he);
-    ui::hint(
-        &hash_row,
-        "A $6$ SHA-512 crypt hash, for example from `openssl passwd -6`.",
-    );
-    hash_row.set_visible(cfg.root_password_hash.is_some());
-    let locked = ui::check(
-        "Leave root locked (use sudo)",
-        cfg.root_password_hash.is_none(),
-        {
-            let (a, hash_row, hash) = (app.clone(), hash_row.clone(), hash.clone());
-            move |locked| {
-                hash_row.set_visible(!locked);
-                // Unlocking brings back what was typed before locking, not an empty (invalid) hash.
-                let value = if locked {
-                    None
-                } else {
-                    Some(hash.borrow().clone())
-                };
-                a.edit(move |m| m.cfg.root_password_hash = value);
-            }
-        },
-    );
-    c.append(&locked);
-    c.append(&hash_row);
-    let a = app.clone();
-    let root_auth_btn = ui::button("Retrieve root hash from system (sudo / root)", move || {
-        open_shadow_auth_dialog(&a);
-    });
-    root_auth_btn.set_tooltip_text(Some(
-        "Authenticates via sudo password, root password, or Polkit to read root's crypt hash from /etc/shadow.",
-    ));
-    c.append(&root_auth_btn);
-
     let c = ui::card(content, Some("Home directory archives & configs"));
     ui::hint(
         &c,

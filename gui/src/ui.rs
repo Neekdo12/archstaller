@@ -280,6 +280,13 @@ pub fn check(label: &str, active: bool, on_toggle: impl Fn(bool) + 'static) -> g
     c
 }
 
+pub fn dropdown(items: &[impl AsRef<str>], on_select: impl Fn(u32) + 'static) -> gtk::DropDown {
+    let strs: Vec<&str> = items.iter().map(|s| s.as_ref()).collect();
+    let dd = gtk::DropDown::from_strings(&strs);
+    dd.connect_selected_notify(move |d| on_select(d.selected()));
+    dd
+}
+
 pub fn entry(initial: &str, on_change: impl Fn(&str) + 'static) -> gtk::Entry {
     let e = gtk::Entry::builder()
         .text(initial)

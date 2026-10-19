@@ -15,26 +15,17 @@ struct OfficialParts {
     results: gtk::Box,
     total: gtk::Box,
     import: gtk::Box,
-    list: gtk::TextView,
 }
 
 pub fn build(app: &Rc<App>, content: &gtk::Box) {
     let cfg = app.st.borrow().model.cfg.clone();
     ui::heading(content, "Mirrors & packages", "Where packages come from and which ones to install (official core and extra, plus pinned AUR packages).");
 
-    let a = app.clone();
-    let editor = ui::lines_editor(&cfg.packages, 230, move |v| {
-        a.edit(move |m| m.cfg.packages = v)
-    });
-    let Some(list) = editor.child().and_downcast::<gtk::TextView>() else {
-        return;
-    };
     let parts = OfficialParts {
         status: ui::vbox(6),
         results: ui::vbox(4),
         total: ui::hbox(8),
         import: ui::vbox(6),
-        list,
     };
 
     let c = ui::card(content, Some("Mirrors"));
@@ -52,11 +43,110 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     search_card(app, content, &parts);
 
     let c = ui::card(content, Some("Packages"));
-    c.append(&editor);
+
+    // Quick add entry
+    let add_row = ui::hbox(8);
+    let add_entry = ui::entry("", |_| {});
+    add_entry.set_hexpand(true);
+    add_entry.set_placeholder_text(Some("Package or group name to add…"));
+    let add_btn = ui::button("Add", || {});
+    add_btn.set_sensitive(false);
+    {
+        let b = add_btn.clone();
+        add_entry.connect_changed(move |e| b.set_sensitive(!e.text().trim().is_empty()));
+    }
+    {
+        let a = app.clone();
+        let e = add_entry.clone();
+        let add_fn = move || {
+            let pkg = e.text().trim().to_string();
+            if !pkg.is_empty() {
+                a.edit(|m| {
+                    if !m.cfg.packages.contains(&pkg) {
+                        m.cfg.packages.push(pkg.clone());
+                    }
+                });
+                e.set_text("");
+                a.rebuild_all();
+            }
+        };
+        add_btn.connect_clicked({
+            let add_fn = add_fn.clone();
+            move |_| add_fn()
+        });
+        add_entry.connect_activate(move |_| add_fn());
+    }
+    add_row.append(&add_entry);
+    add_row.append(&add_btn);
+    c.append(&add_row);
+
+    // Search filter entry
+    let search_filter = gtk::SearchEntry::builder()
+        .placeholder_text("Filter configured packages…")
+        .build();
+    c.append(&search_filter);
+
+    // Scrollable list box
+    let list_box = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .css_classes(["boxed-list"])
+        .build();
+
+    for (i, pkg) in cfg.packages.iter().enumerate() {
+        let row = ui::hbox(8);
+        let name_lbl = ui::strong(pkg);
+        name_lbl.set_hexpand(true);
+        row.append(&name_lbl);
+        let a = app.clone();
+        let remove_btn = ui::button("Remove", move || {
+            a.edit(move |m| {
+                if i < m.cfg.packages.len() {
+                    m.cfg.packages.remove(i);
+                }
+            });
+            a.rebuild_all();
+        });
+        row.append(&remove_btn);
+        let list_row = gtk::ListBoxRow::builder().child(&row).build();
+        list_box.append(&list_row);
+    }
+
+    list_box.set_filter_func({
+        let search_filter = search_filter.clone();
+        let packages = cfg.packages.clone();
+        move |row| {
+            let text = search_filter.text().trim().to_lowercase();
+            if text.is_empty() {
+                return true;
+            }
+            let idx = match usize::try_from(row.index()) {
+                Ok(i) => i,
+                Err(_) => return true,
+            };
+            if let Some(pkg) = packages.get(idx) {
+                pkg.to_lowercase().contains(&text)
+            } else {
+                true
+            }
+        }
+    });
+    search_filter.connect_search_changed({
+        let list_box = list_box.clone();
+        move |_| list_box.invalidate_filter()
+    });
+
+    let scroller = gtk::ScrolledWindow::builder()
+        .min_content_height(160)
+        .max_content_height(300)
+        .propagate_natural_height(true)
+        .child(&list_box)
+        .build();
+    c.append(&scroller);
+
     c.append(&parts.total);
     ui::hint(
         &c,
-        "One package or group per line. Names are suggestions: the resolver decides.",
+        "Package names are suggestions: the resolver decides.",
     );
     c.append(&parts.import);
 
@@ -234,11 +324,15 @@ fn render_results(app: &Rc<App>, p: &OfficialParts) {
         if packages.contains(&c.name) {
             top.append(&ui::dim("already added"));
         } else {
-            let (a, parts, name) = (app.clone(), p.clone(), c.name.clone());
+            let (a, name) = (app.clone(), c.name.clone());
             top.append(&ui::button("Add", move || {
-                append_line(&parts.list, &name);
+                a.edit(|m| {
+                    if !m.cfg.packages.contains(&name) {
+                        m.cfg.packages.push(name.clone());
+                    }
+                });
                 a.set_status(format!("Added {name}"));
-                render_results(&a, &parts);
+                a.rebuild_all();
             }));
         }
         row.append(&top);
@@ -250,18 +344,6 @@ fn render_results(app: &Rc<App>, p: &OfficialParts) {
         }
         p.results.append(&row);
     }
-}
-
-/// Adds `name` as a new line of the list editor; its change handler writes `packages`.
-fn append_line(view: &gtk::TextView, name: &str) {
-    let buf = view.buffer();
-    let text = buf.text(&buf.start_iter(), &buf.end_iter(), false);
-    let line = if text.is_empty() || text.ends_with('\n') {
-        name.to_string()
-    } else {
-        format!("\n{name}")
-    };
-    buf.insert(&mut buf.end_iter(), &line);
 }
 
 /// What the list installs, by the installer's own resolver against the loaded databases.
@@ -916,7 +998,7 @@ fn review(app: &Rc<App>, c: &gtk::Box, busy: bool) {
             if let Some(n) = note {
                 a.set_status(n);
                 // The list editors show the old lists: rebuild the pages that hold them.
-                a.rebuild(Page::Services);
+                a.rebuild(Page::System);
                 a.rebuild(Page::Packages);
             } else {
                 a.refresh_page(Page::Packages);

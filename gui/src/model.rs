@@ -47,7 +47,7 @@ pub fn area_of(message: &str) -> Area {
         || m.contains("keymap")
     {
         Area::System
-    } else if m.contains("disk.") {
+    } else if m.contains("disk.") || m.contains("bootloader") {
         Area::Disk
     } else if m.contains("mirror") || m.contains("package") {
         Area::Packages
@@ -564,5 +564,10 @@ mod tests {
             Area::Packages
         );
         assert_eq!(area_of("invalid service: x"), Area::Services);
+    }
+
+    #[test]
+    fn bootloader_messages_map_to_disk_area() {
+        assert_eq!(area_of("invalid bootloader: limine"), Area::Disk);
     }
 }

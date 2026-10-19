@@ -7,9 +7,92 @@ use std::rc::Rc;
 
 pub fn build(app: &Rc<App>, content: &gtk::Box) {
     let cfg = app.st.borrow().model.cfg.clone();
-    ui::heading(content, "Target disk", "The installer erases the disk it selects. Name it by serial number, or let it take the largest one.");
-    let c = ui::card(content, Some("Which disk"));
+    ui::heading(content, "Disk & Boot", "Target disk selection, bootloader setup, and filesystem formatting.");
 
+    // 1. Bootloader
+    let c = ui::card(content, Some("Bootloader"));
+    ui::hint(
+        &c,
+        "The bootloader installed onto the target system at first boot.",
+    );
+    let loaders = [
+        ("grub", "GRUB (BIOS & UEFI universal, default)"),
+        ("systemd-boot", "systemd-boot (minimalist UEFI standard)"),
+        ("limine", "Limine (modern, fast, BIOS & UEFI)"),
+    ];
+    let mut group_leader: Option<gtk::CheckButton> = None;
+    for (id, desc) in loaders {
+        let b = if let Some(ref leader) = group_leader {
+            gtk::CheckButton::builder()
+                .label(desc)
+                .group(leader)
+                .build()
+        } else {
+            let leader = gtk::CheckButton::builder().label(desc).build();
+            group_leader = Some(leader.clone());
+            leader
+        };
+        let is_selected = match cfg.bootloader {
+            config::Bootloader::Grub => id == "grub",
+            config::Bootloader::SystemdBoot => id == "systemd-boot",
+            config::Bootloader::Limine => id == "limine",
+        };
+        b.set_active(is_selected);
+        let a = app.clone();
+        let target_bl = match id {
+            "systemd-boot" => config::Bootloader::SystemdBoot,
+            "limine" => config::Bootloader::Limine,
+            _ => config::Bootloader::Grub,
+        };
+        b.connect_toggled(move |btn| {
+            if btn.is_active() {
+                a.edit(move |m| m.cfg.bootloader = target_bl);
+            }
+        });
+        c.append(&b);
+    }
+
+    // 2. Filesystem
+    let c = ui::card(content, Some("Filesystem"));
+    ui::hint(
+        &c,
+        "Root filesystem formatting type.",
+    );
+    let fs_types = [
+        (config::FsType::Ext4, "ext4 (classic, robust standard)"),
+        (config::FsType::Btrfs, "btrfs (copy-on-write, subvolumes & snapshots)"),
+        (config::FsType::Xfs, "xfs (high performance, enterprise scalability)"),
+        (config::FsType::F2fs, "f2fs (optimized for flash/NVMe storage)"),
+    ];
+    let mut fs_group_leader: Option<gtk::CheckButton> = None;
+    for (fs, desc) in fs_types {
+        let b = if let Some(ref leader) = fs_group_leader {
+            gtk::CheckButton::builder()
+                .label(desc)
+                .group(leader)
+                .build()
+        } else {
+            let leader = gtk::CheckButton::builder().label(desc).build();
+            fs_group_leader = Some(leader.clone());
+            leader
+        };
+        b.set_active(cfg.disk.filesystem == fs);
+        let a = app.clone();
+        b.connect_toggled(move |btn| {
+            if btn.is_active() {
+                a.edit(move |m| {
+                    m.cfg.disk.filesystem = fs;
+                    if fs == config::FsType::Btrfs && m.cfg.disk.btrfs.is_none() {
+                        m.cfg.disk.btrfs = Some(config::BtrfsConfig::default());
+                    }
+                });
+            }
+        });
+        c.append(&b);
+    }
+
+    // 3. Target disk
+    let c = ui::card(content, Some("Which disk"));
     let warn = ui::hint(
         &c,
         "Warning: Every machine that boots this ISO will erase its largest disk automatically.",
@@ -86,6 +169,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     model_row.append(&model_entry);
     ui::row(&selectors, "Model", &model_row);
 
+    // 4. Layout
     let c = ui::card(content, Some("Layout"));
     let a = app.clone();
     let sp = ui::spin(cfg.disk.esp_mib, 64, 8192, move |v| {
