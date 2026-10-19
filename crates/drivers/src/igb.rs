@@ -256,21 +256,23 @@ impl NetDevice for Igb {
             return None;
         }
         let len = d.read16(12) as usize;
-        let n = len.min(buf.len());
+        let n = len.min(buf.len()).min(BUF);
         let off = self.rx_next * BUF;
-        let (Some(dest), Some(src)) = (
+        let res = if let (Some(dest), Some(src)) = (
             buf.get_mut(..n),
             self.rx_bufs.as_slice().get(off..off + n),
-        ) else {
-            return None;
+        ) {
+            dest.copy_from_slice(src);
+            Some(n)
+        } else {
+            None
         };
-        dest.copy_from_slice(src);
         // Hand the descriptor back: fresh read format.
         d.write64(0, self.rx_bufs.phys_at(off));
         d.write64(8, 0);
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
         self.regs.write32(RDT, self.rx_next as u32);
         self.rx_next = (self.rx_next + 1) % RING;
-        Some(n)
+        res
     }
 }

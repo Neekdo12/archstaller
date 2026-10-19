@@ -115,6 +115,11 @@ fn ata_string(words: &[u16]) -> String {
     String::from_utf8_lossy(&bytes).trim().into()
 }
 
+/// Returns true if word 83 is valid (bits 15:14 == 01b) and indicates 48-bit LBA support (bit 10).
+pub fn is_lba48_supported(w83: u16) -> bool {
+    (w83 & 0xc000 == 0x4000) && (w83 & (1 << 10) != 0)
+}
+
 impl AtaDisk {
     fn reg_in(&self, r: u16) -> u8 {
         // SAFETY: Reading 8-bit register from ATA command I/O port.
@@ -205,7 +210,7 @@ impl AtaDisk {
         unsafe { insw(cmd + DATA, w.as_mut_ptr(), 256) };
         d.serial = ata_string(&w[10..20]);
         d.model = ata_string(&w[27..47]);
-        d.lba48 = w[83] & (1 << 10) != 0;
+        d.lba48 = is_lba48_supported(w[83]);
         d.sectors = if d.lba48 {
             w[100] as u64 | (w[101] as u64) << 16 | (w[102] as u64) << 32 | (w[103] as u64) << 48
         } else {
@@ -510,3 +515,18 @@ impl hal::BlockDevice for AtaDisk {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lba48_word83_validation() {
+        assert!(!is_lba48_supported(0xffff));
+        assert!(!is_lba48_supported(0x0000));
+        assert!(!is_lba48_supported(0x4000));
+        assert!(!is_lba48_supported(0x8000 | (1 << 10)));
+        assert!(is_lba48_supported(0x4000 | (1 << 10)));
+    }
+}
+

@@ -30,7 +30,7 @@ pub struct PciDevice {
     pub revision: u8,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Bar {
     Mem { addr: u64, size: u64 },
     Io { port: u16, size: u32 },
@@ -104,6 +104,18 @@ pub fn enumerate() -> Vec<PciDevice> {
     out
 }
 
+pub fn decode_io_bar(orig: u32, mask: u32) -> Option<Bar> {
+    let m = mask & !3;
+    if m != 0 {
+        Some(Bar::Io {
+            port: (orig & !3) as u16,
+            size: (!m).wrapping_add(1),
+        })
+    } else {
+        None
+    }
+}
+
 impl PciDevice {
     pub fn read32(&self, off: u16) -> u32 {
         read32(self.addr, off)
@@ -158,6 +170,9 @@ impl PciDevice {
 
     /// Reads and sizes BAR `n`; returns `None` if unimplemented.
     pub fn bar(&self, n: u8) -> Option<Bar> {
+        if n >= 6 {
+            return None;
+        }
         let off = 0x10 + 4 * n as u16;
         let orig = self.read32(off);
         let cmd = self.command();
@@ -168,13 +183,7 @@ impl PciDevice {
         let is_io = orig & 1 != 0;
         let mut result = None;
         if is_io {
-            let size = !(mask & !3) + 1;
-            if mask & !3 != 0 {
-                result = Some(Bar::Io {
-                    port: (orig & !3) as u16,
-                    size,
-                });
-            }
+            result = decode_io_bar(orig, mask);
         } else {
             let is64 = (orig >> 1) & 3 == 2;
             let (mut base, mut m) = ((orig & !0xf) as u64, (mask & !0xf) as u64);
@@ -223,5 +232,41 @@ impl PciDevice {
             guard += 1;
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_io_bar_handles_unimplemented_and_valid() {
+        // Unimplemented I/O BAR returns None without overflow panic
+        assert_eq!(decode_io_bar(1, 0), None);
+        assert_eq!(decode_io_bar(1, 3), None);
+
+        // Valid 256-byte I/O BAR
+        assert_eq!(
+            decode_io_bar(0x1001, 0xffff_ff01),
+            Some(Bar::Io {
+                port: 0x1000,
+                size: 256
+            })
+        );
+    }
+
+    #[test]
+    fn test_bar_bounds_returns_none() {
+        let dev = PciDevice {
+            addr: Addr { bus: 0, dev: 0, func: 0 },
+            vendor: 0,
+            device: 0,
+            class: 0,
+            subclass: 0,
+            prog_if: 0,
+            revision: 0,
+        };
+        assert_eq!(dev.bar(6), None);
+        assert_eq!(dev.bar(255), None);
     }
 }

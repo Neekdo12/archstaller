@@ -95,6 +95,16 @@ fn ata_string(words: &[u16]) -> String {
     String::from_utf8_lossy(&bytes).trim().into()
 }
 
+/// Parses logical sector size from IDENTIFY words 106, 117, 118, returning None if overflow.
+pub fn parse_logical_sector_size(w106: u16, w117: u16, w118: u16) -> Option<u32> {
+    if w106 & 0xc000 == 0x4000 && w106 & (1 << 12) != 0 {
+        let words = w117 as u32 | ((w118 as u32) << 16);
+        words.checked_mul(2)
+    } else {
+        Some(512)
+    }
+}
+
 impl AhciDisk {
     fn new(port: Mmio, s64: bool) -> Result<AhciDisk> {
         if port.read32(P_SSTS) & 0xf != 3 {
@@ -146,15 +156,12 @@ impl AhciDisk {
         }
         self.serial = ata_string(&w[10..20]);
         self.model = ata_string(&w[27..47]);
-        self.sectors = if w[83] & (1 << 10) != 0 {
+        self.sectors = if crate::ata::is_lba48_supported(w[83]) {
             w[100] as u64 | (w[101] as u64) << 16 | (w[102] as u64) << 32 | (w[103] as u64) << 48
         } else {
             w[60] as u64 | (w[61] as u64) << 16
         };
-        if w[106] & 0xc000 == 0x4000 && w[106] & (1 << 12) != 0 {
-            let words = w[117] as u32 | (w[118] as u32) << 16;
-            self.sector_size = words * 2;
-        }
+        self.sector_size = parse_logical_sector_size(w[106], w[117], w[118]).unwrap_or(0);
         if self.sector_size != 512 && self.sector_size != 4096 {
             return Err(Error::Unsupported);
         }
@@ -283,3 +290,27 @@ impl BlockDevice for AhciDisk {
         self.command(ATA_FLUSH_EXT, 0, 0, 0, false)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_logical_sector_size() {
+        // Default when word 106 does not indicate larger sectors
+        assert_eq!(parse_logical_sector_size(0, 0, 0), Some(512));
+
+        // 4096-byte sectors: 2048 words
+        assert_eq!(
+            parse_logical_sector_size(0x4000 | (1 << 12), 2048, 0),
+            Some(4096)
+        );
+
+        // Overflow in words * 2 returns None
+        assert_eq!(
+            parse_logical_sector_size(0x4000 | (1 << 12), 0, 0x8000),
+            None
+        );
+    }
+}
+
