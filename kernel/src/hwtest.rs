@@ -171,6 +171,10 @@ fn test(cfg: &Config, mut devs: Devices, keyring: Option<&Keyring>, r: &mut Repo
         let ss = d.sector_size() as usize;
         let mib = (d.sector_count() * ss as u64) >> 20;
         let name = format!("{} serial '{}' {} MiB", d.model(), d.serial(), mib);
+        if d.sector_count() == 0 {
+            r.bad(&format!("{name}: zero sector count"));
+            continue;
+        }
         let mut first = alloc::vec![0u8; ss * 2];
         let mut last = alloc::vec![0u8; ss];
         let head = d.read(0, &mut first);

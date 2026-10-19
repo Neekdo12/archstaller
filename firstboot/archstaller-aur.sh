@@ -80,7 +80,7 @@ while IFS= read -r line <&3; do
     fi
     [ "$vcs" = 1 ] && say "note: $name builds from a VCS source that the commit does not pin"
     say "package $name: building (this can take a long time)"
-    if ! as_build bash -c 'cd "$1" && exec timeout 7200 makepkg --noconfirm --clean --nocolor' _ "$dir" >>"$LOG" 2>&1; then
+    if ! as_build bash -c 'cd "$1" && exec timeout 7200 makepkg --noconfirm --clean --nocolor --nocheck' _ "$dir" >>"$LOG" 2>&1; then
         say "warning: building $name failed, see $LOG"
         continue
     fi

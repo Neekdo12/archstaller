@@ -253,10 +253,17 @@ pub(crate) fn bring_up_network(devs: &mut Devices) -> R<net::Stack> {
         // Try interfaces with link first
         let idx = devs.net.iter_mut().position(|n| n.link_up()).unwrap_or(0);
         let mut nic = devs.net.remove(idx);
+        if !nic.link_up() {
+            // Copper PHY auto-negotiation (e.g. e1000e 1000BASE-T) takes 1.5–3 seconds after reset.
+            let wait_link = now_ms() + 4000;
+            while now_ms() < wait_link && !nic.link_up() {
+                hal::idle();
+            }
+        }
         let has_link = nic.link_up();
         if has_link {
             println!("network: {} link up; requesting DHCP lease...", nic.name());
-            let settle = now_ms() + 1000;
+            let settle = now_ms() + 1500;
             while now_ms() < settle {
                 hal::idle();
             }
@@ -265,7 +272,11 @@ pub(crate) fn bring_up_network(devs: &mut Devices) -> R<net::Stack> {
         }
 
         let mut stack = net::Stack::new(nic, now_ms, unsafe { core::arch::x86_64::_rdtsc() });
-        let timeout_ms = if devs.net.is_empty() { 30_000 } else { 15_000 };
+        // Campus/enterprise switches (Cisco / LIANE without PortFast) spend 30 seconds in STP
+        // listening (15s) and learning (15s) states before forwarding frames. Allow 45s on interfaces
+        // with physical link so DHCPDISCOVER outlasts the switch forwarding delay, matching Linux
+        // systemd-networkd and dhcpcd.
+        let timeout_ms = if has_link { 45_000 } else if devs.net.is_empty() { 30_000 } else { 15_000 };
         match stack.dhcp(timeout_ms) {
             Ok(lease) => {
                 hal::info!(
@@ -440,8 +451,21 @@ impl KernelIndex {
     }
 }
 
-fn clean_path(p: &str) -> &str {
-    p.trim_start_matches("./").trim_end_matches('/')
+fn clean_path(mut p: &str) -> &str {
+    while let Some(stripped) = p.strip_prefix("./") {
+        p = stripped;
+    }
+    p = p.trim_start_matches('/');
+    p.trim_end_matches('/')
+}
+
+fn is_pacman_meta(p: &str) -> bool {
+    matches!(
+        p,
+        ".PKGINFO" | ".MTREE" | ".BUILDINFO" | ".INSTALL" | ".CHANGELOG"
+    ) || p.starts_with(".PKGINFO")
+        || p.starts_with(".INSTALL")
+        || p.starts_with(".CHANGELOG")
 }
 
 fn extract_package(
@@ -463,8 +487,8 @@ fn extract_package(
     let mut buf = alloc::vec![0u8; 64 * 1024];
     while let Some(e) = tar.next_entry().map_err(dbg_err("package archive"))? {
         let path = clean_path(&e.path).to_string();
-        if path.is_empty() || (path.starts_with('.') && !path.contains('/')) {
-            continue; // .PKGINFO, .MTREE, .BUILDINFO, .INSTALL, .CHANGELOG
+        if path.is_empty() || is_pacman_meta(&path) || path.split('/').any(|seg| seg == "..") {
+            continue;
         }
         let meta = Meta {
             mode: (e.mode & 0o7777) as u16,
@@ -1440,12 +1464,13 @@ pub(crate) fn format_dotfiles_list(users: &[config::User]) -> String {
     let mut out = String::new();
     for u in users {
         if let Some(df) = &u.dotfiles {
+            let repo = config::normalize_github_repo(&df.repo).unwrap_or_else(|| df.repo.clone());
             let branch = df.branch.as_deref().unwrap_or("");
             let stow = if df.stow { "1" } else { "0" };
             let pkgs = df.packages.join(" ");
             out.push_str(&format!(
                 "{}:{}:{}:{}:{}:{}\n",
-                u.name, df.repo, df.dir, branch, stow, pkgs
+                u.name, repo, df.dir, branch, stow, pkgs
             ));
         }
     }
@@ -1701,6 +1726,41 @@ mod tests {
             Err(e) => assert_eq!(e, "no supported network interface"),
             Ok(_) => panic!("expected error"),
         }
+    }
+
+    #[test]
+    fn test_format_dotfiles_list_normalizes_repo() {
+        let users = [config::User {
+            name: "alice".into(),
+            password_hash: "$6$abc$12345678901234567890".into(),
+            groups: vec![],
+            shell: "/bin/bash".into(),
+            dotfiles: Some(config::UserDotfiles {
+                repo: "https://github.com/alice/dotfiles.git".into(),
+                dir: "dotfiles".into(),
+                branch: Some("main".into()),
+                stow: true,
+                packages: vec!["bash".into(), "vim".into()],
+            }),
+        }];
+        let out = format_dotfiles_list(&users);
+        assert_eq!(out, "alice:alice/dotfiles:dotfiles:main:1:bash vim\n");
+    }
+
+    #[test]
+    fn test_clean_path_and_pacman_meta() {
+        assert_eq!(clean_path("./usr/bin/cat"), "usr/bin/cat");
+        assert_eq!(clean_path("/usr/bin/cat"), "usr/bin/cat");
+        assert_eq!(clean_path("///usr/bin/cat///"), "usr/bin/cat");
+        assert_eq!(clean_path("././usr/bin"), "usr/bin");
+
+        assert!(is_pacman_meta(".PKGINFO"));
+        assert!(is_pacman_meta(".MTREE"));
+        assert!(is_pacman_meta(".BUILDINFO"));
+        assert!(is_pacman_meta(".INSTALL"));
+        assert!(is_pacman_meta(".CHANGELOG"));
+        assert!(!is_pacman_meta(".bashrc"));
+        assert!(!is_pacman_meta(".profile"));
     }
 }
 

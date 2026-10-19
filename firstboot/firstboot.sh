@@ -151,13 +151,18 @@ fi
 # Downloaded, loaded from disk UUID, or unpacked from embedded image into each user's home.
 if [ -s "$D/userarchives.list" ]; then
     mkdir -p "$D/userarchives"
-    while IFS=: read -r idx kind spec path sha; do
-        [ -n "$idx" ] || continue
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        idx="${line%%:*}"
+        rest="${line#*:}"
+        kind="${rest%%:*}"
         archive_file="$D/userarchives/$idx"
         
         # 1. Fetch or load if not already embedded
         if [ "$kind" = "url" ] && [ ! -s "$archive_file" ]; then
-            url="$spec"
+            url="${line#*:url:}"
+            sha="${url##*::}"
+            url="${url%::*}"
             say "downloading user archive #$idx from $url"
             # If network is not up yet, try bringing up NetworkManager or systemd-networkd
             if ! ping -c 1 -W 2 1.1.1.1 >/dev/null 2>&1 && ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
@@ -181,7 +186,9 @@ if [ -s "$D/userarchives.list" ]; then
                 continue
             fi
         elif [ "$kind" = "uuid" ] && [ ! -s "$archive_file" ]; then
-            uuid="$spec"
+            uuid=$(echo "$line" | cut -d: -f3)
+            path=$(echo "$line" | cut -d: -f4)
+            sha=$(echo "$line" | cut -d: -f5)
             subpath="${path:-home.tar.zst}"
             say "searching for archive '$subpath' on disk UUID $uuid"
             udevadm settle --timeout=5 2>/dev/null || true
@@ -208,12 +215,15 @@ if [ -s "$D/userarchives.list" ]; then
                 say "warning: disk with UUID $uuid not found"
             fi
         elif [ "$kind" = "file" ] && [ ! -s "$archive_file" ]; then
-            src_file="$spec"
+            src_file=$(echo "$line" | cut -d: -f3)
+            sha="${line##*::}"
             if [ -f "$src_file" ]; then
                 cp "$src_file" "$archive_file"
             else
                 say "warning: file $src_file not found"
             fi
+        else
+            sha="${line##*::}"
         fi
 
         # 2. Check SHA-256 digest if configured

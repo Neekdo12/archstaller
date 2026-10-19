@@ -51,7 +51,11 @@ impl FbConsole {
         let char_size = le32(FONT, 20);
         let glyph_h = le32(FONT, 24);
         let glyph_w = le32(FONT, 28);
-        if glyph_w != 8 {
+        if glyph_w != 8
+            || glyph_h == 0
+            || (fb.width as usize) < 8
+            || (fb.height as usize) < glyph_h
+        {
             return None;
         }
         let pack = |rgb: u32| -> u32 {
@@ -168,5 +172,27 @@ impl fmt::Write for FbConsole {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn small_or_zero_framebuffer_returns_none() {
+        let mut fb = bootinfo::Framebuffer {
+            addr: 0x10000,
+            bpp: 32,
+            pitch: 800 * 4,
+            width: 4,
+            height: 4,
+            ..Default::default()
+        };
+        assert!(FbConsole::new(0, &fb).is_none());
+
+        fb.width = 800;
+        fb.height = 5;
+        assert!(FbConsole::new(0, &fb).is_none());
     }
 }

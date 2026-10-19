@@ -159,11 +159,16 @@ fn partitions(dev: &mut dyn BlockDevice) -> Vec<Part> {
                 .get(84..88)
                 .and_then(|s| s.try_into().ok())
                 .map(u32::from_le_bytes)
-                .unwrap_or(0)
-                .max(128) as u64;
+                .unwrap_or(128)
+                .clamp(128, 4096) as u64;
             let mut out = Vec::new();
             for i in 0..count {
-                let off = entries_lba * ss + i * entry_size;
+                let Some(off) = entries_lba
+                    .checked_mul(ss)
+                    .and_then(|b| b.checked_add(i.checked_mul(entry_size)?))
+                else {
+                    break;
+                };
                 let mut e = vec![0u8; entry_size as usize];
                 if read_at(dev, off, &mut e).is_none() {
                     break;

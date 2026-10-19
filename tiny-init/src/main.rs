@@ -38,6 +38,20 @@ fn read_all(path: &str, buf: &mut [u8]) -> usize {
     n
 }
 
+fn format_module_path(name: &str, buf: &mut [u8; 128]) -> Option<usize> {
+    let prefix = b"/modules/";
+    let suffix = b".ko";
+    let total = prefix.len().checked_add(name.len())?.checked_add(suffix.len())?;
+    if total > buf.len() {
+        return None;
+    }
+    buf.get_mut(..prefix.len())?.copy_from_slice(prefix);
+    let name_end = prefix.len() + name.len();
+    buf.get_mut(prefix.len()..name_end)?.copy_from_slice(name.as_bytes());
+    buf.get_mut(name_end..total)?.copy_from_slice(suffix);
+    Some(total)
+}
+
 fn load_modules() {
     static mut LIST: [u8; 8192] = [0; 8192];
     // SAFETY: Early single-threaded initramfs boot environment.
@@ -45,22 +59,12 @@ fn load_modules() {
     let n = read_all("/modules/order", list);
     let text = core::str::from_utf8(list.get(..n).unwrap_or(&[])).unwrap_or("");
     for name in text.lines().filter(|l| !l.is_empty()) {
-        let mut path = [0u8; 128];
-        let prefix = b"/modules/";
-        let mut len = 0;
-        if let Some(dest) = path.get_mut(..prefix.len()) {
-            dest.copy_from_slice(prefix);
-            len += prefix.len();
-        }
-        if let Some(dest) = path.get_mut(len..len + name.len()) {
-            dest.copy_from_slice(name.as_bytes());
-            len += name.len();
-        }
-        if let Some(dest) = path.get_mut(len..len + 3) {
-            dest.copy_from_slice(b".ko");
-            len += 3;
-        }
-        let Some(path_bytes) = path.get(..len) else {
+        let mut path_buf = [0u8; 128];
+        let Some(len) = format_module_path(name, &mut path_buf) else {
+            log!("init: module name too long: {name}");
+            continue;
+        };
+        let Some(path_bytes) = path_buf.get(..len) else {
             continue;
         };
         let Ok(path) = core::str::from_utf8(path_bytes) else {
@@ -525,4 +529,18 @@ mod tests {
         // 5. Unknown offset
         assert!(!matches_superblock(&ext4_sb, 2048, &uuid));
     }
+
+    #[test]
+    fn format_module_path_bounds() {
+        let mut buf = [0u8; 128];
+        assert_eq!(
+            format_module_path("test_mod", &mut buf),
+            Some(20)
+        );
+        assert_eq!(&buf[..20], b"/modules/test_mod.ko");
+
+        let long_name = "a".repeat(120);
+        assert_eq!(format_module_path(&long_name, &mut buf), None);
+    }
 }
+
