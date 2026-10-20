@@ -1,4 +1,5 @@
 use crate::app::{App, Page};
+use crate::dialogs;
 use crate::model::Model;
 use crate::ui::{self, Kind};
 use gtk::glib;
@@ -98,82 +99,100 @@ fn open_custom_service_editor(
 
     let name_entry = ui::entry(&initial.name, |_| {});
     ui::row(&root, "Unit name", &name_entry);
+    ui::hint(
+        &root,
+        "e.g. rclone-onedrive.service, backup.timer, my-daemon.service",
+    );
 
     let users = app.st.borrow().model.cfg.users.clone();
-    let mut user_names = vec!["System (root)".to_string()];
+    let mut user_options = vec!["root (machine-wide)".to_string()];
     for u in &users {
-        user_names.push(format!("User: {}", u.name));
+        user_options.push(format!("user: {}", u.name));
     }
-    let user_dd = ui::dropdown(&user_names, |_| {});
+    let user_strs: Vec<&str> = user_options.iter().map(|s| s.as_str()).collect();
+    let user_dd = gtk::DropDown::from_strings(&user_strs);
     let selected_user_idx = match &initial.user {
-        None => 0,
-        Some(name) => users
+        Some(u) if u != "root" => users
             .iter()
-            .position(|u| u.name == *name)
-            .map(|i| i + 1)
+            .position(|usr| usr.name == *u)
+            .map(|p| p + 1)
             .unwrap_or(0),
+        _ => 0,
     };
     user_dd.set_selected(selected_user_idx as u32);
-    ui::row(&root, "Scope", &user_dd);
+    ui::row(&root, "Target user", &user_dd);
 
-    let enable_check = ui::check_button("Enable on boot (systemctl enable)");
-    enable_check.set_active(initial.enable);
+    let enable_check = ui::check("Enable on first boot", initial.enable, |_| {});
     root.append(&enable_check);
 
-    let source_box = ui::vbox(6);
+    let is_file_initial = initial.file.is_some();
+    let mode_box = ui::hbox(16);
     let inline_radio = gtk::CheckButton::builder()
-        .label("Inline unit definition (embedded in config)")
+        .label("Inline unit content")
+        .active(!is_file_initial)
         .build();
     let file_radio = gtk::CheckButton::builder()
-        .label("Local file reference (path on this machine)")
+        .label("Local file path")
         .group(&inline_radio)
+        .active(is_file_initial)
         .build();
-
-    let is_inline = initial.content.is_some() || initial.file.is_none();
-    inline_radio.set_active(is_inline);
-    file_radio.set_active(!is_inline);
-
-    source_box.append(&inline_radio);
-    source_box.append(&file_radio);
-    ui::row(&root, "Source", &source_box);
+    mode_box.append(&inline_radio);
+    mode_box.append(&file_radio);
+    root.append(&mode_box);
 
     let file_box = ui::vbox(6);
-    let file_entry = ui::entry(initial.file.as_deref().unwrap_or(""), |_| {});
     let file_row = ui::hbox(8);
-    file_row.append(&file_entry);
-    let pick_btn = ui::button("Browse…", {
-        let entry = file_entry.clone();
-        let app = app.clone();
+    let file_entry = ui::entry(initial.file.as_deref().unwrap_or(""), |_| {});
+    file_entry.set_hexpand(true);
+    let browse_btn = ui::button("Browse...", {
+        let win = dialog.clone();
+        let fe = file_entry.clone();
         move || {
-            let e = entry.clone();
-            let a = app.clone();
-            glib::spawn_future_local(async move {
-                if let Some(path) =
-                    crate::dialogs::open_file(a.win.upcast_ref(), "Select Service File", None).await
+            let win = win.clone();
+            let fe = fe.clone();
+            gtk::glib::spawn_future_local(async move {
+                if let Some(path) = dialogs::open_file(&win, "Select Systemd Unit File", None).await
                 {
-                    e.set_text(&path.to_string_lossy());
+                    fe.set_text(&path.to_string_lossy());
                 }
             });
         }
     });
-    file_row.append(&pick_btn);
+    file_row.append(&file_entry);
+    file_row.append(&browse_btn);
     file_box.append(&file_row);
-    file_box.append(&ui::dim(
-        "Unit file copied into the installer image at build time.",
-    ));
+    ui::hint(
+        &file_box,
+        "Path to a local unit file (relative to the config file).",
+    );
     root.append(&file_box);
 
     let inline_box = ui::vbox(6);
-    inline_box.append(&ui::dim(
-        "Unit file content written into the target system on first boot:",
-    ));
-
+    let dark = ui::is_dark(&app.win);
     let buf = sourceview5::Buffer::new(None);
-    let text = if let Some(bytes) = &initial.content {
-        String::from_utf8_lossy(bytes).to_string()
-    } else {
-        "[Unit]\nDescription=My Custom Service\nAfter=network.target\n\n[Service]\nType=oneshot\nExecStart=/usr/bin/true\n\n[Install]\nWantedBy=multi-user.target\n"
-            .to_string()
+    if let Some(lang) = sourceview5::LanguageManager::default().language("ini") {
+        buf.set_language(Some(&lang));
+    }
+    buf.set_highlight_syntax(true);
+    let mgr = sourceview5::StyleSchemeManager::default();
+    let scheme = [
+        if dark { "Adwaita-dark" } else { "Adwaita" },
+        if dark { "classic-dark" } else { "classic" },
+    ]
+    .iter()
+    .find_map(|n| mgr.scheme(n));
+    buf.set_style_scheme(scheme.as_ref());
+
+    let default_template = "[Unit]\nDescription=My Custom Service\nAfter=network.target\n\n[Service]\nType=simple\nExecStart=/usr/bin/echo \"Hello world\"\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n";
+    let text = match &initial.content {
+        Some(bytes) => String::from_utf8_lossy(bytes).to_string(),
+        None => {
+            if initial.file.is_none() && initial.name.is_empty() {
+                default_template.to_string()
+            } else {
+                String::new()
+            }
+        }
     };
     buf.set_text(&text);
 
@@ -308,7 +327,7 @@ fn open_custom_service_editor(
 }
 
 pub fn build(app: &Rc<App>, content: &gtk::Box) {
-    let (cfg, lists, services, params, report) = {
+    let (cfg, lists, report) = {
         let st = app.st.borrow();
         (
             st.model.cfg.clone(),
@@ -316,20 +335,21 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
                 st.lists.timezones.clone(),
                 st.lists.locales.clone(),
                 st.lists.keymaps.clone(),
+                st.lists.services.clone(),
+                st.lists.kernel_params.clone(),
             ),
-            st.lists.services.clone(),
-            st.lists.kernel_params.clone(),
             st.services_import_report.clone(),
         )
     };
+
     ui::heading(
         content,
-        "System & Services",
-        "Identity, localization, root account, display manager, services, scripts, and overlays.",
+        "System",
+        "Identity, root credentials, display manager, services, first-boot scripts, and overlays.",
     );
 
-    // 1. Identity
-    let c = ui::card(content, Some("Identity"));
+    // 1. Identity & Localization
+    let c = ui::card(content, Some("Identity & Localization"));
     let a = app.clone();
     ui::row(
         &c,
@@ -349,25 +369,6 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         }),
     );
     let a = app.clone();
-    let auto_id_btn = ui::button("Autoload identity & localization from system", move || {
-        let sys = hostcfg::system::discover_host_system();
-        a.edit(|m| {
-            m.cfg.hostname = sys.hostname.clone();
-            m.cfg.timezone = sys.timezone.clone();
-            m.cfg.locale = sys.locale.clone();
-            m.cfg.keymap = sys.keymap.clone();
-        });
-        a.set_status("Autoloaded hostname, timezone, locale, and keymap from host system.");
-        a.rebuild_all();
-    });
-    auto_id_btn.set_tooltip_text(Some(
-        "Detects hostname (/etc/hostname), timezone (/etc/localtime), locale (/etc/locale.conf), and keymap (/etc/vconsole.conf).",
-    ));
-    c.append(&auto_id_btn);
-
-    // 2. Language & Keyboard
-    let c = ui::card(content, Some("Language & Keyboard"));
-    let a = app.clone();
     ui::row(
         &c,
         "Locale",
@@ -386,26 +387,30 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         }),
     );
     let a = app.clone();
-    let auto_lang_btn = ui::button("Autoload language & keymap from system", move || {
+    let auto_id_btn = ui::button("Autoload localization from host", move || {
         let sys = hostcfg::system::discover_host_system();
         a.edit(|m| {
+            m.cfg.hostname = sys.hostname.clone();
+            m.cfg.timezone = sys.timezone.clone();
             m.cfg.locale = sys.locale.clone();
             m.cfg.keymap = sys.keymap.clone();
         });
-        a.set_status("Autoloaded locale and keymap from host system.");
+        a.set_status("Autoloaded hostname, timezone, locale, and keymap from host system.");
         a.rebuild_all();
     });
-    auto_lang_btn.set_tooltip_text(Some(
-        "Detects system/desktop locale (LANG/LC_ALL) and keyboard layout (Hyprland, localectl, vconsole.conf).",
+    auto_id_btn.set_tooltip_text(Some(
+        "Detects hostname (/etc/hostname), timezone (/etc/localtime), locale (/etc/locale.conf), and keymap (/etc/vconsole.conf).",
     ));
-    c.append(&auto_lang_btn);
+    c.append(&auto_id_btn);
 
-    // 3. Root Account
+    // 2. Root Account
     let c = ui::card(content, Some("Root Account"));
     let hash = Rc::new(RefCell::new(
         cfg.root_password_hash.clone().unwrap_or_default(),
     ));
     let hash_row = ui::vbox(6);
+    let is_plain = Rc::new(RefCell::new(false));
+
     let he = ui::entry(&hash.borrow(), {
         let (a, hash) = (app.clone(), hash.clone());
         move |t| {
@@ -414,11 +419,65 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
             a.edit(move |m| m.cfg.root_password_hash = Some(t));
         }
     });
-    ui::row(&hash_row, "Password hash", &he);
+    let he_box = ui::vbox(4);
+    ui::row(&he_box, "Password hash", &he);
     ui::hint(
-        &hash_row,
-        "A $6$ SHA-512 crypt hash, for example from `openssl passwd -6`.",
+        &he_box,
+        "A crypt hash (e.g. $6$... SHA-512 or $y$... yescrypt).",
     );
+    hash_row.append(&he_box);
+
+    let pw = ui::password(|_| {});
+    let pw2 = ui::password(|_| {});
+    let plain_pw_box = ui::vbox(4);
+    ui::row(&plain_pw_box, "Password", &pw);
+    ui::row(&plain_pw_box, "Again", &pw2);
+    let mismatch = ui::note(&plain_pw_box, Kind::Bad, "The passwords differ");
+    mismatch.set_visible(false);
+    plain_pw_box.set_visible(false);
+    hash_row.append(&plain_pw_box);
+
+    let mode_switch = ui::check("Enter plain password instead of hash", false, |_| {});
+    {
+        let (he_box, plain_pw_box, is_plain) = (
+            he_box.clone(),
+            plain_pw_box.clone(),
+            is_plain.clone(),
+        );
+        mode_switch.connect_toggled(move |btn| {
+            let plain = btn.is_active();
+            *is_plain.borrow_mut() = plain;
+            he_box.set_visible(!plain);
+            plain_pw_box.set_visible(plain);
+        });
+    }
+    {
+        let (a, pw_val, pw2_val, mismatch, is_plain) = (
+            app.clone(),
+            pw.clone(),
+            pw2.clone(),
+            mismatch.clone(),
+            is_plain.clone(),
+        );
+        let update_plain = move || {
+            if *is_plain.borrow() {
+                let (p1, p2) = (pw_val.text().to_string(), pw2_val.text().to_string());
+                let matches = !p1.is_empty() && p1 == p2;
+                mismatch.set_visible(!p1.is_empty() && p1 != p2);
+                if matches {
+                    if let Ok(h) = hostcfg::password::hash(&p1) {
+                        a.edit(move |m| m.cfg.root_password_hash = Some(h));
+                    }
+                }
+            }
+        };
+        let u1 = Rc::new(update_plain);
+        let u2 = u1.clone();
+        pw.upcast_ref::<gtk::Editable>().connect_changed(move |_| u1());
+        pw2.upcast_ref::<gtk::Editable>().connect_changed(move |_| u2());
+    }
+    hash_row.append(&mode_switch);
+
     hash_row.set_visible(cfg.root_password_hash.is_some());
     let locked = ui::check(
         "Leave root locked (use sudo)",
@@ -438,64 +497,63 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     );
     c.append(&locked);
     c.append(&hash_row);
-    let a = app.clone();
-    let root_auth_btn = ui::button("Retrieve root hash from system (sudo / root)", move || {
-        crate::pages::users::open_shadow_auth_dialog(&a);
-    });
-    root_auth_btn.set_tooltip_text(Some(
-        "Authenticates via sudo password, root password, or Polkit to read root's crypt hash from /etc/shadow.",
-    ));
-    c.append(&root_auth_btn);
 
-    // 4. Display Manager
-    let c = ui::card(content, Some("Display Manager"));
+    // 3. Display Manager
+    let c = ui::card(content, Some("Display Manager & Login"));
     ui::hint(
         &c,
-        "Login manager enabled on first boot to start graphical or console sessions.",
+        "Select the display manager to start graphical login. Permanent Archstaller branding is automatically applied.",
     );
-    let dm_options = [
-        ("none", "None (console login prompt)"),
-        ("ly@tty2.service", "Ly (lightweight console login manager on tty2)"),
-        ("sddm.service", "SDDM (KDE Plasma & modern Wayland)"),
-        ("gdm.service", "GDM (GNOME Display Manager)"),
-        ("lightdm.service", "LightDM (Xorg desktop sessions)"),
-        ("greetd.service", "greetd / tuigreet (modern terminal greeter)"),
+    let dms = [
+        ("none", "None (Direct console login / TTY only)"),
+        ("ly", "Ly (TUI Display Manager on TTY2)"),
+        ("sddm", "SDDM (Simple Desktop Display Manager, Qt/KDE)"),
+        ("gdm", "GDM (GNOME Display Manager)"),
+        ("lightdm", "LightDM (Lightweight Display Manager, GTK)"),
     ];
-    let dm_services = [
-        "ly@tty2.service",
-        "sddm.service",
-        "gdm.service",
-        "lightdm.service",
-        "greetd.service",
-    ];
-    let current_dm = dm_services
-        .iter()
-        .find(|&&s| cfg.services.iter().any(|v| v == s))
-        .copied()
-        .unwrap_or("none");
 
-    let mut dm_group_leader: Option<gtk::CheckButton> = None;
-    for (unit, desc) in dm_options {
-        let b = if let Some(ref leader) = dm_group_leader {
-            gtk::CheckButton::builder()
-                .label(desc)
-                .group(leader)
-                .build()
+    let current_dm = if cfg.services.iter().any(|s| s == "ly.service") {
+        "ly"
+    } else if cfg.services.iter().any(|s| s == "sddm.service") {
+        "sddm"
+    } else if cfg.services.iter().any(|s| s == "gdm.service") {
+        "gdm"
+    } else if cfg.services.iter().any(|s| s == "lightdm.service") {
+        "lightdm"
+    } else {
+        "none"
+    };
+
+    let mut dm_group: Option<gtk::CheckButton> = None;
+    for (id, desc) in dms {
+        let b = if let Some(ref leader) = dm_group {
+            gtk::CheckButton::builder().label(desc).group(leader).build()
         } else {
             let leader = gtk::CheckButton::builder().label(desc).build();
-            dm_group_leader = Some(leader.clone());
+            dm_group = Some(leader.clone());
             leader
         };
-        b.set_active(current_dm == unit);
+        b.set_active(current_dm == id);
         let a = app.clone();
         b.connect_toggled(move |btn| {
             if btn.is_active() {
                 a.edit(move |m| {
-                    for dm_svc in &dm_services {
-                        m.cfg.services.retain(|s| s != *dm_svc);
-                    }
-                    if unit != "none" {
-                        m.cfg.services.push(unit.to_string());
+                    m.cfg.services.retain(|s| {
+                        !matches!(
+                            s.as_str(),
+                            "ly.service"
+                                | "sddm.service"
+                                | "gdm.service"
+                                | "lightdm.service"
+                                | "greetd.service"
+                        )
+                    });
+                    match id {
+                        "ly" => m.cfg.services.push("ly.service".into()),
+                        "sddm" => m.cfg.services.push("sddm.service".into()),
+                        "gdm" => m.cfg.services.push("gdm.service".into()),
+                        "lightdm" => m.cfg.services.push("lightdm.service".into()),
+                        _ => {}
                     }
                 });
             }
@@ -503,7 +561,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         c.append(&b);
     }
 
-    // 5. System Services & Kernel Parameters
+    // 4. System Services & Kernel Parameters
     if let Some(rep) = report {
         let banner = ui::card(content, None);
         ui::note(&banner, Kind::Ok, &rep);
@@ -519,8 +577,8 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         content,
         title: "Services enabled on first boot",
         label: "Unit",
-        hint: "One systemd unit per line, for example sshd.service.",
-        options: services,
+        hint: "One systemd unit per line, for example sshd.service or chronyd.service.",
+        options: lists.3,
         items: cfg.services.clone(),
         height: 130,
         set: |m, v| m.cfg.services = v,
@@ -531,7 +589,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     ui::hint(&c, "Custom unit files installed into /etc/systemd/system/ (machine-wide) or ~/.config/systemd/user/ (per-user).");
 
     if cfg.custom_services.is_empty() {
-        ui::hint(&c, "No custom services yet.");
+        ui::hint(&c, "No custom services configured yet.");
     } else {
         for (i, cs) in cfg.custom_services.iter().enumerate() {
             let item_box = ui::vbox(3);
@@ -539,17 +597,15 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
             r.append(&ui::dim(&format!("{}", i + 1)));
 
             let name = ui::strong(&cs.name);
-            name.set_width_request(120);
+            name.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            name.set_tooltip_text(Some(&cs.name));
+            name.set_hexpand(true);
             r.append(&name);
 
             let user_str = cs.user.as_deref().unwrap_or("root");
             let user_chip = ui::chip(
-                user_str,
-                if user_str == "root" {
-                    "chip-accent"
-                } else {
-                    ""
-                },
+                &format!("user: {user_str}"),
+                if user_str == "root" { "chip-accent" } else { "" },
             );
             r.append(&user_chip);
 
@@ -662,19 +718,20 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         title: "Extra kernel parameters",
         label: "Parameter",
         hint: "One word per line, appended to the installed system's kernel command line.",
-        options: params,
+        options: lists.4,
         items: cfg.kernel_params.clone(),
         height: 110,
         set: |m, v| m.cfg.kernel_params = v,
         get: |m| m.cfg.kernel_params.clone(),
     });
 
-    // 6. Post-Install Scripts
-    let c = ui::card(content, Some("First-boot scripts"));
+    // 5. Post-Install Scripts
+    let c = ui::card(content, Some("First-boot Scripts"));
     ui::hint(
         &c,
         "Run as root on the installed system. Scripts execute in configured phases (pre-service or post-service).",
     );
+
     if cfg.scripts.is_empty() {
         ui::hint(&c, "No scripts configured yet.");
     }
@@ -700,9 +757,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         let a = app.clone();
         r.append(&ui::button("Remove", move || {
             a.edit(move |m| {
-                if i < m.cfg.scripts.len() {
-                    m.cfg.scripts.remove(i);
-                }
+                m.cfg.scripts.remove(i);
             });
             a.rebuild(Page::System);
         }));
@@ -743,11 +798,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
                 "runs as {}, {}; needs: {}",
                 b.runs_as,
                 b.phase,
-                if b.requires.is_empty() {
-                    "nothing"
-                } else {
-                    b.requires
-                }
+                if b.requires.is_empty() { "nothing" } else { b.requires }
             ),
         );
     }
@@ -761,84 +812,100 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     ui::row(&c, "Id", &id);
     let file = ui::entry("", |_| {});
     let fr = ui::row(&c, "Local file", &file);
-    let pick = ui::button("Browse…", {
-        let file = file.clone();
-        let a = app.clone();
-        move || {
-            let file = file.clone();
-            let a = a.clone();
+    let url = ui::entry("", |_| {});
+    ui::row(&c, "URL", &url);
+    let sha = ui::entry("", |_| {});
+    ui::row(&c, "SHA-256", &sha);
+    let digest = ui::dim("");
+    c.append(&digest);
+    let ack = ui::check_button("I understand a custom script runs as root on the installed system");
+    let add = ui::primary("Add custom script", || {});
+    add.set_sensitive(false);
+    let update = {
+        let (id, file, url, ack, add, digest) = (
+            id.clone(),
+            file.clone(),
+            url.clone(),
+            ack.clone(),
+            add.clone(),
+            digest.clone(),
+        );
+        Rc::new(move || {
+            let path = file.text().to_string();
+            let text = if path.is_empty() {
+                None
+            } else {
+                std::fs::read(&path).ok()
+            };
+            digest.set_text(&match &text {
+                Some(t) => {
+                    use sha2::Digest;
+                    format!(
+                        "sha256 {}",
+                        sha2::Sha256::digest(t)
+                            .iter()
+                            .map(|b| format!("{b:02x}"))
+                            .collect::<String>()
+                    )
+                }
+                None => String::new(),
+            });
+            let valid = !id.text().is_empty() && (!path.is_empty() || !url.text().is_empty());
+            add.set_sensitive(valid && ack.is_active());
+        })
+    };
+    for e in [&id, &file, &url] {
+        let u = update.clone();
+        e.connect_changed(move |_| u());
+    }
+    {
+        let u = update.clone();
+        ack.connect_toggled(move |_| u());
+    }
+    {
+        let (a, file) = (app.clone(), file.clone());
+        fr.append(&ui::button("Browse…", move || {
+            let (a, file) = (a.clone(), file.clone());
             glib::spawn_future_local(async move {
-                if let Some(p) =
-                    crate::dialogs::open_file(a.win.upcast_ref(), "Select a shell script", None).await
+                if let Some(p) = dialogs::open_file(a.win.upcast_ref(), "Pick a script", None).await
                 {
-                    file.set_text(&p.to_string_lossy());
+                    file.set_text(&p.display().to_string());
                 }
             });
-        }
-    });
-    fr.append(&pick);
-
-    let url = ui::entry("", |_| {});
-    ui::row(&c, "Or https URL", &url);
-    let sha = ui::entry("", |_| {});
-    ui::row(&c, "Pinned SHA-256", &sha);
-    let args = ui::entry("", |_| {});
-    ui::row(&c, "Arguments", &args);
-
-    let phases = ["post-service", "pre-service"];
-    let phase_dd = ui::dropdown(&phases, |_| {});
-    ui::row(&c, "Execution Phase", &phase_dd);
-
-    let r = ui::row(&c, "", &ui::dim(""));
-    let a = app.clone();
-    let add_btn = ui::button("Add custom script", move || {
-        let id_val = id.text().trim().to_string();
-        if id_val.is_empty() {
-            return;
-        }
-        let file_val = file.text().trim().to_string();
-        let url_val = url.text().trim().to_string();
-        let sha_val = sha.text().trim().to_string();
-        let args_val: Vec<String> = args
-            .text()
-            .split_whitespace()
-            .map(String::from)
-            .collect();
-        let phase_val = if phase_dd.selected() == 1 {
-            "pre-service".to_string()
-        } else {
-            "post-service".to_string()
-        };
-
-        let script = if !file_val.is_empty() {
-            config::Script {
-                id: id_val,
-                file: Some(file_val),
-                args: args_val,
-                phase: Some(phase_val),
+        }));
+    }
+    let is_pre_service = Rc::new(std::cell::Cell::new(false));
+    let pre_box = {
+        let p = is_pre_service.clone();
+        ui::check("Run in pre-service phase (before enabling services)", false, move |on| p.set(on))
+    };
+    c.append(&pre_box);
+    c.append(&ack);
+    {
+        let a = app.clone();
+        let is_pre = is_pre_service.clone();
+        add.connect_clicked(move |_| {
+            let (f, u, s) = (
+                file.text().to_string(),
+                url.text().to_string(),
+                sha.text().to_string(),
+            );
+            let phase = if is_pre.get() { "pre-service" } else { "post-service" };
+            let script = config::Script {
+                id: id.text().to_string(),
+                file: (!f.is_empty()).then(|| f.clone()),
+                url: (f.is_empty() && !u.is_empty()).then(|| u.clone()),
+                sha256: (f.is_empty() && !s.is_empty()).then(|| s.clone()),
+                phase: Some(phase.into()),
                 ..Default::default()
-            }
-        } else if !url_val.is_empty() {
-            config::Script {
-                id: id_val,
-                url: Some(url_val),
-                sha256: Some(sha_val),
-                args: args_val,
-                phase: Some(phase_val),
-                ..Default::default()
-            }
-        } else {
-            return;
-        };
-
-        a.edit(move |m| {
-            m.cfg.scripts.push(script);
+            };
+            a.edit(move |m| m.cfg.scripts.push(script));
+            a.rebuild(Page::System);
         });
-        a.rebuild(Page::System);
-    });
-    r.append(&add_btn);
+    }
+    c.append(&add);
 
-    // 7. System Overlays
+    // 6. Filesystem Overlays
     let c = ui::card(content, Some("System Overlays & Hardware Configurations"));
     ui::hint(
         &c,
@@ -848,8 +915,27 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     if cfg.system_files.is_empty() {
         ui::hint(&c, "No system overlay files configured.");
     } else {
+        let count_lbl = ui::dim(&format!("{} overlay item(s) configured.", cfg.system_files.len()));
+        c.append(&count_lbl);
+
+        let search_entry = gtk::SearchEntry::builder()
+            .placeholder_text("Filter overlay files…")
+            .build();
+        c.append(&search_entry);
+
+        let list_box = gtk::ListBox::builder()
+            .selection_mode(gtk::SelectionMode::None)
+            .css_classes(["boxed-list"])
+            .build();
+
         for (idx, sf) in cfg.system_files.iter().enumerate() {
-            let row = ui::hbox(8);
+            let row = gtk::ListBoxRow::new();
+            let row_box = ui::hbox(8);
+            row_box.set_margin_top(4);
+            row_box.set_margin_bottom(4);
+            row_box.set_margin_start(8);
+            row_box.set_margin_end(8);
+
             let category = if sf.path.starts_with("etc/NetworkManager") || sf.path.starts_with("var/lib/iwd") {
                 "Network"
             } else if sf.path.starts_with("var/lib/bluetooth") {
@@ -865,7 +951,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
             } else {
                 "Custom"
             };
-            row.append(&ui::chip(category, "chip-accent"));
+            row_box.append(&ui::chip(category, "chip-accent"));
 
             let display_name = if sf.path.is_empty() {
                 sf.file.as_deref().unwrap_or("/")
@@ -877,22 +963,22 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
             p_lbl.set_width_chars(16);
             p_lbl.set_tooltip_text(Some(display_name));
             p_lbl.set_hexpand(true);
-            row.append(&p_lbl);
+            row_box.append(&p_lbl);
 
             let mode_tag = ui::dim(&format!("mode: {:04o}", sf.mode));
-            row.append(&mode_tag);
+            row_box.append(&mode_tag);
 
             if let Some(content) = &sf.content {
-                row.append(&ui::dim(&format!("{} B", content.len())));
+                row_box.append(&ui::dim(&format!("{} B", content.len())));
             } else if let Some(file) = &sf.file {
                 let f_lbl = ui::dim(&format!("src: {file}"));
                 f_lbl.set_ellipsize(gtk::pango::EllipsizeMode::Start);
                 f_lbl.set_tooltip_text(Some(file));
-                row.append(&f_lbl);
+                row_box.append(&f_lbl);
             }
 
             let a = app.clone();
-            row.append(&ui::button("Remove", move || {
+            row_box.append(&ui::button("Remove", move || {
                 a.edit(move |m| {
                     if idx < m.cfg.system_files.len() {
                         m.cfg.system_files.remove(idx);
@@ -900,8 +986,52 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
                 });
                 a.rebuild_all();
             }));
-            c.append(&row);
+
+            row.set_child(Some(&row_box));
+            list_box.append(&row);
         }
+
+        let filter_text = Rc::new(RefCell::new(String::new()));
+        {
+            let ft = filter_text.clone();
+            list_box.set_filter_func(move |row| {
+                let query = ft.borrow().trim().to_lowercase();
+                if query.is_empty() {
+                    return true;
+                }
+                if let Some(box_row) = row.child().and_downcast::<gtk::Box>() {
+                    let mut found = false;
+                    let mut child = box_row.first_child();
+                    while let Some(w) = child {
+                        if let Some(lbl) = w.downcast_ref::<gtk::Label>() {
+                            if lbl.text().to_lowercase().contains(&query) {
+                                found = true;
+                                break;
+                            }
+                        }
+                        child = w.next_sibling();
+                    }
+                    return found;
+                }
+                true
+            });
+        }
+        {
+            let ft = filter_text.clone();
+            let lb = list_box.clone();
+            search_entry.connect_search_changed(move |e| {
+                *ft.borrow_mut() = e.text().to_string();
+                lb.invalidate_filter();
+            });
+        }
+
+        let scroll = gtk::ScrolledWindow::builder()
+            .min_content_height(140)
+            .max_content_height(240)
+            .has_frame(true)
+            .child(&list_box)
+            .build();
+        c.append(&scroll);
     }
 
     let act_box = ui::hbox(8);
@@ -921,9 +1051,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     let add_dir_btn = ui::button("Add directory overlay…", move || {
         let a = a.clone();
         glib::spawn_future_local(async move {
-            if let Some(path) =
-                crate::dialogs::open_folder(a.win.upcast_ref(), "Select overlay directory", None).await
-            {
+            if let Some(path) = crate::dialogs::open_folder(a.win.upcast_ref(), "Select overlay directory", None).await {
                 a.edit(|m| {
                     m.cfg.system_files.push(config::SystemFile {
                         path: "".into(),
@@ -937,22 +1065,15 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
             }
         });
     });
-    add_dir_btn.set_tooltip_text(Some(
-        "Select a local directory whose files will be recursively merged into root /",
-    ));
+    add_dir_btn.set_tooltip_text(Some("Select a local directory whose files will be recursively merged into root /"));
     act_box.append(&add_dir_btn);
 
     let a = app.clone();
     let add_file_btn = ui::button("Add file…", move || {
         let a = a.clone();
         glib::spawn_future_local(async move {
-            if let Some(path) =
-                crate::dialogs::open_file(a.win.upcast_ref(), "Select file to overlay", None).await
-            {
-                let target_name = path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "custom.conf".into());
+            if let Some(path) = crate::dialogs::open_file(a.win.upcast_ref(), "Select file to overlay", None).await {
+                let target_name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "custom.conf".into());
                 a.edit(|m| {
                     m.cfg.system_files.push(config::SystemFile {
                         path: format!("etc/{target_name}"),

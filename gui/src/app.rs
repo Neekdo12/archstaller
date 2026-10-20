@@ -14,23 +14,17 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum Page {
-    System,
-    Disk,
-    Packages,
-    Users,
-    Build,
-    // Action views (opened from header bar)
-    Toml,
-    Iso,
-    Help,
-}
+pub use crate::model::{page_of, Page};
 
 pub const PAGES: &[(Page, &str, &str, Option<Area>)] = &[
     (Page::System, "system", "System", Some(Area::System)),
     (Page::Disk, "disk", "Disk", Some(Area::Disk)),
-    (Page::Packages, "packages", "Packages", Some(Area::Packages)),
+    (
+        Page::Packages,
+        "packages",
+        "Packages",
+        Some(Area::Packages),
+    ),
     (Page::Users, "users", "Users", Some(Area::Users)),
     (Page::Build, "build", "Build & drivers", Some(Area::Build)),
 ];
@@ -54,19 +48,9 @@ pub fn icon_of(page: Page) -> &'static str {
         Page::Packages => "system-software-install-symbolic",
         Page::Users => "avatar-default-symbolic",
         Page::Build => "applications-engineering-symbolic",
-        Page::Toml => "document-edit-symbolic",
+        Page::Toml => "text-x-generic-symbolic",
         Page::Iso => "media-optical-symbolic",
         Page::Help => "help-browser-symbolic",
-    }
-}
-
-pub fn page_of(area: Area) -> Page {
-    match area {
-        Area::System | Area::Scripts | Area::Services | Area::Other => Page::System,
-        Area::Disk => Page::Disk,
-        Area::Packages => Page::Packages,
-        Area::Users => Page::Users,
-        Area::Build => Page::Build,
     }
 }
 
@@ -80,11 +64,11 @@ pub struct App {
     status: gtk::Label,
     problem: gtk::Label,
     problem_btn: gtk::Button,
+    toml_btn: gtk::ToggleButton,
     boxes: HashMap<Page, gtk::Box>,
     refreshers: RefCell<HashMap<Page, Rc<dyn Fn()>>>,
     current: Cell<Page>,
-    previous_page: Cell<Page>,
-    toml_toggle: gtk::ToggleButton,
+    previous: Cell<Page>,
     /// The live widgets of the Build ISO page (progress, log), while that page exists.
     pub iso_live: RefCell<Option<Rc<pages::iso::Live>>>,
 }
@@ -95,7 +79,8 @@ fn open_autoload_dialog(app: &Rc<App>) {
         .transient_for(&app.win)
         .modal(true)
         .default_width(460)
-        .default_height(360)
+        .default_height(380)
+        .resizable(false)
         .build();
 
     let root = ui::vbox(12);
@@ -104,31 +89,25 @@ fn open_autoload_dialog(app: &Rc<App>) {
     root.set_margin_start(16);
     root.set_margin_end(16);
 
-    ui::heading(
+    root.append(&ui::strong("Selective Hardware & System Import"));
+    ui::hint(
         &root,
-        "Autoload Hardware & Configuration",
-        "Select the components you wish to import from this running system:",
+        "Select components from this running computer to import into the configuration:",
     );
 
-    let check_sys = ui::check_button("Identity & Localization (hostname, timezone, locale, keymap)");
-    check_sys.set_active(true);
-    root.append(&check_sys);
+    let chk_id = ui::check("Identity & Localization (hostname, timezone, locale, keymap)", true, |_| {});
+    let chk_users = ui::check("Host Users & Groups (from /etc/passwd and /etc/group)", true, |_| {});
+    let chk_hw = ui::check("Network & Hardware Credentials (Wi-Fi, Bluetooth, SSH host keys, zram)", true, |_| {});
+    let chk_services = ui::check("Enabled Systemd Services (package and custom units)", true, |_| {});
+    let chk_packages = ui::check("Installed Pacman Packages (core and extra)", false, |_| {});
+    let chk_aur = ui::check("Installed AUR Packages (autoload and review)", false, |_| {});
 
-    let check_net = ui::check_button("Network & Drivers (wired/wireless NIC drivers)");
-    check_net.set_active(true);
-    root.append(&check_net);
-
-    let check_users = ui::check_button("Users & Accounts (user accounts from /etc/passwd and groups)");
-    check_users.set_active(true);
-    root.append(&check_users);
-
-    let check_services = ui::check_button("Enabled Services (systemd services and custom units)");
-    check_services.set_active(true);
-    root.append(&check_services);
-
-    let check_pkgs = ui::check_button("Installed Packages (native packages explicitly installed by pacman)");
-    check_pkgs.set_active(true);
-    root.append(&check_pkgs);
+    root.append(&chk_id);
+    root.append(&chk_users);
+    root.append(&chk_hw);
+    root.append(&chk_services);
+    root.append(&chk_packages);
+    root.append(&chk_aur);
 
     let btn_row = ui::hbox(8);
     btn_row.set_halign(gtk::Align::End);
@@ -138,88 +117,84 @@ fn open_autoload_dialog(app: &Rc<App>) {
     });
     btn_row.append(&cancel);
 
-    let import = ui::primary("Import Selected", {
-        let a = app.clone();
-        let d = dialog.clone();
-        move || {
-            let do_sys = check_sys.is_active();
-            let do_net = check_net.is_active();
-            let do_users = check_users.is_active();
-            let do_services = check_services.is_active();
-            let do_pkgs = check_pkgs.is_active();
+    let a = app.clone();
+    let d = dialog.clone();
+    let apply = ui::primary("Apply Selected", move || {
+        let do_id = chk_id.is_active();
+        let do_users = chk_users.is_active();
+        let do_hw = chk_hw.is_active();
+        let do_services = chk_services.is_active();
+        let do_packages = chk_packages.is_active();
+        let do_aur = chk_aur.is_active();
 
+        if do_id {
+            let sys = hostcfg::system::discover_host_system();
             a.edit(|m| {
-                if do_sys {
-                    let sys = hostcfg::system::discover_host_system();
-                    m.cfg.hostname = sys.hostname;
-                    m.cfg.timezone = sys.timezone;
-                    m.cfg.locale = sys.locale;
-                    m.cfg.keymap = sys.keymap;
-                }
-                if do_net {
-                    let net = hostcfg::network::discover_host_network(None);
-                    if let Some(pkg) = net.package {
-                        if !m.cfg.packages.contains(&pkg) {
-                            m.cfg.packages.push(pkg);
+                m.cfg.hostname = sys.hostname;
+                m.cfg.timezone = sys.timezone;
+                m.cfg.locale = sys.locale;
+                m.cfg.keymap = sys.keymap;
+            });
+        }
+        if do_users {
+            let host_users = hostcfg::users::discover_host_users();
+            a.edit(|m| {
+                for u in host_users {
+                    if let Some(existing) = m.cfg.users.iter_mut().find(|e| e.name == u.name) {
+                        existing.groups = u.groups;
+                        existing.shell = u.shell;
+                        if let Some(hash) = u.password_hash {
+                            existing.password_hash = hash;
                         }
-                    }
-                    if let Some(srv) = net.service {
-                        if !m.cfg.services.contains(&srv) {
-                            m.cfg.services.push(srv);
-                        }
-                    }
-                    for cf in net.connection_files {
-                        if !m.cfg.system_files.iter().any(|f| f.path == cf.path) {
-                            m.cfg.system_files.push(cf);
-                        }
-                    }
-                }
-                if do_users {
-                    let host_users = hostcfg::users::discover_host_users();
-                    for u in host_users {
-                        if let Some(existing) = m.cfg.users.iter_mut().find(|e| e.name == u.name) {
-                            existing.groups = u.groups;
-                            existing.shell = u.shell;
-                        } else {
-                            m.cfg.users.push(config::User {
-                                name: u.name,
-                                password_hash: u.password_hash.unwrap_or_else(|| {
-                                    "$6$archstlr$gnUg60P8TrWaKT.8/oW8Iq1kc8LlPnk4A6UWw5ij0AAQNe2IN7TuPFnw7PmXMXuobrVIYBSbNWUgRbpafXqcc.".into()
-                                }),
-                                groups: u.groups,
-                                shell: u.shell,
-                                dotfiles: None,
-                            });
-                        }
-                    }
-                }
-                if do_services {
-                    let disc = hostcfg::services::discover_local_services();
-                    for s in disc.system_package_services {
-                        if !m.cfg.services.contains(&s) {
-                            m.cfg.services.push(s);
-                        }
-                    }
-                }
-                if do_pkgs {
-                    if let Ok(out) = std::process::Command::new("pacman").arg("-Qqen").output() {
-                        if out.status.success() {
-                            let text = String::from_utf8_lossy(&out.stdout);
-                            for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
-                                if !m.cfg.packages.iter().any(|p| p == line) {
-                                    m.cfg.packages.push(line.to_string());
-                                }
-                            }
-                        }
+                    } else if let Some(hash) = u.password_hash {
+                        m.cfg.users.push(config::User {
+                            name: u.name,
+                            password_hash: hash,
+                            groups: u.groups,
+                            shell: u.shell,
+                            dotfiles: None,
+                        });
                     }
                 }
             });
-            a.set_status("Autoloaded selected system components.");
-            a.rebuild_all();
-            d.close();
         }
+        if do_services {
+            let discovered = hostcfg::services::discover_local_services();
+            a.edit(|m| {
+                for s in discovered.system_package_services {
+                    if !m.cfg.services.contains(&s) {
+                        m.cfg.services.push(s);
+                    }
+                }
+                for cs in discovered.custom_system_services {
+                    if !m.cfg.custom_services.iter().any(|e| e.name == cs.name && e.user == cs.user) {
+                        m.cfg.custom_services.push(cs);
+                    }
+                }
+            });
+        }
+        if do_packages {
+            a.st.borrow_mut().official.start_import();
+        }
+        if do_aur {
+            let (mirror, existing) = {
+                let st = a.st.borrow();
+                (
+                    st.model.cfg.mirrors.first().cloned().unwrap_or_else(|| "https://geo.mirror.pkgbuild.com/$repo/os/$arch".into()),
+                    st.model.cfg.aur.clone(),
+                )
+            };
+            let cache = dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("archstaller-gui");
+            a.st.borrow_mut().aur.start_autoload(existing, mirror, cache);
+        }
+        if do_hw {
+            crate::pages::users::open_shadow_auth_dialog(&a);
+        }
+        a.set_status("Autoload configuration applied.");
+        a.rebuild_all();
+        d.close();
     });
-    btn_row.append(&import);
+    btn_row.append(&apply);
     root.append(&btn_row);
 
     dialog.set_child(Some(&root));
@@ -228,6 +203,7 @@ fn open_autoload_dialog(app: &Rc<App>) {
 
 impl App {
     pub fn new(gapp: &gtk::Application) -> Rc<App> {
+        // A default size that fits the screen: laptops are smaller than 1180x780.
         let (mut w, mut h) = (880, 680);
         if let Some(m) = gtk::gdk::Display::default()
             .and_then(|d| d.monitors().item(0))
@@ -245,6 +221,7 @@ impl App {
             .build();
         win.set_size_request(380, 400);
 
+        // Header bar: file and tools menus, the sidebar toggle, the document name.
         let header = gtk::HeaderBar::new();
         let title = gtk::Label::builder()
             .label("untitled")
@@ -261,6 +238,13 @@ impl App {
         sidebar_toggle
             .update_property(&[gtk::accessible::Property::Label("Show or hide the sidebar")]);
         header.pack_start(&sidebar_toggle);
+
+        let autoload_btn = gtk::Button::builder()
+            .label("Autoload")
+            .icon_name("system-search-symbolic")
+            .tooltip_text("Selective hardware, user, network, and config import from this system")
+            .build();
+        header.pack_start(&autoload_btn);
 
         let menu = gio::Menu::new();
         let file = gio::Menu::new();
@@ -289,40 +273,34 @@ impl App {
             .tooltip_text("Menu")
             .build();
         header.pack_end(&menu_btn);
-        let preset_btn = gtk::MenuButton::builder().label("From preset").menu_model(&presets).sensitive(!preset_list.is_empty()).tooltip_text(if preset_list.is_empty() { "No presets found (install the package, run from a checkout or set ARCHSTALLER_ROOT)" } else { "Start a new, unsaved config from one of the repository's presets" }).build();
-        header.pack_end(&preset_btn);
-
-        let toml_toggle = gtk::ToggleButton::builder()
-            .label("Edit TOML")
-            .icon_name("document-edit-symbolic")
-            .tooltip_text("Switch between graphical form view and direct TOML source editor")
-            .build();
-        header.pack_end(&toml_toggle);
-
-        let flash_btn = gtk::Button::builder()
-            .label("Build & Flash")
-            .icon_name("media-optical-symbolic")
-            .css_classes(["suggested-action"])
-            .tooltip_text("Build bootable ISO image or flash directly to USB / drive")
-            .build();
-        header.pack_end(&flash_btn);
 
         let help_btn = gtk::Button::builder()
             .icon_name("help-browser-symbolic")
-            .tooltip_text("Help & reference documentation")
+            .tooltip_text("Help & Reference")
             .build();
         header.pack_end(&help_btn);
 
-        let autoload_btn = gtk::Button::builder()
-            .label("Autoload")
-            .icon_name("view-refresh-symbolic")
-            .tooltip_text("Import hardware, localization, users, and network settings from this computer")
+        let build_iso_btn = gtk::Button::builder()
+            .label("Build ISO")
+            .icon_name("media-optical-symbolic")
+            .css_classes(["suggested-action"])
+            .tooltip_text("Build bootable ISO and write to media")
             .build();
-        header.pack_start(&autoload_btn);
+        header.pack_end(&build_iso_btn);
+
+        let toml_btn = gtk::ToggleButton::builder()
+            .label("Edit TOML")
+            .icon_name("document-edit-symbolic")
+            .tooltip_text("Toggle TOML source editor mode")
+            .build();
+        header.pack_end(&toml_btn);
+
+        let preset_btn = gtk::MenuButton::builder().label("From preset").menu_model(&presets).sensitive(!preset_list.is_empty()).tooltip_text(if preset_list.is_empty() { "No presets found (install the package, run from a checkout or set ARCHSTALLER_ROOT)" } else { "Start a new, unsaved config from one of the repository's presets" }).build();
+        header.pack_end(&preset_btn);
 
         win.set_titlebar(Some(&header));
 
-        // Sidebar
+        // Sidebar.
         let nav = gtk::ListBox::builder()
             .selection_mode(gtk::SelectionMode::Single)
             .css_classes(["navigation-sidebar", "sidebar-list"])
@@ -371,7 +349,8 @@ impl App {
             .vexpand(true)
             .build();
 
-        // Stack with all pages
+        // Pages.
+        // Not homogeneous: the window may be as narrow as the visible page, not the widest page.
         let stack = gtk::Stack::builder()
             .hexpand(true)
             .vexpand(true)
@@ -386,7 +365,7 @@ impl App {
             boxes.insert(*page, content);
         }
 
-        // Bottom bar
+        // Bottom bar: validation summary and status.
         let bar = ui::hbox(10);
         bar.add_css_class("problem-bar");
         let problem = gtk::Label::builder()
@@ -397,13 +376,13 @@ impl App {
             .width_chars(8)
             .selectable(true)
             .build();
-        let problem_btn = ui::button("Go to page", || {});
-        problem_btn.set_visible(false);
+        let problem_btn = gtk::Button::with_label("Fix issue");
         let status = gtk::Label::builder()
             .xalign(1.0)
-            .ellipsize(gtk::pango::EllipsizeMode::End)
-            .max_width_chars(30)
-            .width_chars(10)
+            .css_classes(["hint"])
+            .ellipsize(gtk::pango::EllipsizeMode::Start)
+            .max_width_chars(25)
+            .width_chars(8)
             .selectable(true)
             .build();
         bar.append(&problem);
@@ -431,11 +410,11 @@ impl App {
             status,
             problem,
             problem_btn,
+            toml_btn: toml_btn.clone(),
             boxes,
             refreshers: RefCell::new(HashMap::new()),
             current: Cell::new(Page::System),
-            previous_page: Cell::new(Page::System),
-            toml_toggle,
+            previous: Cell::new(Page::System),
             iso_live: RefCell::new(None),
         });
         {
@@ -446,6 +425,7 @@ impl App {
                 sep.set_visible(t.is_active());
             });
         }
+        // A narrow window hides the sidebar (the toggle brings it back); a wide one shows it again.
         {
             let (toggle, last) = (sidebar_toggle.clone(), Cell::new(None::<bool>));
             app.win.add_tick_callback(move |w, _| {
@@ -488,38 +468,40 @@ impl App {
         }
         {
             let a = app.clone();
-            flash_btn.connect_clicked(move |_| {
-                a.show(Page::Iso);
-            });
-        }
-        {
-            let a = app.clone();
             help_btn.connect_clicked(move |_| {
                 a.show(Page::Help);
             });
         }
         {
             let a = app.clone();
-            app.toml_toggle.connect_toggled(move |btn| {
-                if btn.is_active() {
+            build_iso_btn.connect_clicked(move |_| {
+                a.show(Page::Iso);
+            });
+        }
+        {
+            let a = app.clone();
+            toml_btn.connect_toggled(move |btn| {
+                let active = btn.is_active();
+                if active && a.current() != Page::Toml {
                     a.show(Page::Toml);
-                } else if a.current() == Page::Toml {
-                    let r = a.st.borrow_mut().model.leave_source();
-                    match r {
-                        Ok(()) => {
-                            let prev = a.previous_page.get();
-                            a.show(prev);
-                            a.rebuild_all();
+                } else if !active && a.current() == Page::Toml {
+                    if a.st.borrow().model.raw.is_some() {
+                        match a.st.borrow_mut().model.leave_source() {
+                            Ok(()) => {
+                                a.rebuild_all();
+                                a.show(a.previous.get());
+                            }
+                            Err(e) => {
+                                a.set_status(format!("Cannot return to forms: {e}"));
+                                btn.set_active(true);
+                            }
                         }
-                        Err(e) => {
-                            btn.set_active(true);
-                            a.set_status(format!("Cannot return to forms: {e}"));
-                        }
+                    } else {
+                        a.show(a.previous.get());
                     }
                 }
             });
         }
-
         app.install_actions(gapp);
         app.rebuild_all();
         app.show(Page::System);
@@ -564,19 +546,19 @@ impl App {
                 self.nav.select_row(Some(&row));
                 return;
             }
+        } else {
+            self.nav.select_row(None::<&gtk::ListBoxRow>);
         }
-        self.nav.unselect_all();
         self.show_no_select(page);
     }
 
     fn show_no_select(self: &Rc<Self>, page: Page) {
-        let prev = self.current.get();
-        if prev != Page::Toml && PAGES.iter().any(|p| p.0 == prev) {
-            self.previous_page.set(prev);
+        if PAGES.iter().any(|p| p.0 == page) {
+            self.previous.set(page);
         }
         self.current.set(page);
-        self.toml_toggle.set_active(page == Page::Toml);
-
+        self.toml_btn.set_active(page == Page::Toml);
+        // The read-only source view shows what the forms say now.
         if page == Page::Toml && self.st.borrow().model.raw.is_none() {
             self.rebuild(Page::Toml);
         }
@@ -585,10 +567,8 @@ impl App {
         }
         if page == Page::Iso {
             self.st.borrow_mut().media.last_scan = None;
+            // The summary shows the document as it is now; the live parts are rebuilt from the state.
             self.rebuild(Page::Iso);
-        }
-        if page == Page::Help {
-            self.rebuild(Page::Help);
         }
     }
 
@@ -600,12 +580,15 @@ impl App {
         self.refreshers.borrow_mut().insert(page, f);
     }
 
+    /// Builds (or rebuilds) one page from the current document.
+    /// [`App::rebuild`] for a change the user made on the page itself: the view stays where it was instead of
+    /// jumping to the top. The position is restored once the new widgets have been laid out.
     pub fn rebuild_keep_scroll(self: &Rc<Self>, page: Page) {
         let adj = self
             .boxes
             .get(&page)
-            .and_then(|b| b.parent())
-            .and_then(|p| p.downcast::<gtk::ScrolledWindow>().ok())
+            .and_then(|b| b.ancestor(gtk::ScrolledWindow::static_type()))
+            .and_downcast::<gtk::ScrolledWindow>()
             .map(|w| w.vadjustment());
         let pos = adj.as_ref().map(|a| a.value());
         self.rebuild(page);
@@ -656,6 +639,7 @@ impl App {
         }
     }
 
+    /// Runs the page's refresher (the part of the page that shows background work), if it has one.
     pub fn refresh_page(&self, page: Page) {
         let f = self.refreshers.borrow().get(&page).cloned();
         if let Some(f) = f {
@@ -672,6 +656,7 @@ impl App {
 
     // ------------------------------------------------------------------ the document
 
+    /// A change made by a form control: marks the document dirty and refreshes what depends on it.
     pub fn edit(&self, f: impl FnOnce(&mut Model)) {
         {
             let mut st = self.st.borrow_mut();
@@ -688,6 +673,7 @@ impl App {
         self.st.borrow_mut().status = msg;
     }
 
+    /// Title, validation summary and the navigation marks.
     pub fn refresh_chrome(&self) {
         let (name, dirty, problems) = {
             let st = self.st.borrow();
@@ -703,8 +689,8 @@ impl App {
         let shown = format!("{name}{}", if dirty { " •" } else { "" });
         self.title.set_text(&shown);
         self.win.set_title(Some(&format!("{shown} — Archstaller")));
-        for (i, (page, ..)) in PAGES.iter().enumerate() {
-            let bad = problems.iter().any(|p| page_of(p.area) == *page);
+        for (i, (_, _, _, area)) in PAGES.iter().enumerate() {
+            let bad = area.is_some_and(|a| problems.iter().any(|p| p.area == a));
             if let Some(mark) = self.nav_marks.get(i) {
                 mark.set_text(if bad { "●" } else { "" });
             }
@@ -726,6 +712,7 @@ impl App {
         self.status.set_text(&self.st.borrow().status);
     }
 
+    /// Asks before a replacement of the document throws unsaved work away.
     pub async fn may_discard(self: &Rc<Self>) -> bool {
         if !self.st.borrow().model.dirty {
             return true;
@@ -798,6 +785,7 @@ impl App {
                     if name == "reinstall" {
                         crate::pages::users::open_shadow_auth_dialog(&a);
                     }
+                    // Presets erase the largest disk: say so before the user builds anything from it.
                     a.show(Page::Disk);
                     if a.st.borrow().model.cfg.disk.auto_largest {
                         dialogs::notice(a.win.upcast_ref(), "This preset erases the largest disk", "A machine that boots an ISO built from it loses its largest disk without being asked. Change the disk choice on the Disk page if that is not what you want.");
@@ -808,6 +796,7 @@ impl App {
         });
     }
 
+    /// Saves to the known path, else asks for one. `true` when the file was written.
     pub async fn save_async(self: &Rc<Self>) -> bool {
         let path = self.st.borrow().model.path.clone();
         let path = match path {
@@ -824,7 +813,8 @@ impl App {
                 None => return false,
             },
         };
-        match self.st.borrow_mut().model.save(&path) {
+        let r = self.st.borrow_mut().model.save(&path);
+        match r {
             Ok(()) => {
                 self.set_status(format!("Saved {}", path.display()));
                 self.refresh_chrome();
@@ -847,7 +837,7 @@ impl App {
     pub fn save_as(self: &Rc<Self>) {
         let a = self.clone();
         glib::spawn_future_local(async move {
-            let Some(path) = dialogs::save_file(
+            let Some(p) = dialogs::save_file(
                 a.win.upcast_ref(),
                 "Save the config as",
                 "archstaller.toml",
@@ -857,89 +847,113 @@ impl App {
             else {
                 return;
             };
-            match a.st.borrow_mut().model.save(&path) {
-                Ok(()) => {
-                    a.set_status(format!("Saved {}", path.display()));
-                    a.refresh_chrome();
-                }
+            let r = a.st.borrow_mut().model.save(&p);
+            match r {
+                Ok(()) => a.set_status(format!("Saved {}", p.display())),
                 Err(e) => a.set_status(e),
             }
+            a.refresh_chrome();
         });
     }
 
-    pub fn copy_text(&self, text: &str, label: &str) {
-        if let Some(display) = gtk::gdk::Display::default() {
-            display.clipboard().set_text(text);
-            self.set_status(format!("Copied {label} to clipboard"));
-        }
+    pub fn copy_text(&self, text: &str, what: &str) {
+        self.win.clipboard().set_text(text);
+        self.set_status(format!("{what} copied to the clipboard"));
     }
+
+    // ------------------------------------------------------------------ actions
 
     fn install_actions(self: &Rc<Self>, gapp: &gtk::Application) {
-        let act = |name: &str, f: Rc<dyn Fn()>| {
-            let a = gio::SimpleAction::new(name, None);
-            a.connect_activate(move |_, _| f());
-            a
+        let simple = |name: &str, a: &Rc<App>, f: fn(&Rc<App>)| {
+            let act = gio::SimpleAction::new(name, None);
+            let a = a.clone();
+            act.connect_activate(move |_, _| f(&a));
+            self.win.add_action(&act);
         };
-        let a = self.clone();
-        self.win
-            .add_action(&act("new", Rc::new(move || a.new_doc())));
-        let a = self.clone();
-        self.win
-            .add_action(&act("open", Rc::new(move || a.open_doc())));
-        let a = self.clone();
-        self.win.add_action(&act("save", Rc::new(move || a.save())));
-        let a = self.clone();
-        self.win
-            .add_action(&act("save-as", Rc::new(move || a.save_as())));
-        let a = self.clone();
-        self.win
-            .add_action(&act("launcher", Rc::new(move || crate::launcher::open(&a))));
-        let a = self.clone();
-        self.win.add_action(&act(
-            "copy-toml",
-            Rc::new(move || {
-                let t = a.st.borrow().model.toml();
-                a.copy_text(&t, "TOML");
-            }),
-        ));
-        let a = self.clone();
-        self.win.add_action(&act(
-            "copy-sha",
-            Rc::new(move || {
-                let sha = a.st.borrow().build.iso.as_ref().map(|i| i.2.clone());
-                match sha {
-                    Some(s) => a.copy_text(&s, "SHA-256"),
-                    None => a.set_status("no ISO built yet"),
-                }
-            }),
-        ));
-        let a = self.clone();
-        let preset_action =
-            gio::SimpleAction::new("preset", Some(glib::VariantTy::STRING));
-        preset_action.connect_activate(move |_, var| {
-            if let Some(s) = var.and_then(|v| v.str()) {
-                a.preset_doc(s.to_string());
+        simple("new", self, |a| a.new_doc());
+        simple("open", self, |a| a.open_doc());
+        simple("save", self, |a| a.save());
+        simple("save-as", self, |a| a.save_as());
+        simple("copy-toml", self, |a| {
+            let t = a.st.borrow().model.toml();
+            a.copy_text(&t, "TOML");
+        });
+        simple("copy-sha", self, |a| {
+            let sha = a.st.borrow().build.iso.as_ref().map(|i| i.2.clone());
+            match sha {
+                Some(s) => a.copy_text(&s, "SHA-256"),
+                None => a.set_status("no ISO built yet"),
             }
         });
-        self.win.add_action(&preset_action);
-
-        gapp.set_accels_for_action("win.new", &["<Control>n"]);
-        gapp.set_accels_for_action("win.open", &["<Control>o"]);
-        gapp.set_accels_for_action("win.save", &["<Control>s"]);
-        gapp.set_accels_for_action("win.save-as", &["<Control><Shift>s"]);
-        gapp.set_accels_for_action("win.launcher", &["<Control>k"]);
+        simple("launcher", self, crate::launcher::open);
+        simple("build-iso", self, |a| {
+            a.show(Page::Iso);
+            pages::iso::start_from_action(a);
+        });
+        let preset = gio::SimpleAction::new("preset", Some(glib::VariantTy::STRING));
+        {
+            let a = self.clone();
+            preset.connect_activate(move |_, v| {
+                if let Some(name) = v.and_then(|v| v.get::<String>()) {
+                    a.preset_doc(name);
+                }
+            });
+        }
+        self.win.add_action(&preset);
+        let goto = gio::SimpleAction::new("goto", Some(glib::VariantTy::STRING));
+        {
+            let a = self.clone();
+            goto.connect_activate(move |_, v| {
+                if let Some(id) = v.and_then(|v| v.get::<String>()) {
+                    if let Some((page, ..)) = ALL_PAGES.iter().find(|p| p.1 == id) {
+                        a.show(*page);
+                    }
+                }
+            });
+        }
+        self.win.add_action(&goto);
+        gapp.set_accels_for_action("win.new", &["<Primary>n"]);
+        gapp.set_accels_for_action("win.open", &["<Primary>o"]);
+        gapp.set_accels_for_action("win.save", &["<Primary>s"]);
+        gapp.set_accels_for_action("win.save-as", &["<Primary><Shift>s"]);
+        gapp.set_accels_for_action("win.launcher", &["<Primary>k"]);
+        // "/" opens the launcher too, but only when no text field has the focus.
+        let key = gtk::EventControllerKey::new();
+        key.set_propagation_phase(gtk::PropagationPhase::Capture);
+        {
+            let a = self.clone();
+            key.connect_key_pressed(move |_, k, _, mods| {
+                if k == gtk::gdk::Key::slash && mods.is_empty() {
+                    let typing = gtk::prelude::GtkWindowExt::focus(&a.win).is_some_and(|f| {
+                        f.is::<gtk::Editable>()
+                            || f.is::<gtk::TextView>()
+                            || f.ancestor(gtk::TextView::static_type()).is_some()
+                            || f.ancestor(gtk::Text::static_type()).is_some()
+                    });
+                    if !typing {
+                        crate::launcher::open(&a);
+                        return glib::Propagation::Stop;
+                    }
+                }
+                glib::Propagation::Proceed
+            });
+        }
+        self.win.add_controller(key);
     }
 
-    pub fn tick(self: &Rc<Self>) {
+    // ------------------------------------------------------------------ background work
+
+    fn tick(self: &Rc<Self>) {
         let mut changed = false;
+        // An import wrote `packages`: the list editor shows the old text until its page is rebuilt.
         let mut rebuild_packages = false;
         {
             let mut st = self.st.borrow_mut();
             if let Some(rx) = &st.resolve_rx {
                 match rx.try_recv() {
                     Ok(r) => {
-                        st.resolve_rx = None;
                         st.resolve = Some(r);
+                        st.resolve_rx = None;
                         changed = true;
                     }
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -959,6 +973,7 @@ impl App {
             changed |= polled.changed;
             let was_busy = st.aur.busy();
             if let Some(p) = st.aur.poll() {
+                // Pinned: the search that led here is done with.
                 st.aur.results = None;
                 st.aur.search.clear();
                 st.aur_focus_search = true;
@@ -969,6 +984,7 @@ impl App {
             if was_busy && !st.aur.busy() {
                 changed = true;
             }
+            // A search for an exact package name goes straight to that package's review.
             if st.aur_auto_review && st.aur.search_rx.is_none() {
                 st.aur_auto_review = false;
                 let term = st.aur.search.trim().to_lowercase();
@@ -1001,6 +1017,7 @@ impl App {
                 f();
             }
         }
+        // Keep the live ISO page current while it is visible (progress bars, volume list).
         if self.current() == Page::Iso {
             pages::iso::live_refresh(self);
         }
@@ -1008,22 +1025,5 @@ impl App {
 
     pub fn window(&self) -> gtk::Window {
         self.win.clone().upcast()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn area_maps_to_5_config_pages() {
-        assert_eq!(page_of(Area::System), Page::System);
-        assert_eq!(page_of(Area::Scripts), Page::System);
-        assert_eq!(page_of(Area::Services), Page::System);
-        assert_eq!(page_of(Area::Other), Page::System);
-        assert_eq!(page_of(Area::Disk), Page::Disk);
-        assert_eq!(page_of(Area::Packages), Page::Packages);
-        assert_eq!(page_of(Area::Users), Page::Users);
-        assert_eq!(page_of(Area::Build), Page::Build);
     }
 }

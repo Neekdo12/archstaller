@@ -1,4 +1,4 @@
-use crate::app::App;
+use crate::app::{App, Page};
 use crate::dialogs;
 use crate::ui;
 use gtk::glib;
@@ -7,9 +7,13 @@ use std::rc::Rc;
 
 pub fn build(app: &Rc<App>, content: &gtk::Box) {
     let cfg = app.st.borrow().model.cfg.clone();
-    ui::heading(content, "Disk & Boot", "Target disk selection, bootloader setup, and filesystem formatting.");
+    ui::heading(
+        content,
+        "Disk & bootloader",
+        "Target disk selection, bootloader installation, and filesystem layout.",
+    );
 
-    // 1. Bootloader
+    // 1. Bootloader Card (at the top of the Disk page)
     let c = ui::card(content, Some("Bootloader"));
     ui::hint(
         &c,
@@ -23,10 +27,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     let mut group_leader: Option<gtk::CheckButton> = None;
     for (id, desc) in loaders {
         let b = if let Some(ref leader) = group_leader {
-            gtk::CheckButton::builder()
-                .label(desc)
-                .group(leader)
-                .build()
+            gtk::CheckButton::builder().label(desc).group(leader).build()
         } else {
             let leader = gtk::CheckButton::builder().label(desc).build();
             group_leader = Some(leader.clone());
@@ -52,46 +53,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         c.append(&b);
     }
 
-    // 2. Filesystem
-    let c = ui::card(content, Some("Filesystem"));
-    ui::hint(
-        &c,
-        "Root filesystem formatting type.",
-    );
-    let fs_types = [
-        (config::FsType::Ext4, "ext4 (classic, robust standard)"),
-        (config::FsType::Btrfs, "btrfs (copy-on-write, subvolumes & snapshots)"),
-        (config::FsType::Xfs, "xfs (high performance, enterprise scalability)"),
-        (config::FsType::F2fs, "f2fs (optimized for flash/NVMe storage)"),
-    ];
-    let mut fs_group_leader: Option<gtk::CheckButton> = None;
-    for (fs, desc) in fs_types {
-        let b = if let Some(ref leader) = fs_group_leader {
-            gtk::CheckButton::builder()
-                .label(desc)
-                .group(leader)
-                .build()
-        } else {
-            let leader = gtk::CheckButton::builder().label(desc).build();
-            fs_group_leader = Some(leader.clone());
-            leader
-        };
-        b.set_active(cfg.disk.filesystem == fs);
-        let a = app.clone();
-        b.connect_toggled(move |btn| {
-            if btn.is_active() {
-                a.edit(move |m| {
-                    m.cfg.disk.filesystem = fs;
-                    if fs == config::FsType::Btrfs && m.cfg.disk.btrfs.is_none() {
-                        m.cfg.disk.btrfs = Some(config::BtrfsConfig::default());
-                    }
-                });
-            }
-        });
-        c.append(&b);
-    }
-
-    // 3. Target disk
+    // 2. Which disk / Target disk selection
     let c = ui::card(content, Some("Which disk"));
     let warn = ui::hint(
         &c,
@@ -110,12 +72,16 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         auto.connect_toggled(move |btn| {
             let on = btn.is_active();
             if on && !a.st.borrow().model.cfg.disk.auto_largest {
-                // Irreversible for every machine that boots the ISO: ask first, and undo the toggle on "no".
                 let a2 = a.clone();
                 let btn = btn.clone();
                 let (warn, selectors) = (warn.clone(), selectors.clone());
                 glib::spawn_future_local(async move {
-                    let ok = dialogs::confirm(a2.win.upcast_ref(), "Erase the largest disk without asking?", "With this option the installer wipes and installs onto the largest disk of whatever machine boots this ISO, with no confirmation. Use it only for machines you intend to erase.", "Yes, erase").await;
+                    let ok = dialogs::confirm(
+                        a2.win.upcast_ref(),
+                        "Erase the largest disk without asking?",
+                        "With this option the installer wipes and installs onto the largest disk of whatever machine boots this ISO, with no confirmation. Use it only for machines you intend to erase.",
+                        "Yes, erase",
+                    ).await;
                     if ok {
                         a2.edit(|m| m.cfg.disk.auto_largest = true);
                         warn.set_visible(true);
@@ -169,8 +135,8 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     model_row.append(&model_entry);
     ui::row(&selectors, "Model", &model_row);
 
-    // 4. Layout
-    let c = ui::card(content, Some("Layout"));
+    // 3. Layout and Filesystem
+    let c = ui::card(content, Some("Filesystem & Partition Layout"));
     let a = app.clone();
     let sp = ui::spin(cfg.disk.esp_mib, 64, 8192, move |v| {
         a.edit(move |m| m.cfg.disk.esp_mib = v)
@@ -183,4 +149,124 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
         &c,
         "The FAT32 boot partition, mounted at /boot. The rest of the disk is the root file system.",
     );
+
+    // Filesystem type selection
+    let fs_box = ui::hbox(12);
+    let filesystems = [
+        (config::FsType::Ext4, "ext4"),
+        (config::FsType::Btrfs, "btrfs"),
+        (config::FsType::Xfs, "xfs"),
+        (config::FsType::F2fs, "f2fs"),
+    ];
+    let mut fs_leader: Option<gtk::CheckButton> = None;
+    for (fs_type, label) in filesystems {
+        let b = if let Some(ref leader) = fs_leader {
+            gtk::CheckButton::builder().label(label).group(leader).build()
+        } else {
+            let leader = gtk::CheckButton::builder().label(label).build();
+            fs_leader = Some(leader.clone());
+            leader
+        };
+        b.set_active(cfg.disk.filesystem == fs_type);
+        let a = app.clone();
+        b.connect_toggled(move |btn| {
+            if btn.is_active() {
+                a.edit(move |m| {
+                    m.cfg.disk.filesystem = fs_type;
+                    if fs_type == config::FsType::Btrfs && m.cfg.disk.btrfs.is_none() {
+                        m.cfg.disk.btrfs = Some(config::BtrfsConfig::default());
+                    }
+                });
+                a.rebuild(Page::Disk);
+            }
+        });
+        fs_box.append(&b);
+    }
+    ui::row(&c, "Root filesystem", &fs_box);
+
+    // Btrfs options (subvolumes and compression)
+    if cfg.disk.filesystem == config::FsType::Btrfs {
+        let btrfs_box = ui::vbox(8);
+        btrfs_box.set_margin_top(8);
+
+        let btrfs_cfg = cfg.disk.btrfs.clone().unwrap_or_default();
+        let a = app.clone();
+        ui::row(
+            &btrfs_box,
+            "Compression",
+            &ui::entry(&btrfs_cfg.compress, move |val| {
+                let v = val.trim().to_string();
+                a.edit(move |m| {
+                    if let Some(b) = &mut m.cfg.disk.btrfs {
+                        b.compress = v;
+                    }
+                });
+            }),
+        );
+
+        btrfs_box.append(&ui::strong("Btrfs Subvolumes"));
+        for (idx, subvol) in btrfs_cfg.subvolumes.iter().enumerate() {
+            let row = ui::hbox(8);
+            row.append(&ui::chip(&subvol.name, "chip-accent"));
+            row.append(&ui::dim("mounted at"));
+            let m_lbl = ui::strong(&subvol.mount);
+            m_lbl.set_hexpand(true);
+            row.append(&m_lbl);
+
+            let a = app.clone();
+            row.append(&ui::button("Remove", move || {
+                a.edit(move |m| {
+                    if let Some(b) = &mut m.cfg.disk.btrfs {
+                        if idx < b.subvolumes.len() {
+                            b.subvolumes.remove(idx);
+                        }
+                    }
+                });
+                a.rebuild(Page::Disk);
+            }));
+            btrfs_box.append(&row);
+        }
+
+        // Add subvolume row
+        let add_row = ui::hbox(8);
+        let name_entry = ui::entry("", |_| {});
+        name_entry.set_placeholder_text(Some("Subvolume name (e.g. @data)"));
+        let mount_entry = ui::entry("", |_| {});
+        mount_entry.set_placeholder_text(Some("Mount path (e.g. /data)"));
+
+        let a = app.clone();
+        let ne = name_entry.clone();
+        let me = mount_entry.clone();
+        let add_btn = ui::button("Add subvolume", move || {
+            let name = ne.text().trim().to_string();
+            let mount = me.text().trim().to_string();
+            if !name.is_empty() && !mount.is_empty() {
+                a.edit(move |m| {
+                    let b = m.cfg.disk.btrfs.get_or_insert_with(config::BtrfsConfig::default);
+                    b.subvolumes.push(config::BtrfsSubvol {
+                        name,
+                        mount,
+                    });
+                });
+                a.rebuild(Page::Disk);
+            }
+        });
+        add_row.append(&name_entry);
+        add_row.append(&mount_entry);
+        add_row.append(&add_btn);
+        btrfs_box.append(&add_row);
+
+        let a = app.clone();
+        let reset_btn = ui::button("Reset to default subvolumes (@, @home, @snapshots, @var_log)", move || {
+            a.edit(|m| {
+                if let Some(b) = &mut m.cfg.disk.btrfs {
+                    b.subvolumes = config::default_btrfs_subvolumes();
+                }
+            });
+            a.rebuild(Page::Disk);
+        });
+        btrfs_box.append(&reset_btn);
+
+        c.append(&btrfs_box);
+    }
 }

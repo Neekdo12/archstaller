@@ -19,7 +19,7 @@ struct OfficialParts {
 
 pub fn build(app: &Rc<App>, content: &gtk::Box) {
     let cfg = app.st.borrow().model.cfg.clone();
-    ui::heading(content, "Mirrors & packages", "Where packages come from and which ones to install (official core and extra, plus pinned AUR packages).");
+    ui::heading(content, "Packages", "Where packages come from and which ones to install (official core and extra, plus pinned AUR packages).");
 
     let parts = OfficialParts {
         status: ui::vbox(6),
@@ -42,112 +42,109 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
 
     search_card(app, content, &parts);
 
-    let c = ui::card(content, Some("Packages"));
+    let c = ui::card(content, Some("Configured Packages"));
+    let count_text = format!("{} packages configured", cfg.packages.len());
+    ui::hint(&c, &format!("{count_text}. Names are suggestions: the resolver decides."));
 
-    // Quick add entry
+    // Add package entry row
     let add_row = ui::hbox(8);
     let add_entry = ui::entry("", |_| {});
+    add_entry.set_placeholder_text(Some("Add package name (e.g. firefox, neovim)"));
     add_entry.set_hexpand(true);
-    add_entry.set_placeholder_text(Some("Package or group name to add…"));
     let add_btn = ui::button("Add", || {});
-    add_btn.set_sensitive(false);
     {
-        let b = add_btn.clone();
-        add_entry.connect_changed(move |e| b.set_sensitive(!e.text().trim().is_empty()));
-    }
-    {
-        let a = app.clone();
-        let e = add_entry.clone();
-        let add_fn = move || {
-            let pkg = e.text().trim().to_string();
+        let (a, ae) = (app.clone(), add_entry.clone());
+        let add_fn = Rc::new(move || {
+            let pkg = ae.text().trim().to_string();
             if !pkg.is_empty() {
                 a.edit(|m| {
                     if !m.cfg.packages.contains(&pkg) {
-                        m.cfg.packages.push(pkg.clone());
+                        m.cfg.packages.push(pkg);
                     }
                 });
-                e.set_text("");
-                a.rebuild_all();
+                ae.set_text("");
+                a.rebuild_keep_scroll(Page::Packages);
             }
-        };
-        add_btn.connect_clicked({
-            let add_fn = add_fn.clone();
-            move |_| add_fn()
         });
+        let a1 = add_fn.clone();
+        add_btn.connect_clicked(move |_| a1());
         add_entry.connect_activate(move |_| add_fn());
     }
     add_row.append(&add_entry);
     add_row.append(&add_btn);
     c.append(&add_row);
 
-    // Search filter entry
-    let search_filter = gtk::SearchEntry::builder()
+    // Search / filter entry
+    let search_entry = gtk::SearchEntry::builder()
         .placeholder_text("Filter configured packages…")
         .build();
-    c.append(&search_filter);
+    c.append(&search_entry);
 
-    // Scrollable list box
+    // Compact scrollable list box for packages
     let list_box = gtk::ListBox::builder()
         .selection_mode(gtk::SelectionMode::None)
         .css_classes(["boxed-list"])
         .build();
 
-    for (i, pkg) in cfg.packages.iter().enumerate() {
-        let row = ui::hbox(8);
-        let name_lbl = ui::strong(pkg);
-        name_lbl.set_hexpand(true);
-        row.append(&name_lbl);
+    for (idx, pkg) in cfg.packages.iter().enumerate() {
+        let row = gtk::ListBoxRow::new();
+        let box_row = ui::hbox(8);
+        box_row.set_margin_top(4);
+        box_row.set_margin_bottom(4);
+        box_row.set_margin_start(8);
+        box_row.set_margin_end(8);
+
+        let lbl = ui::strong(pkg);
+        lbl.set_hexpand(true);
+        box_row.append(&lbl);
+
         let a = app.clone();
-        let remove_btn = ui::button("Remove", move || {
+        box_row.append(&ui::button("Remove", move || {
             a.edit(move |m| {
-                if i < m.cfg.packages.len() {
-                    m.cfg.packages.remove(i);
+                if idx < m.cfg.packages.len() {
+                    m.cfg.packages.remove(idx);
                 }
             });
-            a.rebuild_all();
-        });
-        row.append(&remove_btn);
-        let list_row = gtk::ListBoxRow::builder().child(&row).build();
-        list_box.append(&list_row);
+            a.rebuild_keep_scroll(Page::Packages);
+        }));
+        row.set_child(Some(&box_row));
+        list_box.append(&row);
     }
 
-    list_box.set_filter_func({
-        let search_filter = search_filter.clone();
-        let packages = cfg.packages.clone();
-        move |row| {
-            let text = search_filter.text().trim().to_lowercase();
-            if text.is_empty() {
+    let filter_text = Rc::new(std::cell::RefCell::new(String::new()));
+    {
+        let ft = filter_text.clone();
+        list_box.set_filter_func(move |row| {
+            let query = ft.borrow().trim().to_lowercase();
+            if query.is_empty() {
                 return true;
             }
-            let idx = match usize::try_from(row.index()) {
-                Ok(i) => i,
-                Err(_) => return true,
-            };
-            if let Some(pkg) = packages.get(idx) {
-                pkg.to_lowercase().contains(&text)
-            } else {
-                true
+            if let Some(box_row) = row.child().and_downcast::<gtk::Box>() {
+                if let Some(lbl) = box_row.first_child().and_downcast::<gtk::Label>() {
+                    return lbl.text().to_lowercase().contains(&query);
+                }
             }
-        }
-    });
-    search_filter.connect_search_changed({
-        let list_box = list_box.clone();
-        move |_| list_box.invalidate_filter()
-    });
+            true
+        });
+    }
+    {
+        let ft = filter_text.clone();
+        let lb = list_box.clone();
+        search_entry.connect_search_changed(move |e| {
+            *ft.borrow_mut() = e.text().to_string();
+            lb.invalidate_filter();
+        });
+    }
 
-    let scroller = gtk::ScrolledWindow::builder()
+    let scroll = gtk::ScrolledWindow::builder()
         .min_content_height(160)
-        .max_content_height(300)
-        .propagate_natural_height(true)
+        .max_content_height(240)
+        .has_frame(true)
         .child(&list_box)
         .build();
-    c.append(&scroller);
+    c.append(&scroll);
 
     c.append(&parts.total);
-    ui::hint(
-        &c,
-        "Package names are suggestions: the resolver decides.",
-    );
     c.append(&parts.import);
 
     // Everything below changes while background work runs, so it is rebuilt on its own.
@@ -324,15 +321,16 @@ fn render_results(app: &Rc<App>, p: &OfficialParts) {
         if packages.contains(&c.name) {
             top.append(&ui::dim("already added"));
         } else {
-            let (a, name) = (app.clone(), c.name.clone());
+            let (a, parts, name) = (app.clone(), p.clone(), c.name.clone());
             top.append(&ui::button("Add", move || {
                 a.edit(|m| {
-                    if !m.cfg.packages.contains(&name) {
+                    if !m.cfg.packages.iter().any(|p| p == &name) {
                         m.cfg.packages.push(name.clone());
                     }
                 });
                 a.set_status(format!("Added {name}"));
-                a.rebuild_all();
+                a.rebuild_keep_scroll(Page::Packages);
+                render_results(&a, &parts);
             }));
         }
         row.append(&top);
@@ -609,60 +607,126 @@ fn resolution_card(app: &Rc<App>, d: &gtk::Box) {
 
 fn aur_card(app: &Rc<App>, d: &gtk::Box) {
     let c = ui::card(d, Some("AUR packages"));
-    ui::hint(&c, "Type a package name or autoload from system. It is built on the installed machine, at its second boot, from the recipe you review. Not signed by Arch.");
+    ui::hint(&c, "Type a package name or import from system. It is built on the installed machine, at its second boot, from the recipe you review. Not signed by Arch.");
 
-    // Pinned packages: one compact row each.
+    // Pinned packages: compact scrollable searchable list.
     let pinned = app.st.borrow().model.cfg.aur.clone();
     let units = app.st.borrow().lists.services.clone();
-    for (i, p) in pinned.iter().enumerate() {
-        let r = ui::hbox(8);
-        let name_lbl = ui::strong(&p.name);
-        name_lbl.set_ellipsize(gtk::pango::EllipsizeMode::End);
-        name_lbl.set_tooltip_text(Some(&p.name));
-        r.append(&name_lbl);
-        r.append(&ui::dim(&format!(
-            "@ {}",
-            p.commit.get(..p.commit.len().min(8)).unwrap_or(&p.commit)
-        )));
-        if p.as_dep {
-            r.append(&ui::chip("dependency", "chip-accent"));
-        }
-        if p.vcs {
-            r.append(&ui::chip("VCS, not pinned", "chip-warn"));
-        }
-        let a = app.clone();
-        let units_entry = ui::suggest(&p.services.join(", "), units.clone(), true, move |t| {
-            let v: Vec<String> = t
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            a.edit(move |m| {
-                if let Some(x) = m.cfg.aur.get_mut(i) {
-                    x.services = v;
-                }
+
+    if pinned.is_empty() {
+        ui::hint(&c, "No AUR packages pinned yet. Search below or import from system.");
+    } else {
+        let count_lbl = ui::dim(&format!("{} AUR package(s) pinned.", pinned.len()));
+        c.append(&count_lbl);
+
+        let search_entry = gtk::SearchEntry::builder()
+            .placeholder_text("Filter pinned AUR packages…")
+            .build();
+        c.append(&search_entry);
+
+        let list_box = gtk::ListBox::builder()
+            .selection_mode(gtk::SelectionMode::None)
+            .css_classes(["boxed-list"])
+            .build();
+
+        for (i, p) in pinned.iter().enumerate() {
+            let row = gtk::ListBoxRow::new();
+            let r = ui::hbox(8);
+            r.set_margin_top(4);
+            r.set_margin_bottom(4);
+            r.set_margin_start(8);
+            r.set_margin_end(8);
+
+            let name_lbl = ui::strong(&p.name);
+            name_lbl.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            name_lbl.set_tooltip_text(Some(&p.name));
+            r.append(&name_lbl);
+            r.append(&ui::dim(&format!(
+                "@ {}",
+                p.commit.get(..p.commit.len().min(8)).unwrap_or(&p.commit)
+            )));
+            if p.as_dep {
+                r.append(&ui::chip("dependency", "chip-accent"));
+            }
+            if p.vcs {
+                r.append(&ui::chip("VCS, not pinned", "chip-warn"));
+            }
+            let a = app.clone();
+            let units_entry = ui::suggest(&p.services.join(", "), units.clone(), true, move |t| {
+                let v: Vec<String> = t
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                a.edit(move |m| {
+                    if let Some(x) = m.cfg.aur.get_mut(i) {
+                        x.services = v;
+                    }
+                });
             });
-        });
-        units_entry.set_width_chars(10);
-        units_entry.set_placeholder_text(Some("units to enable"));
-        units_entry.set_tooltip_text(Some(
-            "systemd units to enable once this package is installed, comma separated",
-        ));
-        r.append(&units_entry);
-        let a = app.clone();
-        r.append(&ui::button("Remove", move || {
-            {
-                let mut st = a.st.borrow_mut();
-                if i < st.model.cfg.aur.len() {
+            units_entry.set_width_chars(10);
+            units_entry.set_placeholder_text(Some("units to enable"));
+            units_entry.set_tooltip_text(Some(
+                "systemd units to enable once this package is installed, comma separated",
+            ));
+            r.append(&units_entry);
+            let a = app.clone();
+            r.append(&ui::button("Remove", move || {
+                {
+                    let mut st = a.st.borrow_mut();
                     let gone = st.model.cfg.aur.remove(i);
                     st.model.dirty = true;
                     st.aur.message = Some(Ok(format!("Removed {}. Its AUR dependencies stay pinned; remove them too if nothing else needs them.", gone.name)));
                 }
-            }
-            a.refresh_chrome();
-            a.refresh_page(Page::Packages);
-        }));
-        c.append(&r);
+                a.refresh_chrome();
+                a.refresh_page(Page::Packages);
+            }));
+
+            row.set_child(Some(&r));
+            list_box.append(&row);
+        }
+
+        let filter_text = Rc::new(std::cell::RefCell::new(String::new()));
+        {
+            let ft = filter_text.clone();
+            list_box.set_filter_func(move |row| {
+                let query = ft.borrow().trim().to_lowercase();
+                if query.is_empty() {
+                    return true;
+                }
+                if let Some(box_row) = row.child().and_downcast::<gtk::Box>() {
+                    let mut found = false;
+                    let mut child = box_row.first_child();
+                    while let Some(w) = child {
+                        if let Some(lbl) = w.downcast_ref::<gtk::Label>() {
+                            if lbl.text().to_lowercase().contains(&query) {
+                                found = true;
+                                break;
+                            }
+                        }
+                        child = w.next_sibling();
+                    }
+                    return found;
+                }
+                true
+            });
+        }
+        {
+            let ft = filter_text.clone();
+            let lb = list_box.clone();
+            search_entry.connect_search_changed(move |e| {
+                *ft.borrow_mut() = e.text().to_string();
+                lb.invalidate_filter();
+            });
+        }
+
+        let scroll = gtk::ScrolledWindow::builder()
+            .min_content_height(140)
+            .max_content_height(240)
+            .has_frame(true)
+            .child(&list_box)
+            .build();
+        c.append(&scroll);
     }
 
     // Search: one row, with the busy state beside it.
@@ -712,7 +776,7 @@ fn aur_card(app: &Rc<App>, d: &gtk::Box) {
     sr.append(&entry);
     sr.append(&go);
     let a = app.clone();
-    let autoload_btn = ui::button("Autoload from system", move || {
+    let autoload_btn = ui::button("Import from system", move || {
         let (mirror, existing) = {
             let st = a.st.borrow();
             (
