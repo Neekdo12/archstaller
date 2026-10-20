@@ -1,6 +1,6 @@
 //! The command launcher (Ctrl+K or "/"): one searchable list of the window's actions and pages.
 //! Every entry runs the same code as its menu item or button, including the confirmations those ask.
-use crate::app::{App, Page, PAGES};
+use crate::app::{App, Page, ALL_PAGES};
 use crate::ui;
 use gtk::glib;
 use gtk::prelude::*;
@@ -59,7 +59,7 @@ fn commands(app: &Rc<App>) -> Vec<Command> {
             }
         }),
     );
-    for (page, _, name, _) in PAGES {
+    for (page, _, name) in ALL_PAGES {
         let (a, page) = (app.clone(), *page);
         add(
             &format!("Go to {name}"),

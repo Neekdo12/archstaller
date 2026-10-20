@@ -15,6 +15,20 @@ pub struct Model {
     pub dirty: bool,
 }
 
+/// The UI pages of the Archstaller app.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Page {
+    System,
+    Disk,
+    Packages,
+    Users,
+    Build,
+    // Action views (opened from header bar)
+    Toml,
+    Iso,
+    Help,
+}
+
 /// What a validation message is about, so the UI can show it next to the right tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Area {
@@ -33,14 +47,27 @@ pub struct Problem {
     pub message: String,
 }
 
+pub fn page_of(area: Area) -> Page {
+    match area {
+        Area::System | Area::Scripts | Area::Services => Page::System,
+        Area::Disk => Page::Disk,
+        Area::Packages => Page::Packages,
+        Area::Users => Page::Users,
+        Area::Build => Page::Build,
+        Area::Other => Page::System,
+    }
+}
+
 pub fn area_of(message: &str) -> Area {
     let m = message;
     if m.starts_with("scripts[") {
         Area::Scripts
     } else if m.starts_with("aur_packages") {
         Area::Packages
-    } else if m.starts_with("installer_drivers") || m.starts_with("build.") {
+    } else if m.starts_with("installer_drivers") || m.starts_with("build.") || m.contains("dry_run") {
         Area::Build
+    } else if m.contains("bootloader") {
+        Area::Disk
     } else if m.contains("hostname")
         || m.contains("timezone")
         || m.contains("locale")
@@ -564,5 +591,28 @@ mod tests {
             Area::Packages
         );
         assert_eq!(area_of("invalid service: x"), Area::Services);
+        assert_eq!(area_of("invalid bootloader: x"), Area::Disk);
+        assert_eq!(area_of("bootloader: unknown choice"), Area::Disk);
+        assert_eq!(area_of("dry_run: testing mode failure"), Area::Build);
+    }
+
+    #[test]
+    fn dry_run_does_not_require_disk_selection() {
+        let mut m = Model::starter();
+        assert_eq!(m.problems().len(), 1);
+        m.cfg.dry_run = true;
+        assert_eq!(m.problems().len(), 0);
+    }
+
+    #[test]
+    fn areas_route_to_the_five_pages() {
+        assert_eq!(page_of(Area::System), Page::System);
+        assert_eq!(page_of(Area::Scripts), Page::System);
+        assert_eq!(page_of(Area::Services), Page::System);
+        assert_eq!(page_of(Area::Disk), Page::Disk);
+        assert_eq!(page_of(Area::Packages), Page::Packages);
+        assert_eq!(page_of(Area::Users), Page::Users);
+        assert_eq!(page_of(Area::Build), Page::Build);
+        assert_eq!(page_of(Area::Other), Page::System);
     }
 }

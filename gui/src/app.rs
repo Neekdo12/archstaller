@@ -14,19 +14,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum Page {
-    System,
-    Disk,
-    Packages,
-    Users,
-    Services,
-    Build,
-    Scripts,
-    Toml,
-    Iso,
-    Help,
-}
+pub use crate::model::{page_of, Page};
 
 pub const PAGES: &[(Page, &str, &str, Option<Area>)] = &[
     (Page::System, "system", "System", Some(Area::System)),
@@ -34,21 +22,22 @@ pub const PAGES: &[(Page, &str, &str, Option<Area>)] = &[
     (
         Page::Packages,
         "packages",
-        "Mirrors & packages",
+        "Packages",
         Some(Area::Packages),
     ),
     (Page::Users, "users", "Users", Some(Area::Users)),
-    (
-        Page::Services,
-        "services",
-        "Services & bootloader",
-        Some(Area::Services),
-    ),
     (Page::Build, "build", "Build & drivers", Some(Area::Build)),
-    (Page::Scripts, "scripts", "Scripts", Some(Area::Scripts)),
-    (Page::Toml, "toml", "TOML source", None),
-    (Page::Iso, "iso", "Build ISO", None),
-    (Page::Help, "help", "Help & Reference", None),
+];
+
+pub const ALL_PAGES: &[(Page, &str, &str)] = &[
+    (Page::System, "system", "System"),
+    (Page::Disk, "disk", "Disk"),
+    (Page::Packages, "packages", "Packages"),
+    (Page::Users, "users", "Users"),
+    (Page::Build, "build", "Build & drivers"),
+    (Page::Toml, "toml", "TOML source"),
+    (Page::Iso, "iso", "Build ISO"),
+    (Page::Help, "help", "Help & Reference"),
 ];
 
 #[must_use]
@@ -58,22 +47,11 @@ pub fn icon_of(page: Page) -> &'static str {
         Page::Disk => "drive-harddisk-symbolic",
         Page::Packages => "system-software-install-symbolic",
         Page::Users => "avatar-default-symbolic",
-        Page::Services => "emblem-system-symbolic",
         Page::Build => "applications-engineering-symbolic",
-        Page::Scripts => "text-x-script-symbolic",
         Page::Toml => "text-x-generic-symbolic",
         Page::Iso => "media-optical-symbolic",
         Page::Help => "help-browser-symbolic",
     }
-}
-
-
-pub fn page_of(area: Area) -> Page {
-    PAGES
-        .iter()
-        .find(|p| p.3 == Some(area))
-        .map(|p| p.0)
-        .unwrap_or(Page::Toml)
 }
 
 pub struct App {
@@ -86,11 +64,141 @@ pub struct App {
     status: gtk::Label,
     problem: gtk::Label,
     problem_btn: gtk::Button,
+    toml_btn: gtk::ToggleButton,
     boxes: HashMap<Page, gtk::Box>,
     refreshers: RefCell<HashMap<Page, Rc<dyn Fn()>>>,
     current: Cell<Page>,
+    previous: Cell<Page>,
     /// The live widgets of the Build ISO page (progress, log), while that page exists.
     pub iso_live: RefCell<Option<Rc<pages::iso::Live>>>,
+}
+
+fn open_autoload_dialog(app: &Rc<App>) {
+    let dialog = gtk::Window::builder()
+        .title("Autoload System Configuration")
+        .transient_for(&app.win)
+        .modal(true)
+        .default_width(460)
+        .default_height(380)
+        .resizable(false)
+        .build();
+
+    let root = ui::vbox(12);
+    root.set_margin_top(16);
+    root.set_margin_bottom(16);
+    root.set_margin_start(16);
+    root.set_margin_end(16);
+
+    root.append(&ui::strong("Selective Hardware & System Import"));
+    ui::hint(
+        &root,
+        "Select components from this running computer to import into the configuration:",
+    );
+
+    let chk_id = ui::check("Identity & Localization (hostname, timezone, locale, keymap)", true, |_| {});
+    let chk_users = ui::check("Host Users & Groups (from /etc/passwd and /etc/group)", true, |_| {});
+    let chk_hw = ui::check("Network & Hardware Credentials (Wi-Fi, Bluetooth, SSH host keys, zram)", true, |_| {});
+    let chk_services = ui::check("Enabled Systemd Services (package and custom units)", true, |_| {});
+    let chk_packages = ui::check("Installed Pacman Packages (core and extra)", false, |_| {});
+    let chk_aur = ui::check("Installed AUR Packages (autoload and review)", false, |_| {});
+
+    root.append(&chk_id);
+    root.append(&chk_users);
+    root.append(&chk_hw);
+    root.append(&chk_services);
+    root.append(&chk_packages);
+    root.append(&chk_aur);
+
+    let btn_row = ui::hbox(8);
+    btn_row.set_halign(gtk::Align::End);
+    let cancel = ui::button("Cancel", {
+        let d = dialog.clone();
+        move || d.close()
+    });
+    btn_row.append(&cancel);
+
+    let a = app.clone();
+    let d = dialog.clone();
+    let apply = ui::primary("Apply Selected", move || {
+        let do_id = chk_id.is_active();
+        let do_users = chk_users.is_active();
+        let do_hw = chk_hw.is_active();
+        let do_services = chk_services.is_active();
+        let do_packages = chk_packages.is_active();
+        let do_aur = chk_aur.is_active();
+
+        if do_id {
+            let sys = hostcfg::system::discover_host_system();
+            a.edit(|m| {
+                m.cfg.hostname = sys.hostname;
+                m.cfg.timezone = sys.timezone;
+                m.cfg.locale = sys.locale;
+                m.cfg.keymap = sys.keymap;
+            });
+        }
+        if do_users {
+            let host_users = hostcfg::users::discover_host_users();
+            a.edit(|m| {
+                for u in host_users {
+                    if let Some(existing) = m.cfg.users.iter_mut().find(|e| e.name == u.name) {
+                        existing.groups = u.groups;
+                        existing.shell = u.shell;
+                        if let Some(hash) = u.password_hash {
+                            existing.password_hash = hash;
+                        }
+                    } else if let Some(hash) = u.password_hash {
+                        m.cfg.users.push(config::User {
+                            name: u.name,
+                            password_hash: hash,
+                            groups: u.groups,
+                            shell: u.shell,
+                            dotfiles: None,
+                        });
+                    }
+                }
+            });
+        }
+        if do_services {
+            let discovered = hostcfg::services::discover_local_services();
+            a.edit(|m| {
+                for s in discovered.system_package_services {
+                    if !m.cfg.services.contains(&s) {
+                        m.cfg.services.push(s);
+                    }
+                }
+                for cs in discovered.custom_system_services {
+                    if !m.cfg.custom_services.iter().any(|e| e.name == cs.name && e.user == cs.user) {
+                        m.cfg.custom_services.push(cs);
+                    }
+                }
+            });
+        }
+        if do_packages {
+            a.st.borrow_mut().official.start_import();
+        }
+        if do_aur {
+            let (mirror, existing) = {
+                let st = a.st.borrow();
+                (
+                    st.model.cfg.mirrors.first().cloned().unwrap_or_else(|| "https://geo.mirror.pkgbuild.com/$repo/os/$arch".into()),
+                    st.model.cfg.aur.clone(),
+                )
+            };
+            let cache = dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("archstaller-gui");
+            a.st.borrow_mut().aur.start_autoload(existing, mirror, cache);
+        }
+        if do_hw {
+            crate::pages::users::open_shadow_auth_dialog(&a);
+        }
+        a.set_status("Autoload configuration applied.");
+        a.rebuild_all();
+        d.close();
+    });
+    btn_row.append(&apply);
+    root.append(&btn_row);
+
+    dialog.set_child(Some(&root));
+    dialog.present();
 }
 
 impl App {
@@ -130,6 +238,14 @@ impl App {
         sidebar_toggle
             .update_property(&[gtk::accessible::Property::Label("Show or hide the sidebar")]);
         header.pack_start(&sidebar_toggle);
+
+        let autoload_btn = gtk::Button::builder()
+            .label("Autoload")
+            .icon_name("system-search-symbolic")
+            .tooltip_text("Selective hardware, user, network, and config import from this system")
+            .build();
+        header.pack_start(&autoload_btn);
+
         let menu = gio::Menu::new();
         let file = gio::Menu::new();
         file.append(Some("New"), Some("win.new"));
@@ -157,15 +273,30 @@ impl App {
             .tooltip_text("Menu")
             .build();
         header.pack_end(&menu_btn);
+
+        let help_btn = gtk::Button::builder()
+            .icon_name("help-browser-symbolic")
+            .tooltip_text("Help & Reference")
+            .build();
+        header.pack_end(&help_btn);
+
+        let build_iso_btn = gtk::Button::builder()
+            .label("Build ISO")
+            .icon_name("media-optical-symbolic")
+            .css_classes(["suggested-action"])
+            .tooltip_text("Build bootable ISO and write to media")
+            .build();
+        header.pack_end(&build_iso_btn);
+
+        let toml_btn = gtk::ToggleButton::builder()
+            .label("Edit TOML")
+            .icon_name("document-edit-symbolic")
+            .tooltip_text("Toggle TOML source editor mode")
+            .build();
+        header.pack_end(&toml_btn);
+
         let preset_btn = gtk::MenuButton::builder().label("From preset").menu_model(&presets).sensitive(!preset_list.is_empty()).tooltip_text(if preset_list.is_empty() { "No presets found (install the package, run from a checkout or set ARCHSTALLER_ROOT)" } else { "Start a new, unsaved config from one of the repository's presets" }).build();
         header.pack_end(&preset_btn);
-
-        let reinstall_btn = gtk::Button::builder()
-            .label("Reinstall This Computer")
-            .icon_name("system-reboot-symbolic")
-            .tooltip_text("Quickly import this system's users, passwords, Wi-Fi profiles, and packages to create a reinstall configuration")
-            .build();
-        header.pack_start(&reinstall_btn);
 
         win.set_titlebar(Some(&header));
 
@@ -207,19 +338,6 @@ impl App {
                 f.insert(gtk::pango::AttrFontDesc::new(&gtk::pango::FontDescription::from_string("bold 8")));
                 header.set_attributes(Some(&f));
                 row.set_header(Some(&header));
-            } else if row.index() == 7 {
-                let header = gtk::Label::builder()
-                    .label("OUTPUT & TOOLS")
-                    .xalign(0.0)
-                    .css_classes(["dim-label"])
-                    .margin_top(16)
-                    .margin_bottom(4)
-                    .margin_start(10)
-                    .build();
-                let f = header.attributes().unwrap_or_default();
-                f.insert(gtk::pango::AttrFontDesc::new(&gtk::pango::FontDescription::from_string("bold 8")));
-                header.set_attributes(Some(&f));
-                row.set_header(Some(&header));
             } else {
                 row.set_header(None::<&gtk::Widget>);
             }
@@ -241,7 +359,7 @@ impl App {
             .transition_type(gtk::StackTransitionType::None)
             .build();
         let mut boxes = HashMap::new();
-        for (page, id, _, _) in PAGES {
+        for (page, id, _) in ALL_PAGES {
             let (scroll, content) = ui::page_shell();
             stack.add_named(&scroll, Some(id));
             boxes.insert(*page, content);
@@ -292,9 +410,11 @@ impl App {
             status,
             problem,
             problem_btn,
+            toml_btn: toml_btn.clone(),
             boxes,
             refreshers: RefCell::new(HashMap::new()),
             current: Cell::new(Page::System),
+            previous: Cell::new(Page::System),
             iso_live: RefCell::new(None),
         });
         {
@@ -342,8 +462,44 @@ impl App {
         }
         {
             let a = app.clone();
-            reinstall_btn.connect_clicked(move |_| {
-                a.preset_doc("reinstall".into());
+            autoload_btn.connect_clicked(move |_| {
+                open_autoload_dialog(&a);
+            });
+        }
+        {
+            let a = app.clone();
+            help_btn.connect_clicked(move |_| {
+                a.show(Page::Help);
+            });
+        }
+        {
+            let a = app.clone();
+            build_iso_btn.connect_clicked(move |_| {
+                a.show(Page::Iso);
+            });
+        }
+        {
+            let a = app.clone();
+            toml_btn.connect_toggled(move |btn| {
+                let active = btn.is_active();
+                if active && a.current() != Page::Toml {
+                    a.show(Page::Toml);
+                } else if !active && a.current() == Page::Toml {
+                    if a.st.borrow().model.raw.is_some() {
+                        match a.st.borrow_mut().model.leave_source() {
+                            Ok(()) => {
+                                a.rebuild_all();
+                                a.show(a.previous.get());
+                            }
+                            Err(e) => {
+                                a.set_status(format!("Cannot return to forms: {e}"));
+                                btn.set_active(true);
+                            }
+                        }
+                    } else {
+                        a.show(a.previous.get());
+                    }
+                }
             });
         }
         app.install_actions(gapp);
@@ -390,17 +546,23 @@ impl App {
                 self.nav.select_row(Some(&row));
                 return;
             }
+        } else {
+            self.nav.select_row(None::<&gtk::ListBoxRow>);
         }
         self.show_no_select(page);
     }
 
     fn show_no_select(self: &Rc<Self>, page: Page) {
+        if PAGES.iter().any(|p| p.0 == page) {
+            self.previous.set(page);
+        }
         self.current.set(page);
+        self.toml_btn.set_active(page == Page::Toml);
         // The read-only source view shows what the forms say now.
         if page == Page::Toml && self.st.borrow().model.raw.is_none() {
             self.rebuild(Page::Toml);
         }
-        if let Some((_, id, ..)) = PAGES.iter().find(|p| p.0 == page) {
+        if let Some((_, id, ..)) = ALL_PAGES.iter().find(|p| p.0 == page) {
             self.stack.set_visible_child_name(id);
         }
         if page == Page::Iso {
@@ -445,7 +607,7 @@ impl App {
         if raw && !matches!(page, Page::Toml | Page::Iso | Page::Help) {
             ui::heading(
                 content,
-                PAGES
+                ALL_PAGES
                     .iter()
                     .find(|p| p.0 == page)
                     .map(|p| p.2)
@@ -470,9 +632,7 @@ impl App {
             Page::Disk => pages::disk::build(self, content),
             Page::Packages => pages::packages::build(self, content),
             Page::Users => pages::users::build(self, content),
-            Page::Services => pages::services::build(self, content),
             Page::Build => pages::build_page::build(self, content),
-            Page::Scripts => pages::scripts::build(self, content),
             Page::Toml => pages::toml::build(self, content),
             Page::Iso => pages::iso::build(self, content),
             Page::Help => pages::help::build(self, content),
@@ -488,7 +648,7 @@ impl App {
     }
 
     pub fn rebuild_all(self: &Rc<Self>) {
-        for (page, ..) in PAGES {
+        for (page, ..) in ALL_PAGES {
             self.rebuild(*page);
         }
         self.refresh_chrome();
@@ -745,7 +905,7 @@ impl App {
             let a = self.clone();
             goto.connect_activate(move |_, v| {
                 if let Some(id) = v.and_then(|v| v.get::<String>()) {
-                    if let Some((page, ..)) = PAGES.iter().find(|p| p.1 == id) {
+                    if let Some((page, ..)) = ALL_PAGES.iter().find(|p| p.1 == id) {
                         a.show(*page);
                     }
                 }

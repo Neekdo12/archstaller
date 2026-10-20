@@ -20,15 +20,18 @@ Rebuild after every code change.
 
 ## Features
 
-- **Pages:** System, Disk, Mirrors & packages (official package search, live total, import, a resolve preview and the AUR group), Users, Services & kernel,
-  Build & drivers, Scripts, TOML source, Build ISO. A red dot in the sidebar marks a page with a validation
-  problem; the bar at the bottom shows the first one with a button that goes there. The checks are the command
-  line's.
+- **Pages:** 5 core configuration tabs in the sidebar:
+  - **System:** Host identity & localization (hostname, timezone, locale, keymap), locked or unlocked root account with crypt hash, display manager selector, system-wide systemd services and custom unit editor, extra kernel command-line parameters, post-install scripts (pre-service and post-service phases), and filesystem overlays (hardware/credential imports).
+  - **Disk:** Bootloader installation (GRUB, systemd-boot, Limine), target disk selection (auto-largest or model/serial), ESP size, and root filesystem choice (ext4, btrfs with subvolume editor, xfs, f2fs).
+  - **Packages:** Official package search with live dependency resolution, compact searchable package list with live filtering, official repository mirror configuration, and pinned AUR recipes.
+  - **Users:** Regular user accounts, password hashing, shell and group assignment, seamless GitHub dotfiles integration (with GNU Stow linking), and home directory archive extraction.
+  - **Build & drivers:** Build profiles (super-small, large), USB tethering support, installer driver catalogue (storage and network), and hardware test mode (dry-run).
+  Action views (**Edit TOML**, **Build ISO**, **Autoload**, and **Help & Reference**) are accessible directly from dedicated action buttons in the header bar. A red dot in the sidebar marks a page with a validation problem; the bar at the bottom shows the first one with a button that goes there. The checks are the command line's.
 - **Menus and keys:** File menu, From preset, Tools. `Ctrl+N` new, `Ctrl+O` open, `Ctrl+S` save,
   `Ctrl+Shift+S` save as, `Ctrl+K` (or `/` outside a text field) opens the command launcher, which lists the
   same actions plus every page and preset.
 - **Presets:** open as an unsaved config and say so when they erase the largest disk.
-- **TOML source:** shows the generated TOML with syntax highlighting. "Edit source" switches to source mode:
+- **TOML source:** shows the generated TOML with syntax highlighting. "Edit TOML" toggles between visual form pages and raw TOML source mode:
   the form pages are unavailable, you edit the text (undo, search with `Ctrl+F`, `Ctrl+Space` suggestions for
   field names, driver IDs, built-in scripts, profile names, package and service names), and the diagnostics line
   shows the loader's answer, with "Go to line" when the message names one. "Return to the forms" works when
@@ -36,6 +39,7 @@ Rebuild after every code change.
   no disk chosen, comes back and the problem bar says what is missing. A file the GUI did not write opens in
   source mode and is replaced by form output only after you confirm. Suggestions are hints: the loader decides
   what a config means.
+- **Autoload:** selective hardware, user, network, and config import from the running computer via a granular dialog (hostname/timezone/locale/keymap, regular users, network/credentials overlay, systemd services, pacman packages, and foreign/AUR packages).
 - **Build ISO:** builds from the saved file (an unsaved config is saved first, or built from a temporary copy
   when the target is a Ventoy drive), shows the stages and the log, can cancel, and copies the finished ISO
   onto a mounted Ventoy volume as a file with a SHA-256 read-back check. Without a Ventoy drive it can also copy
@@ -65,7 +69,7 @@ Rebuild after every code change.
 - **AUR packages:** one compact card: search, a result row with Review, then the recipe with its automatic
   checks folded behind a count, risky lines highlighted, and one acknowledgement before "Pin and add". NetworkManager is added automatically when no network
   service is enabled, because the build needs one.
-- `ARCHSTALLER_PAGE=<id>` (`system disk packages users services build scripts toml iso`) opens the window on a page.
+- `ARCHSTALLER_PAGE=<id>` (`system disk packages users build toml iso help`) opens the window on a page.
 
 ## Manual smoke test
 

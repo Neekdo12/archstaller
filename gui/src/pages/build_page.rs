@@ -102,4 +102,25 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
             }
         }
     }
+
+    let c = ui::card(content, Some("Hardware test mode"));
+    let a = app.clone();
+    let dry_run = app.st.borrow().model.cfg.dry_run;
+    c.append(&ui::check(
+        "Boot in hardware test mode (read-only, no disk writes)",
+        dry_run,
+        move |on| {
+            a.edit(move |m| m.cfg.dry_run = on);
+        },
+    ));
+    ui::hint(
+        &c,
+        "Probes hardware, reads disks, tests network connectivity and DHCP, and verifies package resolution without modifying disks. Disks do not require confirmation when dry-run is enabled.",
+    );
+
+    let c = ui::card(content, Some("Logging & diagnostics"));
+    ui::hint(
+        &c,
+        "The installer writes kernel and progress logs to a 128 KiB circular in-RAM ring buffer. On failure or when booting from Ventoy, the full log is saved to archstaller-log.txt.",
+    );
 }

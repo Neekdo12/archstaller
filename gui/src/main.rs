@@ -51,7 +51,7 @@ fn main() -> gtk::glib::ExitCode {
         }
         // `ARCHSTALLER_PAGE=toml` (a page id of the sidebar) opens on that page: handy for screenshots.
         if let Ok(id) = std::env::var("ARCHSTALLER_PAGE") {
-            if let Some((page, ..)) = app::PAGES.iter().find(|p| p.1 == id.as_str()) {
+            if let Some((page, ..)) = app::ALL_PAGES.iter().find(|p| p.1 == id.as_str()) {
                 app.show(*page);
             }
         }
