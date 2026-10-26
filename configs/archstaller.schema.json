@@ -37,6 +37,7 @@
         "services": [],
         "kernel_params": [],
         "scripts": [],
+        "curl_installers": [],
         "custom_services": [],
         "user_files": [],
         "user_archives": [],
@@ -49,7 +50,14 @@
       "default": {
         "profile": null,
         "tethering": false,
-        "installer_drivers": null
+        "installer_drivers": null,
+        "trace": {
+          "network": false,
+          "usb": false,
+          "storage": false,
+          "timer": false
+        },
+        "log_verbosity": null
       }
     }
   },
@@ -160,6 +168,11 @@
           "$ref": "#/$defs/FsType",
           "default": "ext4"
         },
+        "partition_mode": {
+          "description": "Partitioning strategy (erase-disk, alongside, manual). Defaults to erase-disk.",
+          "$ref": "#/$defs/PartitionMode",
+          "default": "erase-disk"
+        },
         "btrfs": {
           "description": "Btrfs options (subvolumes, compression) when filesystem is btrfs.",
           "anyOf": [
@@ -185,6 +198,14 @@
         "btrfs",
         "xfs",
         "f2fs"
+      ]
+    },
+    "PartitionMode": {
+      "type": "string",
+      "enum": [
+        "erase-disk",
+        "alongside",
+        "manual"
       ]
     },
     "BtrfsConfig": {
@@ -373,6 +394,35 @@
             }
           ],
           "default": null
+        },
+        "linger": {
+          "description": "Whether user lingering is enabled (`loginctl enable-linger <user>`).",
+          "type": "boolean",
+          "default": false
+        },
+        "autostart": {
+          "description": "Desktop autostart applications.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UserAutostart"
+          },
+          "default": []
+        },
+        "env_vars": {
+          "description": "Environment variables set for the user profile.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "login_script": {
+          "description": "Optional script appended to the user's login environment.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
         }
       },
       "additionalProperties": false,
@@ -422,6 +472,22 @@
         "repo"
       ]
     },
+    "UserAutostart": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "exec": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "exec"
+      ]
+    },
     "FirstBoot": {
       "type": "object",
       "properties": {
@@ -446,6 +512,14 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/Script"
+          },
+          "default": []
+        },
+        "curl_installers": {
+          "description": "Declarative curl-based application installers.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CurlInstaller"
           },
           "default": []
         },
@@ -536,6 +610,50 @@
       "additionalProperties": false,
       "required": [
         "id"
+      ]
+    },
+    "CurlInstaller": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Unique identifier for the installer (e.g. \"rustup\").",
+          "type": "string"
+        },
+        "name": {
+          "description": "Human-readable display name.",
+          "type": "string"
+        },
+        "url": {
+          "description": "URL of the installer script.",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "SHA-256 digest of the script (64 lower-case hex characters).",
+          "type": "string"
+        },
+        "args": {
+          "description": "Command-line arguments passed to the script.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "user": {
+          "description": "Target user to execute as (None = system-wide / root).",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "url",
+        "sha256"
       ]
     },
     "CustomService": {
@@ -729,6 +847,46 @@
             ]
           },
           "default": null
+        },
+        "trace": {
+          "description": "Kernel tracing facilities enabled for the build.",
+          "$ref": "#/$defs/TraceFacilities",
+          "default": {
+            "network": false,
+            "usb": false,
+            "storage": false,
+            "timer": false
+          }
+        },
+        "log_verbosity": {
+          "description": "Runtime installer log verbosity level.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "TraceFacilities": {
+      "type": "object",
+      "properties": {
+        "network": {
+          "type": "boolean",
+          "default": false
+        },
+        "usb": {
+          "type": "boolean",
+          "default": false
+        },
+        "storage": {
+          "type": "boolean",
+          "default": false
+        },
+        "timer": {
+          "type": "boolean",
+          "default": false
         }
       },
       "additionalProperties": false

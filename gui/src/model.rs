@@ -106,6 +106,7 @@ impl Model {
                     auto_largest: false,
                     esp_mib: 1024,
                     filesystem: config::FsType::Ext4,
+                    partition_mode: config::PartitionMode::EraseDisk,
                     btrfs: None,
                 },
                 bootloader: config::Bootloader::Grub,
@@ -135,6 +136,7 @@ impl Model {
                 aur: vec![],
                 scripts: vec![],
                 custom_services: vec![],
+                curl_installers: vec![],
             },
             host: HostConfig::default(),
             path: None,
@@ -386,6 +388,7 @@ mod tests {
             groups: vec!["wheel".into()],
             shell: "/bin/bash".into(),
             dotfiles: None,
+            ..Default::default()
         });
         m.cfg.scripts.push(config::Script {
             id: "enable-sshd".into(),
@@ -421,6 +424,7 @@ mod tests {
                 stow: true,
                 packages: vec!["hypr".into(), "bash".into()],
             }),
+            ..Default::default()
         });
         m.cfg.scripts.push(config::Script {
             id: "pre-setup".into(),

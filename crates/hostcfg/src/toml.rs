@@ -29,6 +29,7 @@ pub mod tests_support {
                 auto_largest: false,
                 esp_mib: 1024,
                 filesystem: config::FsType::Ext4,
+                partition_mode: config::PartitionMode::EraseDisk,
                 btrfs: None,
             },
             bootloader: config::Bootloader::Grub,
@@ -46,6 +47,7 @@ pub mod tests_support {
             scripts: vec![],
             custom_services: vec![],
             aur: vec![],
+            curl_installers: vec![],
         }
     }
 }

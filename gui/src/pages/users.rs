@@ -148,6 +148,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
                         groups: u.groups.clone(),
                         shell: u.shell.clone(),
                         dotfiles: None,
+                        ..Default::default()
                     });
                     added += 1;
                 } else {
@@ -396,6 +397,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
                             groups,
                             shell: shell_path,
                             dotfiles,
+                            ..Default::default()
                         };
                         a.edit(move |m| m.cfg.users.push(user));
                         a.rebuild(Page::Users);
@@ -409,6 +411,7 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
                     groups,
                     shell: shell_path,
                     dotfiles,
+                    ..Default::default()
                 };
                 a.edit(move |m| m.cfg.users.push(user));
                 a.rebuild(Page::Users);

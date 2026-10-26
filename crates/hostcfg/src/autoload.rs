@@ -50,6 +50,7 @@ pub fn discover_live_system_privileged(
                 groups: u.groups,
                 shell: u.shell,
                 dotfiles: None,
+                ..Default::default()
             });
         }
     }
@@ -225,6 +226,7 @@ pub fn autoload_live_system_authenticated(cfg: &mut config::Config, pw: Option<&
                 groups: u.groups.clone(),
                 shell: u.shell.clone(),
                 dotfiles: None,
+                ..Default::default()
             });
         }
     }
@@ -364,6 +366,7 @@ mod tests {
                 auto_largest: false,
                 esp_mib: 1024,
                 filesystem: config::FsType::Ext4,
+                partition_mode: config::PartitionMode::EraseDisk,
                 btrfs: None,
             },
             bootloader: config::Bootloader::Grub,
@@ -381,6 +384,7 @@ mod tests {
             scripts: vec![],
             custom_services: vec![],
             aur: vec![],
+            curl_installers: vec![],
         };
 
         autoload_live_system(&mut cfg);

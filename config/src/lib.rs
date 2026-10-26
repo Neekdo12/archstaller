@@ -72,6 +72,9 @@ pub struct Config {
     /// Scripts run as root, in order, at the end of the first boot (after users and services).
     #[serde(default)]
     pub scripts: Vec<Script>,
+    /// Declarative curl-based application installers run during first boot.
+    #[serde(default)]
+    pub curl_installers: Vec<CurlInstaller>,
     /// Custom systemd units installed into /etc/systemd/system/ (root) or ~/.config/systemd/user/ (user).
     #[serde(default)]
     pub custom_services: Vec<CustomService>,
@@ -79,6 +82,25 @@ pub struct Config {
     /// first boot (see `plans-implement/aur.md`). Written as `aur` under `[packages]`.
     #[serde(default, rename = "aur_packages")]
     pub aur: Vec<AurPackage>,
+}
+
+/// A curl-based application installer executed on first boot.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CurlInstaller {
+    /// Unique identifier for the installer (e.g. "rustup", "starship").
+    pub id: String,
+    /// Human-readable display name.
+    pub name: String,
+    /// Remote URL of the installation script (HTTP or HTTPS).
+    pub url: String,
+    /// Lower-case hex SHA-256 digest of the script (64 characters).
+    pub sha256: String,
+    /// Command-line arguments passed to the script.
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Target user to execute as (None = system-wide / root).
+    #[serde(default)]
+    pub user: Option<String>,
 }
 
 /// One AUR package, pinned to the reviewed recipe.
@@ -362,6 +384,19 @@ impl Default for BtrfsConfig {
     }
 }
 
+/// Partitioning strategy for the target disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PartitionMode {
+    /// Wipe disk and install automated ESP + root partition (default).
+    #[default]
+    EraseDisk,
+    /// Install alongside existing operating systems / unallocated space.
+    Alongside,
+    /// Manual partition table configuration.
+    Manual,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Disk {
     /// Substring matched against the disk model; must select exactly one disk. If absent, the
@@ -380,9 +415,26 @@ pub struct Disk {
     /// Root filesystem type (ext4, btrfs, xfs, f2fs). Defaults to ext4.
     #[serde(default)]
     pub filesystem: FsType,
+    /// Partitioning strategy (erase-disk, alongside, manual). Defaults to erase-disk.
+    #[serde(default)]
+    pub partition_mode: PartitionMode,
     /// Btrfs options (subvolumes, compression) when filesystem is btrfs.
     #[serde(default)]
     pub btrfs: Option<BtrfsConfig>,
+}
+
+impl Default for Disk {
+    fn default() -> Self {
+        Self {
+            model: None,
+            confirm_serial: String::new(),
+            auto_largest: false,
+            esp_mib: 1024,
+            filesystem: FsType::Ext4,
+            partition_mode: PartitionMode::EraseDisk,
+            btrfs: None,
+        }
+    }
 }
 
 pub fn default_dotfiles_dir() -> String {
@@ -460,7 +512,16 @@ impl Default for UserDotfiles {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Desktop autostart entry for a user (`~/.config/autostart/*.desktop`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserAutostart {
+    /// Name of the application / desktop entry.
+    pub name: String,
+    /// Exec command line.
+    pub exec: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct User {
     pub name: String,
     /// SHA-512 crypt hash (`$6$...`); plaintext is never accepted.
@@ -469,6 +530,18 @@ pub struct User {
     pub shell: String,
     #[serde(default)]
     pub dotfiles: Option<UserDotfiles>,
+    /// Whether user lingering is enabled (`loginctl enable-linger <user>`).
+    #[serde(default)]
+    pub linger: bool,
+    /// Desktop autostart applications.
+    #[serde(default)]
+    pub autostart: Vec<UserAutostart>,
+    /// Environment variables set for the user profile.
+    #[serde(default)]
+    pub env_vars: Vec<(String, String)>,
+    /// Optional script content appended to the user's login shell profile.
+    #[serde(default)]
+    pub login_script: Option<String>,
 }
 
 /// Services that give the installed system a network (AUR packages are built once it has one).
@@ -686,6 +759,53 @@ impl Config {
                     }
                 }
             }
+            for as_entry in &u.autostart {
+                if as_entry.name.is_empty()
+                    || as_entry.name.len() > 64
+                    || as_entry.name.contains('/')
+                    || as_entry.name.contains('\\')
+                    || as_entry.name.chars().any(|c| c.is_control() || c == '\n' || c == '\r')
+                {
+                    return Err(format!(
+                        "user '{}': invalid autostart name {:?}",
+                        u.name, as_entry.name
+                    ));
+                }
+                if as_entry.exec.trim().is_empty()
+                    || as_entry.exec.chars().any(|c| c.is_control() || c == '\n' || c == '\r')
+                {
+                    return Err(format!(
+                        "user '{}': invalid autostart exec for {:?}",
+                        u.name, as_entry.name
+                    ));
+                }
+            }
+            for (k, v) in &u.env_vars {
+                let valid_key = !k.is_empty()
+                    && k.len() <= 64
+                    && !k.starts_with(|c: char| c.is_ascii_digit())
+                    && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+                if !valid_key {
+                    return Err(format!(
+                        "user '{}': invalid env_var name {:?}",
+                        u.name, k
+                    ));
+                }
+                if v.chars().any(|c| c == '\0' || c == '\n' || c == '\r') {
+                    return Err(format!(
+                        "user '{}': invalid env_var value for {:?}",
+                        u.name, k
+                    ));
+                }
+            }
+            if let Some(ref script) = u.login_script {
+                if script.len() > SCRIPT_MAX || script.contains('\0') {
+                    return Err(format!(
+                        "user '{}': login_script exceeds {} bytes or contains null",
+                        u.name, SCRIPT_MAX
+                    ));
+                }
+            }
         }
         for s in &self.services {
             if !ident(s, "@._:-\\") {
@@ -893,6 +1013,39 @@ impl Config {
                 return at("custom service content is larger than 64 KiB");
             }
         }
+        if self.curl_installers.len() > 32 {
+            return Err("at most 32 curl_installers".into());
+        }
+        for (i, c) in self.curl_installers.iter().enumerate() {
+            let at = |m: &str| Err(format!("curl_installers[{}]: {m}", i + 1));
+            if !ident(&c.id, "-_") {
+                return at(&format!("invalid id {:?}", c.id));
+            }
+            if self.curl_installers.iter().take(i).any(|o| o.id == c.id) {
+                return at(&format!("duplicate id {:?}", c.id));
+            }
+            if c.name.trim().is_empty() || c.name.len() > 64 || c.name.contains('\n') {
+                return at(&format!("invalid name {:?}", c.name));
+            }
+            if (!c.url.starts_with("https://") && !c.url.starts_with("http://"))
+                || c.url.chars().any(|ch| ch.is_whitespace() || ch == '\'' || ch == '"')
+            {
+                return at(&format!("invalid url {:?}", c.url));
+            }
+            if !hex(&c.sha256, 64) {
+                return at("sha256 must be 64 lower-case hex digits");
+            }
+            for a in &c.args {
+                if a.chars().any(|ch| ch.is_whitespace() || ch.is_control()) {
+                    return at(&format!("invalid arg {:?}", a));
+                }
+            }
+            if let Some(ref u) = c.user {
+                if u != "root" && !self.users.iter().any(|user| user.name == *u) {
+                    return at(&format!("unknown user {:?}", u));
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -915,6 +1068,7 @@ mod tests {
                 auto_largest: false,
                 esp_mib: 512,
                 filesystem: FsType::Ext4,
+                partition_mode: PartitionMode::EraseDisk,
                 btrfs: None,
             },
             bootloader: Bootloader::Grub,
@@ -932,6 +1086,7 @@ mod tests {
             scripts: vec![],
             custom_services: vec![],
             aur: vec![],
+            curl_installers: vec![],
         }
     }
 
@@ -961,6 +1116,7 @@ mod tests {
             groups: vec!["wheel".into()],
             shell: "/bin/bash".into(),
             dotfiles: None,
+            ..Default::default()
         };
         let mut c = base();
         c.users = vec![user("alice"), user("bob")];
@@ -981,6 +1137,7 @@ mod tests {
             groups: vec![],
             shell: "/bin/bash".into(),
             dotfiles: None,
+            ..Default::default()
         };
         let with_user = |n: &str| Config {
             users: vec![user(n)],
@@ -1090,6 +1247,7 @@ mod tests {
             groups: vec![],
             shell: "/bin/bash".into(),
             dotfiles: None,
+            ..Default::default()
         }];
         c.custom_services = vec![CustomService {
             name: "my-service.service".into(),
@@ -1328,6 +1486,7 @@ mod tests {
                 stow: true,
                 packages: vec!["hypr".into(), "bash".into()],
             }),
+            ..Default::default()
         };
         c.users = vec![u.clone()];
         c.validate().unwrap();
@@ -1490,6 +1649,7 @@ mod tests {
                 stow: true,
                 packages: vec![],
             }),
+            ..Default::default()
         };
         c.users = vec![u.clone()];
         assert!(c.validate().is_err(), "dir containing ':' must be rejected");
@@ -1535,6 +1695,7 @@ mod tests {
             groups: vec![],
             shell: "/bin/bash".into(),
             dotfiles: None,
+            ..Default::default()
         }];
         assert!(c.validate().is_err(), "username starting with digit must be rejected");
     }
@@ -1554,5 +1715,117 @@ mod tests {
         let mut c = base();
         c.disk.model = Some("   ".into());
         assert!(c.validate().is_err(), "disk model with only whitespace must be rejected");
+    }
+
+    #[test]
+    fn user_per_user_settings_rules() {
+        let mut c = base();
+        let mut u = User {
+            name: "kubik".into(),
+            password_hash: format!("$6$abc${}", "a".repeat(86)),
+            groups: vec![],
+            shell: "/bin/bash".into(),
+            dotfiles: None,
+            linger: true,
+            autostart: vec![UserAutostart {
+                name: "waybar".into(),
+                exec: "waybar".into(),
+            }],
+            env_vars: vec![("EDITOR".into(), "nvim".into()), ("MOZ_ENABLE_WAYLAND".into(), "1".into())],
+            login_script: Some("export BROWSER=firefox\n".into()),
+        };
+        c.users = vec![u.clone()];
+        c.validate().unwrap();
+
+        // Autostart invalid name
+        u.autostart = vec![UserAutostart { name: "".into(), exec: "waybar".into() }];
+        c.users = vec![u.clone()];
+        assert!(c.validate().unwrap_err().contains("autostart"));
+
+        u.autostart = vec![UserAutostart { name: "bad/name".into(), exec: "waybar".into() }];
+        c.users = vec![u.clone()];
+        assert!(c.validate().unwrap_err().contains("autostart"));
+
+        u.autostart = vec![UserAutostart { name: "good".into(), exec: "".into() }];
+        c.users = vec![u.clone()];
+        assert!(c.validate().unwrap_err().contains("autostart"));
+
+        // Env vars invalid
+        u.autostart = vec![];
+        u.env_vars = vec![("1BAD".into(), "val".into())];
+        c.users = vec![u.clone()];
+        assert!(c.validate().unwrap_err().contains("env_var"));
+
+        u.env_vars = vec![("BAD-NAME".into(), "val".into())];
+        c.users = vec![u.clone()];
+        assert!(c.validate().unwrap_err().contains("env_var"));
+
+        u.env_vars = vec![("GOOD".into(), "val\nwith\nnewlines".into())];
+        c.users = vec![u.clone()];
+        assert!(c.validate().unwrap_err().contains("env_var"));
+
+        // Login script too large
+        u.env_vars = vec![];
+        u.login_script = Some("a".repeat(SCRIPT_MAX + 1));
+        c.users = vec![u.clone()];
+        assert!(c.validate().unwrap_err().contains("login_script"));
+    }
+
+    #[test]
+    fn curl_installer_rules() {
+        let mut c = base();
+        c.users = vec![User {
+            name: "kubik".into(),
+            password_hash: format!("$6$abc${}", "a".repeat(86)),
+            groups: vec![],
+            shell: "/bin/bash".into(),
+            dotfiles: None,
+            linger: false,
+            autostart: vec![],
+            env_vars: vec![],
+            login_script: None,
+        }];
+        c.curl_installers = vec![CurlInstaller {
+            id: "rustup".into(),
+            name: "Rust Toolchain".into(),
+            url: "https://sh.rustup.rs".into(),
+            sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
+            args: vec!["-y".into(), "--no-modify-path".into()],
+            user: Some("kubik".into()),
+        }];
+        c.validate().unwrap();
+
+        // System-wide installer
+        c.curl_installers[0].user = None;
+        c.validate().unwrap();
+
+        // Invalid sha256
+        c.curl_installers[0].sha256 = "invalid_hash".into();
+        assert!(c.validate().unwrap_err().contains("sha256"));
+
+        // Invalid url
+        c.curl_installers[0].sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into();
+        c.curl_installers[0].url = "ftp://bad".into();
+        assert!(c.validate().unwrap_err().contains("url"));
+
+        // Unknown user
+        c.curl_installers[0].url = "https://sh.rustup.rs".into();
+        c.curl_installers[0].user = Some("unknown_user".into());
+        assert!(c.validate().unwrap_err().contains("unknown user"));
+
+        // Duplicate id
+        c.curl_installers[0].user = None;
+        c.curl_installers.push(c.curl_installers[0].clone());
+        assert!(c.validate().unwrap_err().contains("duplicate"));
+    }
+
+    #[test]
+    fn partition_mode_rules() {
+        let mut c = base();
+        assert_eq!(c.disk.partition_mode, PartitionMode::EraseDisk);
+        c.disk.partition_mode = PartitionMode::Alongside;
+        c.validate().unwrap();
+        c.disk.partition_mode = PartitionMode::Manual;
+        c.validate().unwrap();
     }
 }

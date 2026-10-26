@@ -26,6 +26,7 @@ mod tests {
             groups: vec![],
             shell: "/bin/bash".into(),
             dotfiles: None,
+            ..Default::default()
         }];
         c.validate().unwrap();
         assert_ne!(

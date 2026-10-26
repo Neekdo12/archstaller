@@ -69,6 +69,7 @@ mod tests {
                 auto_largest: false,
                 esp_mib: 512,
                 filesystem: config::FsType::Ext4,
+                partition_mode: config::PartitionMode::EraseDisk,
                 btrfs: None,
             },
             bootloader: config::Bootloader::Grub,
@@ -89,6 +90,7 @@ mod tests {
             scripts: vec![],
             custom_services: vec![],
             aur: vec![],
+            curl_installers: vec![],
         };
 
         let resolved = resolve(&cfg, &dir).unwrap();

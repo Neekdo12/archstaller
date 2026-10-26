@@ -50,6 +50,57 @@ pub struct Build {
     pub tethering: bool,
 }
 
+/// Kernel trace facility flags for the installer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TraceFacilities {
+    /// Trace Network packets (ARP, DHCP, DNS, TCP/IP frame headers).
+    pub network: bool,
+    /// Trace USB & xHCI transaction packets.
+    pub usb: bool,
+    /// Trace Storage & NVMe command queues.
+    pub storage: bool,
+    /// Trace Hardware polling & idle PIT timers.
+    pub timer: bool,
+}
+
+/// Runtime log verbosity for the installer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogVerbosity {
+    Error,
+    Warn,
+    #[default]
+    Info,
+    Debug,
+    Trace,
+}
+
+impl LogVerbosity {
+    pub fn parse(s: &str) -> Result<Self, String> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "error" => Ok(Self::Error),
+            "warn" | "warning" => Ok(Self::Warn),
+            "info" => Ok(Self::Info),
+            "debug" => Ok(Self::Debug),
+            "trace" => Ok(Self::Trace),
+            other => Err(format!(
+                "unknown log verbosity {other:?} (use error, warn, info, debug, or trace)"
+            )),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Warn => "warn",
+            Self::Info => "info",
+            Self::Debug => "debug",
+            Self::Trace => "trace",
+        }
+    }
+}
+
 /// Settings that control how the ISO is produced. They are not serialized into the ISO.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -57,6 +108,10 @@ pub struct HostConfig {
     pub build: Build,
     /// Installer-kernel drivers to include (ids from [`DRIVERS`]); `None` means all of them.
     pub installer_drivers: Option<Vec<String>>,
+    /// Kernel tracing facilities enabled for the build.
+    pub trace: TraceFacilities,
+    /// Runtime log verbosity level.
+    pub log_verbosity: LogVerbosity,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -237,6 +292,7 @@ mod tests {
                 profile: None,
                 tethering,
             },
+            ..Default::default()
         };
         with(&["virtio-blk", "virtio-net"], false)
             .validate().unwrap();
@@ -257,5 +313,27 @@ mod tests {
             .unwrap_err()
             .contains("no network driver"));
         with(&["nvme"], true).validate().unwrap();
+    }
+
+    #[test]
+    fn trace_facilities_and_log_verbosity_rules() {
+        let mut h = HostConfig::default();
+        assert_eq!(h.log_verbosity, LogVerbosity::Info);
+        assert!(!h.trace.network);
+        assert!(!h.trace.usb);
+        assert!(!h.trace.storage);
+        assert!(!h.trace.timer);
+
+        h.trace.network = true;
+        h.trace.storage = true;
+        h.log_verbosity = LogVerbosity::Debug;
+        h.validate().unwrap();
+
+        assert_eq!(LogVerbosity::parse("error").unwrap(), LogVerbosity::Error);
+        assert_eq!(LogVerbosity::parse("warn").unwrap(), LogVerbosity::Warn);
+        assert_eq!(LogVerbosity::parse("info").unwrap(), LogVerbosity::Info);
+        assert_eq!(LogVerbosity::parse("debug").unwrap(), LogVerbosity::Debug);
+        assert_eq!(LogVerbosity::parse("trace").unwrap(), LogVerbosity::Trace);
+        assert!(LogVerbosity::parse("invalid").unwrap_err().contains("unknown log verbosity"));
     }
 }

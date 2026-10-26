@@ -66,6 +66,7 @@ mod tests {
                 auto_largest: false,
                 esp_mib: 512,
                 filesystem: config::FsType::Ext4,
+                partition_mode: config::PartitionMode::EraseDisk,
                 btrfs: None,
             },
             bootloader: config::Bootloader::Grub,
@@ -79,6 +80,7 @@ mod tests {
                 groups: vec!["wheel".into()],
                 shell: "/bin/bash".into(),
                 dotfiles: None,
+                ..Default::default()
             }],
             services: vec!["sshd.service".into()],
             kernel_params: vec!["quiet".into()],
@@ -89,6 +91,7 @@ mod tests {
             scripts: vec![],
             custom_services: vec![],
             aur: vec![],
+            curl_installers: vec![],
         };
         let host = HostConfig {
             build: crate::host::Build {
@@ -96,6 +99,8 @@ mod tests {
                 tethering: true,
             },
             installer_drivers: Some(vec!["e1000".into()]),
+            trace: crate::host::TraceFacilities::default(),
+            log_verbosity: crate::host::LogVerbosity::Info,
         };
 
         let toml_text = to_toml(&cfg, &host);

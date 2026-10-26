@@ -215,6 +215,7 @@ mod tests {
                 auto_largest: false,
                 esp_mib: 512,
                 filesystem: config::FsType::Ext4,
+                partition_mode: config::PartitionMode::EraseDisk,
                 btrfs: None,
             },
             bootloader: config::Bootloader::Grub,
@@ -238,6 +239,7 @@ mod tests {
                 content: None,
             }],
             aur: vec![],
+            curl_installers: vec![],
         };
 
         let resolved = resolve(&cfg, &temp_dir).unwrap();

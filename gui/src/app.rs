@@ -153,6 +153,7 @@ fn open_autoload_dialog(app: &Rc<App>) {
                             groups: u.groups,
                             shell: u.shell,
                             dotfiles: None,
+                            ..Default::default()
                         });
                     }
                 }

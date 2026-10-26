@@ -10,6 +10,7 @@ pub mod asconfig;
 pub mod autoload;
 pub mod bluetooth;
 pub mod configs;
+pub mod diagnostics;
 pub mod fprint;
 pub mod host;
 pub mod network;

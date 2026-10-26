@@ -298,6 +298,7 @@ bob:$6$bobpasshash...:19700:0:99999:7:::
                 groups: vec!["wheel".into()],
                 shell: "/bin/bash".into(),
                 dotfiles: None,
+                ..Default::default()
             },
             config::User {
                 name: "charlie".into(),
@@ -305,6 +306,7 @@ bob:$6$bobpasshash...:19700:0:99999:7:::
                 groups: vec![],
                 shell: "/bin/bash".into(),
                 dotfiles: None,
+                ..Default::default()
             },
         ];
 

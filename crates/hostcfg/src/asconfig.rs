@@ -97,6 +97,35 @@ impl From<config::Bootloader> for Bootloader {
 }
 
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum PartitionMode {
+    #[default]
+    EraseDisk,
+    Alongside,
+    Manual,
+}
+
+impl From<PartitionMode> for config::PartitionMode {
+    fn from(m: PartitionMode) -> Self {
+        match m {
+            PartitionMode::EraseDisk => config::PartitionMode::EraseDisk,
+            PartitionMode::Alongside => config::PartitionMode::Alongside,
+            PartitionMode::Manual => config::PartitionMode::Manual,
+        }
+    }
+}
+
+impl From<config::PartitionMode> for PartitionMode {
+    fn from(m: config::PartitionMode) -> Self {
+        match m {
+            config::PartitionMode::EraseDisk => PartitionMode::EraseDisk,
+            config::PartitionMode::Alongside => PartitionMode::Alongside,
+            config::PartitionMode::Manual => PartitionMode::Manual,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Disk {
@@ -114,6 +143,9 @@ pub struct Disk {
     /// Root filesystem type (ext4, btrfs, xfs, f2fs). Defaults to ext4.
     #[serde(default)]
     pub filesystem: FsType,
+    /// Partitioning strategy (erase-disk, alongside, manual). Defaults to erase-disk.
+    #[serde(default, alias = "partition-mode")]
+    pub partition_mode: PartitionMode,
     /// Btrfs options (subvolumes, compression) when filesystem is btrfs.
     #[serde(default)]
     pub btrfs: Option<BtrfsConfig>,
@@ -266,6 +298,31 @@ impl From<&config::UserDotfiles> for UserDotfiles {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UserAutostart {
+    pub name: String,
+    pub exec: String,
+}
+
+impl From<UserAutostart> for config::UserAutostart {
+    fn from(a: UserAutostart) -> Self {
+        config::UserAutostart {
+            name: a.name,
+            exec: a.exec,
+        }
+    }
+}
+
+impl From<&config::UserAutostart> for UserAutostart {
+    fn from(a: &config::UserAutostart) -> Self {
+        UserAutostart {
+            name: a.name.clone(),
+            exec: a.exec.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct User {
@@ -280,6 +337,63 @@ pub struct User {
     /// User dotfiles configured from a GitHub repository, with optional GNU Stow linking.
     #[serde(default)]
     pub dotfiles: Option<UserDotfiles>,
+    /// Whether user lingering is enabled (`loginctl enable-linger <user>`).
+    #[serde(default)]
+    pub linger: bool,
+    /// Desktop autostart applications.
+    #[serde(default)]
+    pub autostart: Vec<UserAutostart>,
+    /// Environment variables set for the user profile.
+    #[serde(default)]
+    pub env_vars: BTreeMap<String, String>,
+    /// Optional script appended to the user's login environment.
+    #[serde(default)]
+    pub login_script: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CurlInstaller {
+    /// Unique identifier for the installer (e.g. "rustup").
+    pub id: String,
+    /// Human-readable display name.
+    pub name: String,
+    /// URL of the installer script.
+    pub url: String,
+    /// SHA-256 digest of the script (64 lower-case hex characters).
+    pub sha256: String,
+    /// Command-line arguments passed to the script.
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Target user to execute as (None = system-wide / root).
+    #[serde(default)]
+    pub user: Option<String>,
+}
+
+impl From<CurlInstaller> for config::CurlInstaller {
+    fn from(c: CurlInstaller) -> Self {
+        config::CurlInstaller {
+            id: c.id,
+            name: c.name,
+            url: c.url,
+            sha256: c.sha256,
+            args: c.args,
+            user: c.user,
+        }
+    }
+}
+
+impl From<&config::CurlInstaller> for CurlInstaller {
+    fn from(c: &config::CurlInstaller) -> Self {
+        CurlInstaller {
+            id: c.id.clone(),
+            name: c.name.clone(),
+            url: c.url.clone(),
+            sha256: c.sha256.clone(),
+            args: c.args.clone(),
+            user: c.user.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -294,6 +408,9 @@ pub struct FirstBoot {
     /// Scripts run as root, in order, at the end of the first boot.
     #[serde(default)]
     pub scripts: Vec<Script>,
+    /// Declarative curl-based application installers.
+    #[serde(default)]
+    pub curl_installers: Vec<CurlInstaller>,
     /// Custom systemd units installed into /etc/systemd/system/ (root) or ~/.config/systemd/user/ (user).
     #[serde(default)]
     pub custom_services: Vec<CustomService>,
@@ -431,6 +548,37 @@ pub struct Aur {
     pub services: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct TraceFacilities {
+    pub network: bool,
+    pub usb: bool,
+    pub storage: bool,
+    pub timer: bool,
+}
+
+impl From<TraceFacilities> for crate::host::TraceFacilities {
+    fn from(t: TraceFacilities) -> Self {
+        crate::host::TraceFacilities {
+            network: t.network,
+            usb: t.usb,
+            storage: t.storage,
+            timer: t.timer,
+        }
+    }
+}
+
+impl From<crate::host::TraceFacilities> for TraceFacilities {
+    fn from(t: crate::host::TraceFacilities) -> Self {
+        TraceFacilities {
+            network: t.network,
+            usb: t.usb,
+            storage: t.storage,
+            timer: t.timer,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AsBuild {
@@ -445,6 +593,12 @@ pub struct AsBuild {
     #[serde(default)]
     #[schemars(schema_with = "drivers_schema")]
     pub installer_drivers: Option<Vec<String>>,
+    /// Kernel tracing facilities enabled for the build.
+    #[serde(default)]
+    pub trace: TraceFacilities,
+    /// Runtime installer log verbosity level.
+    #[serde(default)]
+    pub log_verbosity: Option<String>,
 }
 
 fn profile_schema(_: &mut SchemaGenerator) -> Schema {
@@ -508,6 +662,7 @@ impl AsConfig {
                 auto_largest: self.install.disk.auto_largest,
                 esp_mib: self.install.disk.esp_mib,
                 filesystem: self.install.disk.filesystem.into(),
+                partition_mode: self.install.disk.partition_mode.into(),
                 btrfs: self.install.disk.btrfs.map(Into::into),
             },
             bootloader: self.install.bootloader.into(),
@@ -535,6 +690,10 @@ impl AsConfig {
                     groups: u.groups,
                     shell: u.shell,
                     dotfiles: u.dotfiles.map(Into::into),
+                    linger: u.linger,
+                    autostart: u.autostart.into_iter().map(Into::into).collect(),
+                    env_vars: u.env_vars.into_iter().collect(),
+                    login_script: u.login_script,
                 })
                 .collect(),
             services: self.first_boot.services,
@@ -587,6 +746,12 @@ impl AsConfig {
                     phase: s.phase,
                 })
                 .collect(),
+            curl_installers: self
+                .first_boot
+                .curl_installers
+                .into_iter()
+                .map(Into::into)
+                .collect(),
             custom_services: self
                 .first_boot
                 .custom_services
@@ -622,6 +787,13 @@ impl AsConfig {
                 tethering: self.build.tethering,
             },
             installer_drivers: self.build.installer_drivers,
+            trace: self.build.trace.into(),
+            log_verbosity: self
+                .build
+                .log_verbosity
+                .as_deref()
+                .and_then(|s| crate::host::LogVerbosity::parse(s).ok())
+                .unwrap_or_default(),
         };
         Ok((cfg, host))
     }
@@ -645,6 +817,7 @@ impl AsConfig {
                     auto_largest: cfg.disk.auto_largest,
                     esp_mib: cfg.disk.esp_mib,
                     filesystem: cfg.disk.filesystem.into(),
+                    partition_mode: cfg.disk.partition_mode.into(),
                     btrfs: cfg.disk.btrfs.as_ref().map(Into::into),
                 },
                 mirrors: cfg.mirrors.clone(),
@@ -679,10 +852,19 @@ impl AsConfig {
                     groups: u.groups.clone(),
                     shell: u.shell.clone(),
                     dotfiles: u.dotfiles.as_ref().map(Into::into),
+                    linger: u.linger,
+                    autostart: u.autostart.iter().map(Into::into).collect(),
+                    env_vars: u.env_vars.iter().cloned().collect(),
+                    login_script: u.login_script.clone(),
                 })
                 .collect(),
             first_boot: FirstBoot {
                 services: cfg.services.clone(),
+                curl_installers: cfg
+                    .curl_installers
+                    .iter()
+                    .map(Into::into)
+                    .collect(),
                 custom_services: cfg
                     .custom_services
                     .iter()
@@ -747,6 +929,9 @@ impl AsConfig {
                 profile: host.build.profile.clone(),
                 tethering: host.build.tethering,
                 installer_drivers: host.installer_drivers.clone(),
+                trace: host.trace.into(),
+                log_verbosity: (host.log_verbosity != crate::host::LogVerbosity::Info)
+                    .then(|| host.log_verbosity.as_str().to_string()),
             },
         }
     }
@@ -819,5 +1004,91 @@ file = "scripts/pre.sh"
         assert!(cfg.packages.contains(&"stow".to_string()));
         assert_eq!(cfg.users[0].dotfiles.as_ref().unwrap().repo, "kubik/dotfiles");
         assert_eq!(cfg.scripts[0].phase.as_deref(), Some("pre-service"));
+    }
+
+    #[test]
+    fn parses_phase1_features_in_toml() {
+        let toml_str = r#"
+schema = 1
+
+[system]
+hostname = "archbox"
+timezone = "UTC"
+locale = "en_US.UTF-8"
+keymap = "us"
+
+[install]
+mirrors = ["https://geo.mirror.pkgbuild.com/$repo/os/$arch"]
+[install.disk]
+confirm_serial = "S123"
+esp_mib = 512
+partition-mode = "alongside"
+
+[packages]
+explicit = ["base", "linux"]
+
+[[users]]
+name = "kubik"
+password_hash = "$6$rounds=5000$saltsalt$9876543210zyxwvutsrqponmlkjihgfedcba"
+groups = ["wheel"]
+shell = "/bin/bash"
+linger = true
+login_script = "export EDITOR=nano\n"
+
+[[users.autostart]]
+name = "waybar"
+exec = "waybar"
+
+[users.env_vars]
+WAYLAND_DISPLAY = "wayland-1"
+
+[[first_boot.curl_installers]]
+id = "rustup"
+name = "Rustup"
+url = "https://sh.rustup.rs"
+sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+args = ["-y"]
+user = "kubik"
+
+[build]
+profile = "super-small"
+tethering = false
+log_verbosity = "debug"
+
+[build.trace]
+network = true
+storage = true
+"#;
+
+        let as_cfg: AsConfig = toml::from_str(toml_str).unwrap();
+        let (cfg, host) = as_cfg.into_parts().unwrap();
+        assert_eq!(cfg.disk.partition_mode, config::PartitionMode::Alongside);
+        assert!(cfg.users[0].linger);
+        assert_eq!(cfg.users[0].autostart.len(), 1);
+        assert_eq!(cfg.users[0].autostart[0].name, "waybar");
+        assert_eq!(cfg.users[0].autostart[0].exec, "waybar");
+        assert_eq!(cfg.users[0].env_vars, vec![("WAYLAND_DISPLAY".into(), "wayland-1".into())]);
+        assert_eq!(cfg.users[0].login_script.as_deref(), Some("export EDITOR=nano\n"));
+        assert_eq!(cfg.curl_installers.len(), 1);
+        assert_eq!(cfg.curl_installers[0].id, "rustup");
+        assert_eq!(cfg.curl_installers[0].user.as_deref(), Some("kubik"));
+        assert_eq!(host.log_verbosity, crate::host::LogVerbosity::Debug);
+        assert!(host.trace.network);
+        assert!(host.trace.storage);
+        assert!(!host.trace.usb);
+        assert!(!host.trace.timer);
+
+        // Validate normalized config
+        cfg.validate().unwrap();
+        host.validate().unwrap();
+
+        // Roundtrip via from_parts
+        let back = AsConfig::from_parts(&cfg, &host);
+        assert_eq!(back.install.disk.partition_mode, PartitionMode::Alongside);
+        assert!(back.users[0].linger);
+        assert_eq!(back.users[0].autostart[0].name, "waybar");
+        assert_eq!(back.first_boot.curl_installers.len(), 1);
+        assert_eq!(back.build.log_verbosity.as_deref(), Some("debug"));
+        assert!(back.build.trace.network);
     }
 }

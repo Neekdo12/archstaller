@@ -1522,6 +1522,7 @@ mod tests {
                 auto_largest: false,
                 esp_mib: 512,
                 filesystem: config::FsType::Ext4,
+                partition_mode: config::PartitionMode::EraseDisk,
                 btrfs: None,
             },
             bootloader: config::Bootloader::Grub,
@@ -1539,6 +1540,7 @@ mod tests {
             scripts: alloc::vec![],
             custom_services: alloc::vec![],
             aur: alloc::vec![],
+            curl_installers: alloc::vec![],
         }
     }
 
@@ -1652,6 +1654,7 @@ mod tests {
                     stow: true,
                     packages: alloc::vec!["nvim".into(), "tmux".into()],
                 }),
+                ..Default::default()
             },
             config::User {
                 name: "bob".into(),
@@ -1659,6 +1662,7 @@ mod tests {
                 groups: alloc::vec![],
                 shell: "/bin/bash".into(),
                 dotfiles: None,
+                ..Default::default()
             },
         ];
         let out = format_dotfiles_list(&users);
@@ -1742,6 +1746,7 @@ mod tests {
                 stow: true,
                 packages: vec!["bash".into(), "vim".into()],
             }),
+            ..Default::default()
         }];
         let out = format_dotfiles_list(&users);
         assert_eq!(out, "alice:alice/dotfiles:dotfiles:main:1:bash vim\n");
