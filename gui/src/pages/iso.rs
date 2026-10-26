@@ -243,6 +243,13 @@ pub fn build(app: &Rc<App>, content: &gtk::Box) {
     );
     build_btn.set_sensitive(can);
     run.append(&build_btn);
+    let qemu_btn = ui::button("Run in QEMU…", {
+        let a = app.clone();
+        move || {
+            crate::qemu_launcher::show_qemu_dialog(&a);
+        }
+    });
+    run.append(&qemu_btn);
     let cancel = ui::button("Cancel", {
         let a = app.clone();
         move || {

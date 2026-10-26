@@ -70,12 +70,12 @@ pub fn parse_localectl_keymap(output: &str) -> Option<String> {
         let line = line.trim();
         if let Some(rest) = line.strip_prefix("X11 Layout:") {
             let val = rest.trim().split(',').next().unwrap_or("").trim();
-            if !val.is_empty() {
+            if !val.is_empty() && val != "(unset)" && val != "n/a" {
                 x11 = Some(val.to_string());
             }
         } else if let Some(rest) = line.strip_prefix("VC Keymap:") {
             let val = rest.trim().split(',').next().unwrap_or("").trim();
-            if !val.is_empty() {
+            if !val.is_empty() && val != "(unset)" && val != "n/a" {
                 vc = Some(val.to_string());
             }
         }
@@ -259,5 +259,8 @@ mod tests {
         let text = "System Locale: LANG=en_US.UTF-8\n    VC Keymap: us\n   X11 Layout: cz\n";
         assert_eq!(parse_localectl_keymap(text), Some("cz".into()));
         assert_eq!(parse_localectl_locale(text), Some("en_US.UTF-8".into()));
+
+        let unset_x11 = "System Locale: LANG=en_US.UTF-8\n    VC Keymap: us\n   X11 Layout: (unset)\n";
+        assert_eq!(parse_localectl_keymap(unset_x11), Some("us".into()));
     }
 }

@@ -301,6 +301,16 @@ impl Model {
         self.host.build.profile = Some(name.to_string());
         self.dirty = true;
     }
+
+    pub fn set_trace(&mut self, trace: hostcfg::host::TraceFacilities) {
+        self.host.trace = trace;
+        self.dirty = true;
+    }
+
+    pub fn set_log_verbosity(&mut self, verbosity: hostcfg::host::LogVerbosity) {
+        self.host.log_verbosity = verbosity;
+        self.dirty = true;
+    }
 }
 
 pub use hostcfg::configs::Preset;
@@ -376,6 +386,27 @@ mod tests {
         let p = m.problems();
         assert_eq!(p.len(), 1);
         assert_eq!(p[0].area, Area::Disk);
+    }
+
+    #[test]
+    fn model_trace_and_log_verbosity_updates() {
+        let mut m = Model::starter();
+        assert!(!m.dirty);
+        m.set_trace(hostcfg::host::TraceFacilities {
+            network: true,
+            usb: true,
+            storage: false,
+            timer: false,
+        });
+        assert!(m.dirty);
+        assert!(m.host.trace.network);
+        assert!(m.host.trace.usb);
+        assert!(!m.host.trace.storage);
+
+        m.dirty = false;
+        m.set_log_verbosity(hostcfg::host::LogVerbosity::Debug);
+        assert!(m.dirty);
+        assert_eq!(m.host.log_verbosity, hostcfg::host::LogVerbosity::Debug);
     }
 
     #[test]

@@ -13,6 +13,7 @@ mod model;
 mod official;
 mod pages;
 mod polkit;
+mod qemu_launcher;
 mod state;
 mod ui;
 

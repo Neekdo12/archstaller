@@ -1097,6 +1097,7 @@ version = "0.1.0"
 dependencies = [
  "config",
  "libc",
+ "pgp-lite",
  "pkg",
  "postcard",
  "schemars",
@@ -1104,6 +1105,7 @@ dependencies = [
  "serde_json",
  "serde_path_to_error",
  "sha-crypt",
+ "sha2 0.10.9",
  "toml",
  "ureq",
 ]

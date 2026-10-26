@@ -11,6 +11,8 @@ postcard = { version = "1", features = ["use-std"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 pkg = { path = "../pkg" }
+pgp-lite = { path = "../pgp-lite", features = ["std"] }
+sha2 = "0.10"
 sha-crypt = { version = "0.5", default-features = false, features = ["simple"] }
 ureq = { version = "3", optional = true }
 schemars = { version = "1", features = ["preserve_order"] }
